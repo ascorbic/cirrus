@@ -1,0 +1,23 @@
+{
+	"name": "@ascorbic/workspace",
+	"private": true,
+	"version": "1.0.0",
+	"description": "",
+	"scripts": {
+		"check": "pnpm run --filter @ascorbic/* check",
+		"test": "pnpm run --filter @ascorbic/* test",
+		"build": "pnpm run --filter @ascorbic/* build",
+		"format": "prettier --write ."
+	},
+	"keywords": [],
+	"author": "Matt Kane",
+	"license": "MIT",
+	"devDependencies": {
+		"@changesets/changelog-github": "^0.5.2",
+		"@changesets/cli": "^2.29.8",
+		"@types/node": "^24.10.4",
+		"prettier": "^3.7.4",
+		"vitest": "^3.2.4"
+	},
+	"packageManager": "pnpm@10.26.2"
+}
