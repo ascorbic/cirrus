@@ -12,42 +12,42 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
 
 **Live at: https://pds.mk.gg**
 
-### Completed (Phase 1 + Partial Phase 6)
+### Completed (Phase 1 + Phase 2 + Partial Phase 6)
 
 - ✅ **Storage Layer** (Phase 1) - `SqliteRepoStorage` implementing `@atproto/repo` RepoStorage interface
-- ✅ **Durable Object Skeleton** (Phase 2 partial) - `AccountDurableObject` with SQLite schema initialization
+- ✅ **Durable Object** (Phase 2) - `AccountDurableObject` with Repo integration
+  - SQLite schema initialization
+  - Lazy loading of Repo from storage
+  - Signing key import from environment
+  - Create new repo if none exists, load existing repo otherwise
 - ✅ **DID Document** (Phase 6 partial) - Served at `/.well-known/did.json` for did:web resolution
 - ✅ **Health Check** - `/health` endpoint
 - ✅ **Deployment** - Custom domain `pds.mk.gg` with auto-provisioned DNS
 - ✅ **Signing Keys** - secp256k1 keypair generated and configured
-- ✅ **Testing** - vitest-pool-workers with 16 passing tests for storage layer
-
-### In Progress
-
-- 🔄 **Repo Integration** (Phase 2) - Integrate `@atproto/repo` Repo class with AccountDurableObject
-  - Need to load signing key from env
-  - Create or load Repo instance using SqliteRepoStorage
-  - Expose repo methods for XRPC endpoints to call
+- ✅ **Testing** - Migrated to vitest 4, all 18 tests passing including Repo integration tests
 
 ### Not Started
 
-- ⬜ **XRPC Endpoints** (Phase 3) - Router and core endpoints (blocked on Repo integration)
+- ⬜ **XRPC Endpoints** (Phase 3) - Router and core endpoints
 - ⬜ **Firehose** (Phase 4) - WebSocket subscribeRepos
 - ⬜ **Blob Storage** (Phase 5) - R2 integration (R2 needs enabling in dashboard)
 - ⬜ **Authentication** (Phase 7) - Bearer token middleware
 
-### Known Issues & Workarounds
+### Testing & Development Notes
 
-**BlockMap/CidSet Iterator Issue**: The `@atproto/repo` package has CJS/ESM compatibility issues in the Workers vitest environment. The `CID.parse()` call fails due to improper module shimming.
+**Vitest 4 Migration**: Successfully migrated to vitest 4 with `@cloudflare/vitest-pool-workers` PR build (#11632). This required:
+- Updating config format from `defineWorkersConfig` to `defineConfig` with `cloudflareTest` plugin
+- Moving pool options to top-level test config
+- Setting `maxWorkers: 1` and `isolate: false` for Durable Object testing
 
-**Workaround**: Access internal Map/Set properties directly instead of using iterators:
+**CJS/ESM Module Resolution**: Fixed module shimming issues with `@atproto/*` packages by adding `resolve: { conditions: ["node", "require"] }` to vitest config. This forces Vite to use the actual CJS builds provided by `multiformats` instead of attempting to shim ESM builds.
+
+**BlockMap/CidSet Iteration**: Access internal Map/Set properties directly when iterating:
 ```typescript
 // Instead of: for (const [cid, bytes] of blocks) { ... }
 const internalMap = (blocks as unknown as { map: Map<string, Uint8Array> }).map
 for (const [cidStr, bytes] of internalMap) { ... }
 ```
-
-This works because BlockMap/CidSet store CIDs as strings internally, which is what we need for SQLite storage anyway.
 
 ---
 
