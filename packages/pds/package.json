@@ -4,22 +4,40 @@
 	"description": "AT Protocol PDS on Cloudflare Workers",
 	"type": "module",
 	"main": "dist/index.js",
-	"files": ["dist"],
+	"files": [
+		"dist"
+	],
 	"exports": {
 		".": "./dist/index.js"
 	},
 	"scripts": {
-		"build": "tsdown src/index.ts --format esm --dts --clean",
-		"dev": "tsdown src/index.ts --format esm --dts --watch",
-		"prepublishOnly": "node --run build",
-		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm",
-		"test": "vitest"
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"deploy": "wrangler deploy",
+		"test": "vitest run",
+		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm"
+	},
+	"dependencies": {
+		"@atproto/crypto": "^0.4.5",
+		"@atproto/repo": "^0.8.12",
+		"@atproto/syntax": "^0.4.2",
+		"@ipld/dag-cbor": "^9.2.5",
+		"cborg": "^4.3.2",
+		"multiformats": "^13.4.2",
+		"uint8arrays": "^5.1.0"
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
+		"@cloudflare/vite-plugin": "^1.17.0",
+		"@cloudflare/vitest-pool-workers": "^0.11.1",
+		"@cloudflare/workers-types": "^4.20251225.0",
 		"publint": "^0.3.16",
-		"tsdown": "^0.18.3",
-		"typescript": "^5.9.3"
+		"tsx": "^4.21.0",
+		"typescript": "^5.9.3",
+		"vite": "^6.0.0",
+		"vitest": "~3.2.0",
+		"wrangler": "^4.54.0"
 	},
 	"repository": {
 		"type": "git",
@@ -27,7 +45,12 @@
 		"directory": "packages/pds"
 	},
 	"homepage": "https://github.com/ascorbic/atproto-worker",
-	"keywords": ["atproto", "bluesky", "pds", "cloudflare-workers"],
+	"keywords": [
+		"atproto",
+		"bluesky",
+		"pds",
+		"cloudflare-workers"
+	],
 	"author": "Matt Kane",
 	"license": "MIT"
 }

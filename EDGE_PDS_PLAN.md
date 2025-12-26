@@ -8,6 +8,45 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
 
 ---
 
+## Current Status
+
+**Live at: https://pds.mk.gg**
+
+### Completed (Phase 1-2 + Partial Phase 6)
+
+- ✅ **Storage Layer** - `SqliteRepoStorage` implementing `@atproto/repo` RepoStorage interface
+- ✅ **Durable Object** - `AccountDurableObject` with SQLite schema initialization
+- ✅ **DID Document** - Served at `/.well-known/did.json` for did:web resolution
+- ✅ **Health Check** - `/health` endpoint
+- ✅ **Deployment** - Custom domain `pds.mk.gg` with auto-provisioned DNS
+- ✅ **Signing Keys** - secp256k1 keypair generated and configured
+- ✅ **Testing** - vitest-pool-workers with 16 passing tests
+
+### In Progress
+
+- 🔄 **XRPC Endpoints** (Phase 3) - Router and core endpoints
+
+### Not Started
+
+- ⬜ **Firehose** (Phase 4) - WebSocket subscribeRepos
+- ⬜ **Blob Storage** (Phase 5) - R2 integration (R2 needs enabling in dashboard)
+- ⬜ **Authentication** (Phase 7) - Bearer token middleware
+
+### Known Issues & Workarounds
+
+**BlockMap/CidSet Iterator Issue**: The `@atproto/repo` package has CJS/ESM compatibility issues in the Workers vitest environment. The `CID.parse()` call fails due to improper module shimming.
+
+**Workaround**: Access internal Map/Set properties directly instead of using iterators:
+```typescript
+// Instead of: for (const [cid, bytes] of blocks) { ... }
+const internalMap = (blocks as unknown as { map: Map<string, Uint8Array> }).map
+for (const [cidStr, bytes] of internalMap) { ... }
+```
+
+This works because BlockMap/CidSet store CIDs as strings internally, which is what we need for SQLite storage anyway.
+
+---
+
 ## Architecture
 
 ```
