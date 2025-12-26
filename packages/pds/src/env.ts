@@ -5,8 +5,8 @@ export interface Env {
 	// Durable Object namespace for account storage
 	ACCOUNT: DurableObjectNamespace
 
-	// R2 bucket for blob storage
-	BLOBS: R2Bucket
+	// R2 bucket for blob storage (optional - enable R2 in dashboard first)
+	BLOBS?: R2Bucket
 
 	// The account's DID (did:web:... or did:plc:...)
 	DID: string
