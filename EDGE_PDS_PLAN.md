@@ -33,28 +33,75 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
 
 ---
 
-## Key Dependencies
+## Build vs Buy Analysis
 
-All of these work on Cloudflare Workers with `nodejs_compat`:
+### Components We Will USE (Buy/Reuse)
 
-| Package | Purpose |
-|---------|---------|
-| `@atproto/repo` | MST, commits, record operations |
-| `@atproto/crypto` | Signing, verification, did:key |
-| `@atproto/syntax` | TID generation, AT-URI parsing |
-| `@atproto/lexicon` | Schema validation (optional initially) |
-| `@ipld/car` | CAR file encoding/decoding |
-| `cborg` | CBOR encoding for firehose frames |
-| `multiformats` | CID utilities |
+| Component | Package | Rationale |
+|-----------|---------|-----------|
+| MST & Repo Operations | `@atproto/repo` | Core protocol logic, well-tested, handles commits, MST updates, CAR export |
+| Cryptographic Operations | `@atproto/crypto` | Signing, verification, did:key - critical to get right |
+| Syntax Utilities | `@atproto/syntax` | TID generation, AT-URI parsing, handle validation |
+| Schema Validation | `@atproto/lexicon` | Optional but useful for record validation |
+| CBOR Encoding | `cborg` + `@ipld/dag-cbor` | Standard, tested, Workers-compatible |
+| CAR Files | `@ipld/car` | Standard IPLD library, used by @atproto/repo |
+| CID Utilities | `multiformats` | Standard library for content addressing |
+
+### Components We Will BUILD
+
+| Component | Rationale |
+|-----------|-----------|
+| Storage Adapter | Must implement `RepoStorage` interface for DO SQLite - ~100 lines |
+| XRPC Router | Lightweight routing layer - can use Hono or custom (~200 lines) |
+| Firehose Event Emitter | WebSocket hibernation is Workers-specific - must build |
+| Sequence Manager | Simple counter + event buffer in SQLite (~50 lines) |
+| Auth Middleware | Simple bearer token check for MVP (~30 lines) |
+| Blob Handler | R2 integration is Workers-specific (~50 lines) |
+
+### Components We Will DEFER
+
+| Component | Reason |
+|-----------|--------|
+| OAuth Provider | Complex, not needed for single-user MVP |
+| Lexicon Validation | Can add later, not required for federation |
+| Rate Limiting | Single user, not needed for MVP |
+| Account Migration | Complex, post-MVP feature |
+| Labelling | AppView concern, not PDS |
 
 ---
 
-## Repo Structure
+## Dependencies
 
-Use the existing monorepo structure:
+All verified to work on Cloudflare Workers with `nodejs_compat`:
 
-- `packages/pds` – the main PDS library/worker
-- `demos/pds` – a deployable demo instance with example config
+```json
+{
+  "dependencies": {
+    "@atproto/repo": "^0.8.0",
+    "@atproto/crypto": "^0.4.0",
+    "@atproto/syntax": "^0.3.0",
+    "@atproto/lexicon": "^0.4.0",
+    "@ipld/car": "^5.4.0",
+    "@ipld/dag-cbor": "^9.0.0",
+    "multiformats": "^13.0.0",
+    "cborg": "^4.0.0",
+    "uint8arrays": "^5.0.0",
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "vitest": "~3.2.0",
+    "wrangler": "^4.0.0"
+  }
+}
+```
+
+### Compatibility Notes
+
+- **`nodejs_compat`** flag required in wrangler.toml
+- **Compatibility date**: `2024-09-23` or later
+- **Memory limit**: 128MB - use streaming for large CAR files
+- **CPU time**: No limit in Durable Objects (use DO for heavy operations)
 
 ---
 
@@ -62,25 +109,154 @@ Use the existing monorepo structure:
 
 ### Phase 1: Storage Layer
 
-**Goal:** Implement the storage interfaces that `@atproto/repo` needs.
+**Goal:** Implement the `RepoStorage` interface that `@atproto/repo` needs.
 
-`@atproto/repo` expects a storage backend implementing specific interfaces. The primary ones are:
+#### Interface to Implement
 
-1. **Block storage** – get/put/delete content-addressed blocks (keyed by CID)
-2. **Repo state** – track current root CID, revision
+Based on research of `@atproto/repo`, implement this interface:
 
-Implement these against Durable Object SQLite:
+```typescript
+interface RepoStorage {
+  // Read operations
+  getBytes(cid: CID): Promise<Uint8Array | null>
+  has(cid: CID): Promise<boolean>
+  getBlocks(cids: CID[]): Promise<{ blocks: BlockMap; missing: CID[] }>
 
-**Tables needed:**
-- `blocks` – CID → bytes (the MST nodes and record blocks)
-- `repo_state` – single row tracking root CID, current rev, sequence number
+  // Write operations
+  putBlock(cid: CID, bytes: Uint8Array, rev: string): Promise<void>
+  putMany(blocks: BlockMap, rev: string): Promise<void>
 
-**Key interface to implement:** Look at `@atproto/repo`'s `RepoStorage` or `BlockStore` interface. The implementation should:
-- Store blocks as BLOB in SQLite
-- Use CID string as primary key
-- Handle the repo root/rev state
+  // Root management
+  getRoot(): Promise<CID | null>
+  updateRoot(cid: CID, rev: string): Promise<void>
 
-**Verification:** Write a test that creates a `Repo` instance using your storage adapter and performs a basic write operation.
+  // Atomic commit
+  applyCommit(commit: CommitData): Promise<void>
+}
+```
+
+#### SQLite Schema
+
+```sql
+-- Block storage (MST nodes + record blocks)
+CREATE TABLE blocks (
+  cid TEXT PRIMARY KEY,
+  bytes BLOB NOT NULL,
+  rev TEXT NOT NULL
+);
+
+CREATE INDEX idx_blocks_rev ON blocks(rev);
+
+-- Repo state (single row)
+CREATE TABLE repo_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  root_cid TEXT NOT NULL,
+  rev TEXT NOT NULL,
+  seq INTEGER NOT NULL DEFAULT 0
+);
+
+-- Initialize with empty state
+INSERT INTO repo_state (id, root_cid, rev, seq) VALUES (1, '', '', 0);
+```
+
+#### Implementation Pattern
+
+```typescript
+export class SqliteRepoStorage implements RepoStorage {
+  constructor(private sql: SqlStorage) {}
+
+  async getBytes(cid: CID): Promise<Uint8Array | null> {
+    const row = this.sql.exec(
+      'SELECT bytes FROM blocks WHERE cid = ?',
+      cid.toString()
+    ).one()
+    return row ? new Uint8Array(row.bytes) : null
+  }
+
+  async putMany(blocks: BlockMap, rev: string): Promise<void> {
+    const stmt = this.sql.prepare(
+      'INSERT OR REPLACE INTO blocks (cid, bytes, rev) VALUES (?, ?, ?)'
+    )
+    for (const [cid, bytes] of blocks.entries()) {
+      stmt.bind(cid.toString(), bytes, rev).run()
+    }
+  }
+
+  async applyCommit(commit: CommitData): Promise<void> {
+    // Transaction: add new blocks, remove old, update root
+    this.sql.exec('BEGIN TRANSACTION')
+    try {
+      // Add new blocks
+      await this.putMany(commit.newBlocks, commit.rev)
+
+      // Remove old blocks
+      for (const cid of commit.removedCids) {
+        this.sql.exec('DELETE FROM blocks WHERE cid = ?', cid.toString())
+      }
+
+      // Update root
+      this.sql.exec(
+        'UPDATE repo_state SET root_cid = ?, rev = ? WHERE id = 1',
+        commit.cid.toString(), commit.rev
+      )
+
+      this.sql.exec('COMMIT')
+    } catch (e) {
+      this.sql.exec('ROLLBACK')
+      throw e
+    }
+  }
+}
+```
+
+#### Testing Strategy
+
+```typescript
+// test/storage.test.ts
+import { describe, it, expect } from 'vitest'
+import { env, runInDurableObject } from 'cloudflare:test'
+import { Repo } from '@atproto/repo'
+import { Secp256k1Keypair } from '@atproto/crypto'
+
+describe('SqliteRepoStorage', () => {
+  it('stores and retrieves blocks', async () => {
+    const id = env.ACCOUNT.newUniqueId()
+    const stub = env.ACCOUNT.get(id)
+
+    await runInDurableObject(stub, async (instance, state) => {
+      const storage = new SqliteRepoStorage(state.storage.sql)
+
+      const cid = CID.parse('bafyreib...')
+      const bytes = new Uint8Array([1, 2, 3])
+
+      await storage.putBlock(cid, bytes, 'rev1')
+      const retrieved = await storage.getBytes(cid)
+
+      expect(retrieved).toEqual(bytes)
+    })
+  })
+
+  it('works with @atproto/repo Repo class', async () => {
+    const id = env.ACCOUNT.newUniqueId()
+    const stub = env.ACCOUNT.get(id)
+
+    await runInDurableObject(stub, async (instance, state) => {
+      const storage = new SqliteRepoStorage(state.storage.sql)
+      const keypair = await Secp256k1Keypair.create()
+
+      // Create a new repo
+      const repo = await Repo.create(storage, 'did:web:example.com', keypair)
+
+      expect(repo.cid).toBeDefined()
+      expect(await storage.getRoot()).toEqual(repo.cid)
+    })
+  })
+
+  it('applies commits atomically', async () => {
+    // Test that failed commits roll back
+  })
+})
+```
 
 ---
 
@@ -88,18 +264,169 @@ Implement these against Durable Object SQLite:
 
 **Goal:** Set up the Account DO with SQLite and basic lifecycle.
 
-The Account DO should:
-- Initialize SQLite schema on first access
-- Load repo state on wake
-- Hold a `Repo` instance from `@atproto/repo`
-- Expose methods for repo operations
+#### Wrangler Configuration
 
-**Wrangler config requirements:**
-- `nodejs_compat` compatibility flag
-- DO binding with SQLite enabled (`new_sqlite_classes`)
-- R2 bucket binding for blobs
+```toml
+# wrangler.toml
+name = "atproto-pds"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
 
-**Key design decision:** Single DO instance for the entire PDS (single user). Use a fixed ID like `"account"` to always route to the same instance.
+[[durable_objects.bindings]]
+name = "ACCOUNT"
+class_name = "AccountDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AccountDurableObject"]
+
+[[r2_buckets]]
+binding = "BLOBS"
+bucket_name = "pds-blobs"
+
+[vars]
+# Non-secret config
+PDS_HOSTNAME = "pds.example.com"
+
+# Secrets (set via wrangler secret put)
+# DID = "did:web:example.com"
+# SIGNING_KEY = "..."
+# AUTH_TOKEN = "..."
+```
+
+#### Durable Object Implementation
+
+```typescript
+// src/account-do.ts
+import { DurableObject } from 'cloudflare:workers'
+import { Repo } from '@atproto/repo'
+import { Secp256k1Keypair } from '@atproto/crypto'
+import { SqliteRepoStorage } from './storage'
+
+export class AccountDurableObject extends DurableObject {
+  private repo: Repo | null = null
+  private storage: SqliteRepoStorage | null = null
+  private keypair: Secp256k1Keypair | null = null
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+
+    // Initialize schema before processing requests
+    ctx.blockConcurrencyWhile(async () => {
+      await this.initialize()
+    })
+  }
+
+  private async initialize() {
+    // Run migrations
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS blocks (
+        cid TEXT PRIMARY KEY,
+        bytes BLOB NOT NULL,
+        rev TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_blocks_rev ON blocks(rev);
+
+      CREATE TABLE IF NOT EXISTS repo_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        root_cid TEXT,
+        rev TEXT,
+        seq INTEGER NOT NULL DEFAULT 0
+      );
+
+      INSERT OR IGNORE INTO repo_state (id, root_cid, rev, seq)
+      VALUES (1, NULL, NULL, 0);
+    `)
+
+    this.storage = new SqliteRepoStorage(this.ctx.storage.sql)
+
+    // Load keypair from env
+    this.keypair = await Secp256k1Keypair.import(this.env.SIGNING_KEY)
+
+    // Load or create repo
+    const root = await this.storage.getRoot()
+    if (root) {
+      this.repo = await Repo.load(this.storage, root)
+    } else {
+      this.repo = await Repo.create(
+        this.storage,
+        this.env.DID,
+        this.keypair
+      )
+    }
+  }
+
+  // Expose repo operations via RPC
+  async getRecord(collection: string, rkey: string) {
+    return this.repo!.getRecord(collection, rkey)
+  }
+
+  async createRecord(collection: string, rkey: string, record: unknown) {
+    const write = {
+      action: WriteOpAction.Create,
+      collection,
+      rkey,
+      record
+    }
+
+    const commit = await this.repo!.applyWrites([write], this.keypair!)
+    await this.storage!.applyCommit(commit)
+
+    // Emit firehose event
+    await this.emitCommitEvent(commit)
+
+    return { uri: `at://${this.env.DID}/${collection}/${rkey}`, cid: commit.cid }
+  }
+
+  // ... other repo operations
+}
+```
+
+#### Testing Strategy
+
+```typescript
+// test/account-do.test.ts
+import { describe, it, expect } from 'vitest'
+import { env, runInDurableObject } from 'cloudflare:test'
+import { AccountDurableObject } from '../src/account-do'
+
+describe('AccountDurableObject', () => {
+  it('initializes with empty repo on first access', async () => {
+    const id = env.ACCOUNT.idFromName('test-account')
+    const stub = env.ACCOUNT.get(id)
+
+    await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+      expect(instance.repo).toBeDefined()
+      expect(instance.repo.did).toBe('did:web:test.example.com')
+    })
+  })
+
+  it('persists repo state across restarts', async () => {
+    const id = env.ACCOUNT.idFromName('test-account')
+
+    // First access - create record
+    let stub = env.ACCOUNT.get(id)
+    const result = await stub.createRecord('app.bsky.feed.post', 'abc123', {
+      text: 'Hello world',
+      createdAt: new Date().toISOString()
+    })
+
+    // Simulate restart by getting new stub
+    stub = env.ACCOUNT.get(id)
+
+    // Verify record persisted
+    const record = await stub.getRecord('app.bsky.feed.post', 'abc123')
+    expect(record.text).toBe('Hello world')
+  })
+
+  it('uses fixed ID for single-user routing', async () => {
+    // Always route to "account" ID
+    const id = env.ACCOUNT.idFromName('account')
+    expect(id.toString()).toBeDefined()
+  })
+})
+```
 
 ---
 
@@ -107,38 +434,288 @@ The Account DO should:
 
 **Goal:** Implement the minimum endpoints for federation.
 
-XRPC is just HTTP with a naming convention. Endpoints are at `/xrpc/{method}`.
+#### XRPC Router Setup
 
-#### Tier 1 – Required for relay sync:
+Using Hono for lightweight routing:
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `com.atproto.sync.getRepo` | GET | Export full repo as CAR |
-| `com.atproto.sync.getRepoStatus` | GET | Current rev and commit info |
-| `com.atproto.sync.subscribeRepos` | WS | Firehose – live commit stream |
+```typescript
+// src/xrpc.ts
+import { Hono } from 'hono'
 
-#### Tier 2 – Required for basic operation:
+export function createXrpcRouter(env: Env) {
+  const app = new Hono()
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `com.atproto.repo.describeRepo` | GET | Repo metadata |
-| `com.atproto.repo.getRecord` | GET | Fetch single record |
-| `com.atproto.repo.listRecords` | GET | List records in collection |
-| `com.atproto.repo.createRecord` | POST | Create new record |
-| `com.atproto.repo.putRecord` | POST | Update/create at specific rkey |
-| `com.atproto.repo.deleteRecord` | POST | Delete record |
+  // Get the single account DO
+  const getAccount = () => {
+    const id = env.ACCOUNT.idFromName('account')
+    return env.ACCOUNT.get(id)
+  }
 
-#### Tier 3 – Server identity:
+  // Error handler
+  app.onError((err, c) => {
+    console.error(err)
+    return c.json({
+      error: err.name || 'InternalServerError',
+      message: err.message
+    }, err.status || 500)
+  })
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `com.atproto.server.describeServer` | GET | Server metadata |
-| `com.atproto.identity.resolveHandle` | GET | Handle → DID |
+  // XRPC endpoints
+  return app
+}
+```
 
-**Implementation approach:**
-- Worker handles routing: parse path, check auth, dispatch to DO
-- DO handles actual repo operations
-- Return XRPC error format for failures: `{ "error": "...", "message": "..." }`
+#### Tier 1: Sync Endpoints (Required for Federation)
+
+```typescript
+// GET /xrpc/com.atproto.sync.getRepo
+app.get('/xrpc/com.atproto.sync.getRepo', async (c) => {
+  const did = c.req.query('did')
+  if (did !== env.DID) {
+    return c.json({ error: 'RepoNotFound', message: 'Unknown DID' }, 404)
+  }
+
+  const account = getAccount()
+  const carBytes = await account.exportRepo()
+
+  return new Response(carBytes, {
+    headers: { 'Content-Type': 'application/vnd.ipld.car' }
+  })
+})
+
+// GET /xrpc/com.atproto.sync.getRepoStatus
+app.get('/xrpc/com.atproto.sync.getRepoStatus', async (c) => {
+  const did = c.req.query('did')
+  if (did !== env.DID) {
+    return c.json({ error: 'RepoNotFound' }, 404)
+  }
+
+  const account = getAccount()
+  const status = await account.getRepoStatus()
+
+  return c.json({
+    did: env.DID,
+    active: true,
+    rev: status.rev,
+    status: 'active'
+  })
+})
+
+// WS /xrpc/com.atproto.sync.subscribeRepos
+// Handled separately via WebSocket upgrade
+```
+
+#### Tier 2: Repo Endpoints
+
+```typescript
+// GET /xrpc/com.atproto.repo.describeRepo
+app.get('/xrpc/com.atproto.repo.describeRepo', async (c) => {
+  const did = c.req.query('repo')
+  if (did !== env.DID) {
+    return c.json({ error: 'RepoNotFound' }, 404)
+  }
+
+  return c.json({
+    handle: env.HANDLE,
+    did: env.DID,
+    didDoc: await getDidDocument(env),
+    collections: ['app.bsky.feed.post', 'app.bsky.actor.profile'],
+    handleIsCorrect: true
+  })
+})
+
+// GET /xrpc/com.atproto.repo.getRecord
+app.get('/xrpc/com.atproto.repo.getRecord', async (c) => {
+  const repo = c.req.query('repo')
+  const collection = c.req.query('collection')
+  const rkey = c.req.query('rkey')
+
+  if (repo !== env.DID) {
+    return c.json({ error: 'RepoNotFound' }, 404)
+  }
+
+  const account = getAccount()
+  const record = await account.getRecord(collection, rkey)
+
+  if (!record) {
+    return c.json({ error: 'RecordNotFound' }, 404)
+  }
+
+  return c.json({
+    uri: `at://${env.DID}/${collection}/${rkey}`,
+    cid: record.cid.toString(),
+    value: record.value
+  })
+})
+
+// POST /xrpc/com.atproto.repo.createRecord
+app.post('/xrpc/com.atproto.repo.createRecord', authMiddleware, async (c) => {
+  const body = await c.req.json()
+  const { repo, collection, rkey, record } = body
+
+  if (repo !== env.DID) {
+    return c.json({ error: 'InvalidRequest', message: 'Wrong repo' }, 400)
+  }
+
+  const account = getAccount()
+  const result = await account.createRecord(
+    collection,
+    rkey || TID.nextStr(),
+    record
+  )
+
+  return c.json(result)
+})
+
+// POST /xrpc/com.atproto.repo.deleteRecord
+app.post('/xrpc/com.atproto.repo.deleteRecord', authMiddleware, async (c) => {
+  const body = await c.req.json()
+  const { repo, collection, rkey } = body
+
+  if (repo !== env.DID) {
+    return c.json({ error: 'InvalidRequest' }, 400)
+  }
+
+  const account = getAccount()
+  await account.deleteRecord(collection, rkey)
+
+  return c.json({})
+})
+```
+
+#### Tier 3: Server Identity
+
+```typescript
+// GET /xrpc/com.atproto.server.describeServer
+app.get('/xrpc/com.atproto.server.describeServer', (c) => {
+  return c.json({
+    did: `did:web:${env.PDS_HOSTNAME}`,
+    availableUserDomains: [],
+    inviteCodeRequired: false,
+    phoneVerificationRequired: false,
+    links: {}
+  })
+})
+
+// GET /xrpc/com.atproto.identity.resolveHandle
+app.get('/xrpc/com.atproto.identity.resolveHandle', (c) => {
+  const handle = c.req.query('handle')
+
+  if (handle !== env.HANDLE) {
+    return c.json({ error: 'HandleNotFound' }, 404)
+  }
+
+  return c.json({ did: env.DID })
+})
+```
+
+#### Testing Strategy
+
+```typescript
+// test/xrpc.test.ts
+import { describe, it, expect } from 'vitest'
+import { SELF } from 'cloudflare:test'
+
+describe('XRPC Endpoints', () => {
+  describe('com.atproto.sync.getRepo', () => {
+    it('returns CAR file for valid DID', async () => {
+      const response = await SELF.fetch(
+        'https://pds.test/xrpc/com.atproto.sync.getRepo?did=did:web:pds.test'
+      )
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Content-Type')).toBe('application/vnd.ipld.car')
+
+      const bytes = await response.arrayBuffer()
+      expect(bytes.byteLength).toBeGreaterThan(0)
+    })
+
+    it('returns 404 for unknown DID', async () => {
+      const response = await SELF.fetch(
+        'https://pds.test/xrpc/com.atproto.sync.getRepo?did=did:web:other.com'
+      )
+
+      expect(response.status).toBe(404)
+      const body = await response.json()
+      expect(body.error).toBe('RepoNotFound')
+    })
+  })
+
+  describe('com.atproto.repo.createRecord', () => {
+    it('requires authentication', async () => {
+      const response = await SELF.fetch(
+        'https://pds.test/xrpc/com.atproto.repo.createRecord',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo: 'did:web:pds.test',
+            collection: 'app.bsky.feed.post',
+            record: { text: 'Hello', createdAt: new Date().toISOString() }
+          })
+        }
+      )
+
+      expect(response.status).toBe(401)
+    })
+
+    it('creates record with valid auth', async () => {
+      const response = await SELF.fetch(
+        'https://pds.test/xrpc/com.atproto.repo.createRecord',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer test-token'
+          },
+          body: JSON.stringify({
+            repo: 'did:web:pds.test',
+            collection: 'app.bsky.feed.post',
+            record: { text: 'Hello', createdAt: new Date().toISOString() }
+          })
+        }
+      )
+
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.uri).toMatch(/^at:\/\//)
+      expect(body.cid).toBeDefined()
+    })
+  })
+
+  describe('com.atproto.repo.getRecord', () => {
+    it('retrieves created record', async () => {
+      // First create a record
+      await SELF.fetch(
+        'https://pds.test/xrpc/com.atproto.repo.createRecord',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer test-token'
+          },
+          body: JSON.stringify({
+            repo: 'did:web:pds.test',
+            collection: 'app.bsky.feed.post',
+            rkey: 'test123',
+            record: { text: 'Hello', createdAt: new Date().toISOString() }
+          })
+        }
+      )
+
+      // Then retrieve it
+      const response = await SELF.fetch(
+        'https://pds.test/xrpc/com.atproto.repo.getRecord?' +
+        'repo=did:web:pds.test&collection=app.bsky.feed.post&rkey=test123'
+      )
+
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.value.text).toBe('Hello')
+    })
+  })
+})
+```
 
 ---
 
@@ -146,31 +723,375 @@ XRPC is just HTTP with a naming convention. Endpoints are at `/xrpc/{method}`.
 
 **Goal:** Implement the WebSocket event stream that relays subscribe to.
 
-This is critical for federation – without it, relays can't get updates.
+#### Frame Format
 
-**How it works:**
-1. Client connects via WebSocket to `/xrpc/com.atproto.sync.subscribeRepos`
-2. Optionally passes `?cursor=N` to replay from sequence N
-3. Server sends CBOR-encoded frames for each event
+Each WebSocket frame consists of two concatenated DAG-CBOR objects:
 
-**Frame format:**
-Each frame is a CBOR-encoded message with:
-- Header: `{ op: 1, t: "#commit" }` (or other event type)
-- Body: event-specific data, including embedded CAR for commits
+```typescript
+// Frame structure
+interface FirehoseFrame {
+  header: { op: 1; t: string } | { op: -1 }  // op=1 message, op=-1 error
+  body: CommitEvent | IdentityEvent | ErrorBody
+}
 
-**Event types to implement:**
-- `#commit` – repo commit with embedded CAR of new blocks
-- `#identity` – handle/DID changes (can defer)
-- `#account` – account status changes (can defer)
+interface CommitEvent {
+  seq: number           // Sequence number
+  rebase: false         // Deprecated
+  tooBig: false         // Oversized indicator
+  repo: string          // DID
+  commit: CID           // Commit CID
+  rev: string           // Revision TID
+  since: string | null  // Previous revision
+  blocks: Uint8Array    // CAR file with diff blocks
+  ops: RepoOp[]         // Record operations
+  blobs: CID[]          // Referenced blobs
+  time: string          // ISO timestamp
+}
 
-**DO considerations:**
-- Use WebSocket hibernation to avoid holding connections in memory
-- Store recent events in SQLite for cursor-based replay
-- Sequence numbers must be monotonically increasing and never reused
+interface RepoOp {
+  action: 'create' | 'update' | 'delete'
+  path: string          // collection/rkey
+  cid: CID | null       // New CID (null for deletes)
+}
+```
 
-**Buffer table:**
-- `firehose_events` – seq (INTEGER PRIMARY KEY), event_type, payload (BLOB)
-- Keep last N events (e.g. 10,000) for replay, prune older ones
+#### Sequence Manager
+
+```sql
+-- Add to schema
+CREATE TABLE firehose_events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_type TEXT NOT NULL,
+  payload BLOB NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Keep last 10,000 events, prune older
+CREATE TRIGGER prune_firehose_events
+AFTER INSERT ON firehose_events
+BEGIN
+  DELETE FROM firehose_events
+  WHERE seq < (SELECT MAX(seq) - 10000 FROM firehose_events);
+END;
+```
+
+```typescript
+// src/sequencer.ts
+import * as cbor from 'cborg'
+import { blocksToCarFile } from '@atproto/repo'
+
+export class Sequencer {
+  constructor(private sql: SqlStorage) {}
+
+  async sequenceCommit(commit: CommitData): Promise<number> {
+    // Create CAR slice with commit diff
+    const carBytes = await blocksToCarFile(commit.cid, commit.newBlocks)
+
+    // Build event payload
+    const event = {
+      repo: commit.did,
+      commit: commit.cid,
+      rev: commit.rev,
+      since: commit.since,
+      blocks: carBytes,
+      ops: commit.ops.map(op => ({
+        action: op.action,
+        path: `${op.collection}/${op.rkey}`,
+        cid: op.cid
+      })),
+      rebase: false,
+      tooBig: carBytes.length > 1_000_000,
+      blobs: [],
+      time: new Date().toISOString()
+    }
+
+    // Store in SQLite
+    const result = this.sql.exec(
+      `INSERT INTO firehose_events (event_type, payload, created_at)
+       VALUES ('commit', ?, datetime('now'))
+       RETURNING seq`,
+      cbor.encode(event)
+    ).one()
+
+    return result.seq
+  }
+
+  async getEventsSince(cursor: number, limit = 100): Promise<SeqEvent[]> {
+    const rows = this.sql.exec(
+      `SELECT seq, event_type, payload, created_at
+       FROM firehose_events
+       WHERE seq > ?
+       ORDER BY seq ASC
+       LIMIT ?`,
+      cursor, limit
+    ).toArray()
+
+    return rows.map(row => ({
+      seq: row.seq,
+      type: row.event_type,
+      event: cbor.decode(row.payload),
+      time: row.created_at
+    }))
+  }
+
+  getLatestSeq(): number {
+    const row = this.sql.exec(
+      'SELECT MAX(seq) as seq FROM firehose_events'
+    ).one()
+    return row?.seq ?? 0
+  }
+}
+```
+
+#### WebSocket Hibernation Handler
+
+```typescript
+// src/firehose.ts
+import * as cbor from 'cborg'
+
+export class FirehoseHandler {
+  constructor(
+    private ctx: DurableObjectState,
+    private sequencer: Sequencer
+  ) {}
+
+  async handleUpgrade(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+    const cursor = url.searchParams.get('cursor')
+
+    // Create WebSocket pair
+    const { 0: client, 1: server } = new WebSocketPair()
+
+    // Accept with hibernation
+    this.ctx.acceptWebSocket(server)
+
+    // Store cursor in attachment
+    server.serializeAttachment({
+      cursor: cursor ? parseInt(cursor) : null,
+      connectedAt: Date.now()
+    })
+
+    // Backfill if cursor provided
+    if (cursor) {
+      await this.backfill(server, parseInt(cursor))
+    }
+
+    return new Response(null, { status: 101, webSocket: client })
+  }
+
+  private async backfill(ws: WebSocket, cursor: number) {
+    const latestSeq = this.sequencer.getLatestSeq()
+
+    // Check if cursor is in future
+    if (cursor > latestSeq) {
+      const frame = this.encodeError('FutureCursor', 'Cursor in the future')
+      ws.send(frame)
+      ws.close(1008, 'FutureCursor')
+      return
+    }
+
+    // Backfill from cursor
+    const events = await this.sequencer.getEventsSince(cursor, 1000)
+
+    for (const event of events) {
+      const frame = this.encodeCommitFrame(event)
+      ws.send(frame)
+    }
+
+    // Update cursor in attachment
+    if (events.length > 0) {
+      const attachment = ws.deserializeAttachment()
+      attachment.cursor = events[events.length - 1].seq
+      ws.serializeAttachment(attachment)
+    }
+  }
+
+  // Called when DO has new commit
+  async broadcast(event: SeqEvent) {
+    const frame = this.encodeCommitFrame(event)
+
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(frame)
+
+        // Update cursor
+        const attachment = ws.deserializeAttachment()
+        attachment.cursor = event.seq
+        ws.serializeAttachment(attachment)
+      } catch (e) {
+        // Client disconnected, will be cleaned up
+      }
+    }
+  }
+
+  private encodeCommitFrame(event: SeqEvent): Uint8Array {
+    const header = cbor.encode({ op: 1, t: '#commit' })
+    const body = cbor.encode({ seq: event.seq, ...event.event })
+
+    const frame = new Uint8Array(header.length + body.length)
+    frame.set(header, 0)
+    frame.set(body, header.length)
+
+    return frame
+  }
+
+  private encodeError(error: string, message: string): Uint8Array {
+    const header = cbor.encode({ op: -1 })
+    const body = cbor.encode({ error, message })
+
+    const frame = new Uint8Array(header.length + body.length)
+    frame.set(header, 0)
+    frame.set(body, header.length)
+
+    return frame
+  }
+
+  // Hibernation callbacks
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    // Firehose is server-push only, ignore client messages
+  }
+
+  webSocketClose(ws: WebSocket, code: number, reason: string) {
+    // Cleanup handled automatically
+  }
+
+  webSocketError(ws: WebSocket, error: Error) {
+    console.error('WebSocket error:', error)
+  }
+}
+```
+
+#### Testing Strategy
+
+```typescript
+// test/firehose.test.ts
+import { describe, it, expect } from 'vitest'
+import { env, runInDurableObject } from 'cloudflare:test'
+import * as cbor from 'cborg'
+
+describe('Firehose', () => {
+  it('accepts WebSocket connections', async () => {
+    const id = env.ACCOUNT.idFromName('account')
+    const stub = env.ACCOUNT.get(id)
+
+    const response = await stub.fetch(
+      'https://pds.test/xrpc/com.atproto.sync.subscribeRepos',
+      { headers: { Upgrade: 'websocket' } }
+    )
+
+    expect(response.status).toBe(101)
+    expect(response.webSocket).toBeDefined()
+  })
+
+  it('backfills events from cursor', async () => {
+    const id = env.ACCOUNT.idFromName('account')
+    const stub = env.ACCOUNT.get(id)
+
+    // Create some records first
+    for (let i = 0; i < 5; i++) {
+      await stub.createRecord('app.bsky.feed.post', `post${i}`, {
+        text: `Post ${i}`,
+        createdAt: new Date().toISOString()
+      })
+    }
+
+    // Connect with cursor=0 to get all events
+    const response = await stub.fetch(
+      'https://pds.test/xrpc/com.atproto.sync.subscribeRepos?cursor=0',
+      { headers: { Upgrade: 'websocket' } }
+    )
+
+    const ws = response.webSocket!
+    ws.accept()
+
+    const messages: Uint8Array[] = []
+    ws.addEventListener('message', (event) => {
+      messages.push(new Uint8Array(event.data as ArrayBuffer))
+    })
+
+    // Wait for backfill
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    expect(messages.length).toBe(5)
+
+    // Verify frame structure
+    for (const msg of messages) {
+      // First decode header
+      const [header, headerLen] = cbor.decodeFirst(msg)
+      expect(header.op).toBe(1)
+      expect(header.t).toBe('#commit')
+
+      // Then decode body
+      const body = cbor.decode(msg.slice(headerLen))
+      expect(body.seq).toBeGreaterThan(0)
+      expect(body.repo).toBe('did:web:pds.test')
+    }
+
+    ws.close()
+  })
+
+  it('broadcasts new commits to connected clients', async () => {
+    const id = env.ACCOUNT.idFromName('account')
+    const stub = env.ACCOUNT.get(id)
+
+    // Connect to firehose
+    const response = await stub.fetch(
+      'https://pds.test/xrpc/com.atproto.sync.subscribeRepos',
+      { headers: { Upgrade: 'websocket' } }
+    )
+
+    const ws = response.webSocket!
+    ws.accept()
+
+    const messages: any[] = []
+    ws.addEventListener('message', (event) => {
+      const msg = new Uint8Array(event.data as ArrayBuffer)
+      const [header, headerLen] = cbor.decodeFirst(msg)
+      const body = cbor.decode(msg.slice(headerLen))
+      messages.push({ header, body })
+    })
+
+    // Create a record (should broadcast)
+    await stub.createRecord('app.bsky.feed.post', 'live-post', {
+      text: 'Live post!',
+      createdAt: new Date().toISOString()
+    })
+
+    // Wait for broadcast
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(messages.length).toBe(1)
+    expect(messages[0].body.ops[0].path).toBe('app.bsky.feed.post/live-post')
+
+    ws.close()
+  })
+
+  it('rejects future cursor', async () => {
+    const id = env.ACCOUNT.idFromName('account')
+    const stub = env.ACCOUNT.get(id)
+
+    const response = await stub.fetch(
+      'https://pds.test/xrpc/com.atproto.sync.subscribeRepos?cursor=999999',
+      { headers: { Upgrade: 'websocket' } }
+    )
+
+    const ws = response.webSocket!
+    ws.accept()
+
+    let errorReceived = false
+    ws.addEventListener('message', (event) => {
+      const msg = new Uint8Array(event.data as ArrayBuffer)
+      const [header] = cbor.decodeFirst(msg)
+      if (header.op === -1) {
+        errorReceived = true
+      }
+    })
+
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(errorReceived).toBe(true)
+  })
+})
+```
 
 ---
 
@@ -178,15 +1099,150 @@ Each frame is a CBOR-encoded message with:
 
 **Goal:** Support blob upload and retrieval for images/media.
 
-**Endpoints:**
-- `com.atproto.repo.uploadBlob` – POST binary, returns blob ref
-- `com.atproto.sync.getBlob` – GET blob by CID
+#### R2 Blob Storage
 
-**Storage:** Use R2 for blob storage. Key by CID.
+```typescript
+// src/blobs.ts
+import { sha256 } from 'multiformats/hashes/sha2'
+import { CID } from 'multiformats/cid'
 
-**Blob refs:** When uploading, compute CID of the blob, store in R2, return a blob ref object that can be embedded in records.
+export class BlobStore {
+  constructor(private r2: R2Bucket, private did: string) {}
 
-**Important:** Blobs must be referenced by a record to be "live". Consider implementing ref counting or garbage collection later, but not in MVP.
+  async putBlob(bytes: Uint8Array, mimeType: string): Promise<BlobRef> {
+    // Compute CID
+    const hash = await sha256.digest(bytes)
+    const cid = CID.create(1, 0x55, hash) // raw codec
+
+    // Store in R2 with DID prefix
+    const key = `${this.did}/${cid.toString()}`
+    await this.r2.put(key, bytes, {
+      httpMetadata: { contentType: mimeType }
+    })
+
+    return {
+      $type: 'blob',
+      ref: { $link: cid.toString() },
+      mimeType,
+      size: bytes.length
+    }
+  }
+
+  async getBlob(cid: CID): Promise<R2ObjectBody | null> {
+    const key = `${this.did}/${cid.toString()}`
+    return this.r2.get(key)
+  }
+
+  async hasBlob(cid: CID): Promise<boolean> {
+    const key = `${this.did}/${cid.toString()}`
+    const head = await this.r2.head(key)
+    return head !== null
+  }
+}
+```
+
+#### XRPC Endpoints
+
+```typescript
+// POST /xrpc/com.atproto.repo.uploadBlob
+app.post('/xrpc/com.atproto.repo.uploadBlob', authMiddleware, async (c) => {
+  const contentType = c.req.header('Content-Type') || 'application/octet-stream'
+  const bytes = new Uint8Array(await c.req.arrayBuffer())
+
+  // Size limit check
+  if (bytes.length > 5_000_000) { // 5MB
+    return c.json({ error: 'BlobTooLarge' }, 400)
+  }
+
+  const account = getAccount()
+  const blobRef = await account.uploadBlob(bytes, contentType)
+
+  return c.json({ blob: blobRef })
+})
+
+// GET /xrpc/com.atproto.sync.getBlob
+app.get('/xrpc/com.atproto.sync.getBlob', async (c) => {
+  const did = c.req.query('did')
+  const cidStr = c.req.query('cid')
+
+  if (did !== env.DID) {
+    return c.json({ error: 'RepoNotFound' }, 404)
+  }
+
+  const cid = CID.parse(cidStr)
+  const blob = await env.BLOBS.get(`${did}/${cid.toString()}`)
+
+  if (!blob) {
+    return c.json({ error: 'BlobNotFound' }, 404)
+  }
+
+  return new Response(blob.body, {
+    headers: {
+      'Content-Type': blob.httpMetadata?.contentType || 'application/octet-stream',
+      'Content-Length': blob.size.toString()
+    }
+  })
+})
+```
+
+#### Testing Strategy
+
+```typescript
+// test/blobs.test.ts
+import { describe, it, expect } from 'vitest'
+import { SELF, env } from 'cloudflare:test'
+
+describe('Blob Storage', () => {
+  it('uploads and retrieves blobs', async () => {
+    // Upload
+    const imageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]) // PNG header
+    const uploadResponse = await SELF.fetch(
+      'https://pds.test/xrpc/com.atproto.repo.uploadBlob',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer test-token',
+          'Content-Type': 'image/png'
+        },
+        body: imageBytes
+      }
+    )
+
+    expect(uploadResponse.status).toBe(200)
+    const { blob } = await uploadResponse.json()
+    expect(blob.ref.$link).toBeDefined()
+    expect(blob.mimeType).toBe('image/png')
+
+    // Retrieve
+    const getResponse = await SELF.fetch(
+      `https://pds.test/xrpc/com.atproto.sync.getBlob?did=did:web:pds.test&cid=${blob.ref.$link}`
+    )
+
+    expect(getResponse.status).toBe(200)
+    expect(getResponse.headers.get('Content-Type')).toBe('image/png')
+  })
+
+  it('rejects oversized blobs', async () => {
+    const largeBlob = new Uint8Array(6_000_000) // 6MB
+
+    const response = await SELF.fetch(
+      'https://pds.test/xrpc/com.atproto.repo.uploadBlob',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer test-token',
+          'Content-Type': 'application/octet-stream'
+        },
+        body: largeBlob
+      }
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('BlobTooLarge')
+  })
+})
+```
 
 ---
 
@@ -194,21 +1250,110 @@ Each frame is a CBOR-encoded message with:
 
 **Goal:** Serve the DID document so the network can discover this PDS.
 
-**For did:web:**
-Serve `/.well-known/did.json` with:
-- The account's DID
-- The signing key (public)
-- The PDS service endpoint
-- The handle (if using did:web)
+#### DID Document
 
-**For did:plc:**
-The DID document lives on plc.directory. The PDS just needs to know the DID and serve content for it. Handle verification via DNS or well-known.
+```typescript
+// src/identity.ts
+export function generateDidDocument(env: Env) {
+  return {
+    '@context': [
+      'https://www.w3.org/ns/did/v1',
+      'https://w3id.org/security/multikey/v1',
+      'https://w3id.org/security/suites/secp256k1-2019/v1'
+    ],
+    id: env.DID,
+    alsoKnownAs: [`at://${env.HANDLE}`],
+    verificationMethod: [
+      {
+        id: `${env.DID}#atproto`,
+        type: 'Multikey',
+        controller: env.DID,
+        publicKeyMultibase: env.SIGNING_KEY_PUBLIC
+      }
+    ],
+    service: [
+      {
+        id: '#atproto_pds',
+        type: 'AtprotoPersonalDataServer',
+        serviceEndpoint: `https://${env.PDS_HOSTNAME}`
+      }
+    ]
+  }
+}
+```
 
-**Handle verification:**
-- DNS TXT record: `_atproto.{handle}` → `did={did}`
-- Or `/.well-known/atproto-did` returning the DID
+#### Well-Known Endpoints
 
-Worker should serve the well-known endpoints directly (no need to hit DO).
+```typescript
+// Serve directly from Worker (no DO needed)
+
+// GET /.well-known/did.json (for did:web)
+app.get('/.well-known/did.json', (c) => {
+  return c.json(generateDidDocument(c.env))
+})
+
+// GET /.well-known/atproto-did (handle verification)
+app.get('/.well-known/atproto-did', (c) => {
+  return c.text(c.env.DID)
+})
+```
+
+#### Testing Strategy
+
+```typescript
+// test/identity.test.ts
+import { describe, it, expect } from 'vitest'
+import { SELF } from 'cloudflare:test'
+
+describe('Identity', () => {
+  describe('DID Document', () => {
+    it('serves did:web document', async () => {
+      const response = await SELF.fetch(
+        'https://pds.test/.well-known/did.json'
+      )
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Content-Type')).toContain('application/json')
+
+      const doc = await response.json()
+      expect(doc.id).toBe('did:web:pds.test')
+      expect(doc.service[0].type).toBe('AtprotoPersonalDataServer')
+    })
+  })
+
+  describe('Handle Verification', () => {
+    it('serves atproto-did for handle verification', async () => {
+      const response = await SELF.fetch(
+        'https://pds.test/.well-known/atproto-did'
+      )
+
+      expect(response.status).toBe(200)
+      const did = await response.text()
+      expect(did).toBe('did:web:pds.test')
+    })
+  })
+
+  describe('resolveHandle', () => {
+    it('resolves configured handle', async () => {
+      const response = await SELF.fetch(
+        'https://pds.test/xrpc/com.atproto.identity.resolveHandle?handle=alice.test'
+      )
+
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.did).toBe('did:web:pds.test')
+    })
+
+    it('returns 404 for unknown handle', async () => {
+      const response = await SELF.fetch(
+        'https://pds.test/xrpc/com.atproto.identity.resolveHandle?handle=unknown.test'
+      )
+
+      expect(response.status).toBe(404)
+    })
+  })
+})
+```
 
 ---
 
@@ -216,88 +1361,222 @@ Worker should serve the well-known endpoints directly (no need to hit DO).
 
 **Goal:** Secure write endpoints.
 
-**For MVP (single user):**
-- Accept a pre-shared bearer token configured at deploy time
-- Or implement basic JWT verification using `@atproto/crypto`
+#### Bearer Token Auth (MVP)
 
-**Token format (if using JWT):**
-- Signed by the account's key
-- Contains `iss` (DID), `aud` (PDS URL), `exp` (expiry)
-- Verify signature and claims on each request
+```typescript
+// src/auth.ts
+export function authMiddleware(c: Context, next: Next) {
+  const authHeader = c.req.header('Authorization')
 
-**What needs auth:**
-- All `com.atproto.repo.*` write operations (create, put, delete, uploadBlob)
-- Read operations can be public
+  if (!authHeader?.startsWith('Bearer ')) {
+    return c.json({ error: 'AuthRequired' }, 401)
+  }
 
-**Later:** Implement proper OAuth if you want third-party apps to work. This is complex – defer it.
+  const token = authHeader.slice(7)
+
+  if (token !== c.env.AUTH_TOKEN) {
+    return c.json({ error: 'InvalidToken' }, 401)
+  }
+
+  return next()
+}
+```
+
+#### Future: JWT Verification
+
+```typescript
+// For future OAuth/JWT support
+import { verifyJwt } from '@atproto/crypto'
+
+export async function jwtAuthMiddleware(c: Context, next: Next) {
+  const authHeader = c.req.header('Authorization')
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return c.json({ error: 'AuthRequired' }, 401)
+  }
+
+  const token = authHeader.slice(7)
+
+  try {
+    const payload = await verifyJwt(token, {
+      audience: `https://${c.env.PDS_HOSTNAME}`,
+      issuer: c.env.DID
+    })
+
+    c.set('auth', { did: payload.iss, scope: payload.scope })
+    return next()
+  } catch (e) {
+    return c.json({ error: 'InvalidToken', message: e.message }, 401)
+  }
+}
+```
+
+#### Testing Strategy
+
+```typescript
+// test/auth.test.ts
+import { describe, it, expect } from 'vitest'
+import { SELF } from 'cloudflare:test'
+
+describe('Authentication', () => {
+  const writeEndpoints = [
+    { method: 'POST', path: '/xrpc/com.atproto.repo.createRecord' },
+    { method: 'POST', path: '/xrpc/com.atproto.repo.putRecord' },
+    { method: 'POST', path: '/xrpc/com.atproto.repo.deleteRecord' },
+    { method: 'POST', path: '/xrpc/com.atproto.repo.uploadBlob' }
+  ]
+
+  for (const { method, path } of writeEndpoints) {
+    it(`requires auth for ${path}`, async () => {
+      const response = await SELF.fetch(`https://pds.test${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      })
+
+      expect(response.status).toBe(401)
+    })
+  }
+
+  const readEndpoints = [
+    '/xrpc/com.atproto.repo.getRecord?repo=did:web:pds.test&collection=app.bsky.feed.post&rkey=test',
+    '/xrpc/com.atproto.repo.describeRepo?repo=did:web:pds.test',
+    '/xrpc/com.atproto.sync.getRepo?did=did:web:pds.test'
+  ]
+
+  for (const path of readEndpoints) {
+    it(`allows unauthenticated access to ${path.split('?')[0]}`, async () => {
+      const response = await SELF.fetch(`https://pds.test${path}`)
+
+      // Should not be 401 (might be 404 if no data)
+      expect(response.status).not.toBe(401)
+    })
+  }
+})
+```
 
 ---
 
-## Data Flow Examples
+## Testing Configuration
 
-### Creating a post
+### Vitest Setup
 
-1. Client POSTs to `/xrpc/com.atproto.repo.createRecord` with auth token
-2. Worker validates auth, routes to Account DO
-3. DO calls `Repo.applyWrites()` with the new record
-4. `@atproto/repo` updates MST, creates commit, signs it
-5. New blocks written to SQLite via storage adapter
-6. DO increments sequence, emits firehose event to all connected clients
-7. Returns `{ uri, cid }` to client
+```typescript
+// vitest.config.ts
+import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config'
 
-### Relay syncing
+export default defineWorkersConfig({
+  test: {
+    globals: true,
+    poolOptions: {
+      workers: {
+        wrangler: { configPath: './wrangler.toml' },
+        miniflare: {
+          bindings: {
+            DID: 'did:web:pds.test',
+            HANDLE: 'alice.test',
+            PDS_HOSTNAME: 'pds.test',
+            AUTH_TOKEN: 'test-token',
+            SIGNING_KEY: 'test-signing-key'
+          }
+        }
+      }
+    }
+  }
+})
+```
 
-1. Relay calls `/xrpc/com.atproto.sync.getRepo?did=...`
-2. Worker routes to Account DO
-3. DO uses `@atproto/repo` to export as CAR
-4. Streams CAR bytes back (or returns complete CAR)
+### Test Environment Types
 
-### Firehose subscription
+```typescript
+// test/env.d.ts
+declare module 'cloudflare:test' {
+  interface ProvidedEnv {
+    ACCOUNT: DurableObjectNamespace
+    BLOBS: R2Bucket
+    DID: string
+    HANDLE: string
+    PDS_HOSTNAME: string
+    AUTH_TOKEN: string
+    SIGNING_KEY: string
+  }
+}
+```
 
-1. Relay opens WebSocket to `/xrpc/com.atproto.sync.subscribeRepos?cursor=123`
-2. Worker upgrades connection, passes to Account DO
-3. DO replays any events since cursor 123 from buffer
-4. DO enters hibernation, holding WebSocket reference
-5. On new commit: DO wakes, encodes frame, sends to all clients, hibernates again
+### Integration Test Suite
+
+```typescript
+// test/integration/federation.test.ts
+import { describe, it, expect } from 'vitest'
+import { SELF } from 'cloudflare:test'
+
+describe('Federation Integration', () => {
+  it('complete flow: create post, sync repo, verify on firehose', async () => {
+    // 1. Create a post
+    const createResponse = await SELF.fetch(
+      'https://pds.test/xrpc/com.atproto.repo.createRecord',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer test-token'
+        },
+        body: JSON.stringify({
+          repo: 'did:web:pds.test',
+          collection: 'app.bsky.feed.post',
+          record: {
+            $type: 'app.bsky.feed.post',
+            text: 'Hello from edge PDS!',
+            createdAt: new Date().toISOString()
+          }
+        })
+      }
+    )
+
+    expect(createResponse.status).toBe(200)
+    const { uri, cid } = await createResponse.json()
+
+    // 2. Export repo as CAR
+    const repoResponse = await SELF.fetch(
+      'https://pds.test/xrpc/com.atproto.sync.getRepo?did=did:web:pds.test'
+    )
+
+    expect(repoResponse.status).toBe(200)
+    const carBytes = await repoResponse.arrayBuffer()
+    expect(carBytes.byteLength).toBeGreaterThan(0)
+
+    // 3. Verify record exists
+    const getResponse = await SELF.fetch(
+      `https://pds.test/xrpc/com.atproto.repo.getRecord?repo=did:web:pds.test&collection=app.bsky.feed.post&rkey=${uri.split('/').pop()}`
+    )
+
+    expect(getResponse.status).toBe(200)
+    const record = await getResponse.json()
+    expect(record.value.text).toBe('Hello from edge PDS!')
+  })
+})
+```
 
 ---
 
 ## Configuration
 
-The PDS needs configuration at deploy time:
+| Config | Type | Purpose |
+|--------|------|---------|
+| `DID` | Secret | The account's DID (did:web:... or did:plc:...) |
+| `SIGNING_KEY` | Secret | Private key for signing commits (hex or multibase) |
+| `SIGNING_KEY_PUBLIC` | Secret | Public key for DID document |
+| `HANDLE` | Variable | The account's handle |
+| `AUTH_TOKEN` | Secret | Bearer token for write auth (MVP) |
+| `PDS_HOSTNAME` | Variable | Public hostname of the PDS |
 
-| Config | Purpose |
-|--------|---------|
-| `DID` | The account's DID (did:web:... or did:plc:...) |
-| `SIGNING_KEY` | Private key for signing commits (hex or base64) |
-| `HANDLE` | The account's handle |
-| `AUTH_TOKEN` | Bearer token for write auth (MVP) |
-
-Store these as Wrangler secrets or environment variables.
-
----
-
-## Testing Strategy
-
-1. **Unit tests:** Storage adapter, CBOR encoding, CAR generation
-2. **Integration tests:** Spin up miniflare, test XRPC endpoints
-3. **Federation tests:** Point a local relay at the PDS, verify it can sync
-
-Use vitest with miniflare for Workers-specific testing.
-
----
-
-## Out of Scope (for MVP)
-
-- Account creation / multi-user
-- OAuth / third-party app auth  
-- Account migration
-- Labelling
-- Email verification
-- Rate limiting
-- Admin endpoints
-
-These can all be added later.
+Set secrets via:
+```bash
+wrangler secret put DID
+wrangler secret put SIGNING_KEY
+wrangler secret put SIGNING_KEY_PUBLIC
+wrangler secret put AUTH_TOKEN
+```
 
 ---
 
@@ -316,6 +1595,20 @@ These can all be added later.
 
 ---
 
+## Out of Scope (for MVP)
+
+- Account creation / multi-user
+- OAuth / third-party app auth
+- Account migration
+- Labelling
+- Email verification
+- Rate limiting
+- Admin endpoints
+
+These can all be added later.
+
+---
+
 ## Reference Material
 
 - AT Protocol specs: https://atproto.com/specs
@@ -324,3 +1617,4 @@ These can all be added later.
 - XRPC spec: https://atproto.com/specs/xrpc
 - Sync spec (firehose): https://atproto.com/specs/sync
 - Repo spec: https://atproto.com/specs/repository
+- Cloudflare Workers testing: https://developers.cloudflare.com/workers/testing/vitest-integration/
