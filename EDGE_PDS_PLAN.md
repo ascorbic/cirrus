@@ -47,12 +47,13 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - `com.atproto.sync.getBlob` endpoint (public read access)
   - Direct R2 access in endpoint (R2ObjectBody cannot be serialized across RPC)
   - Blobs stored with DID prefix for isolation
-- ✅ **Testing** - Migrated to vitest 4, all 73 tests passing
+- ✅ **Testing** - Migrated to vitest 4, all 81 tests passing
   - 16 storage tests
   - 26 XRPC tests (auth, concurrency, error handling, CAR validation)
   - 6 firehose tests (event sequencing, cursor validation, backfill)
   - 10 blob tests (upload, retrieval, size limits, content types)
   - 15 session tests (login, refresh, getSession, JWT validation)
+  - 8 validation tests (optimistic mode, strict mode, schema enforcement)
 - ✅ **TypeScript** - All diagnostic errors resolved, proper type declarations for cloudflare:test
 - ✅ **Protocol Helpers** - All protocol operations use official @atproto utilities
   - Record keys: `TID.nextStr()` from `@atproto/common-web`
@@ -75,6 +76,12 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - bcrypt password hashing with `bcryptjs`
   - Auth middleware accepts both static `AUTH_TOKEN` and JWT access tokens
   - 15 new tests for session endpoints
+- ✅ **Lexicon Validation** - Record schema validation for mutation endpoints
+  - `RecordValidator` class using `@atproto/lexicon` package
+  - Optimistic validation strategy (fail-open): validates if schema is loaded, allows unknown collections
+  - Integrated into `createRecord`, `putRecord`, and `applyWrites` endpoints
+  - Schemas can be added dynamically via `validator.addSchema()`
+  - 8 validation tests covering optimistic mode, strict mode, and schema enforcement
 
 ### Not Started
 
@@ -163,13 +170,12 @@ for (const [cidStr, bytes] of internalMap) { ... }
 
 ### Components We Will DEFER
 
-| Component          | Reason                                     |
-| ------------------ | ------------------------------------------ |
-| OAuth Provider     | Complex, not needed for single-user MVP    |
-| Lexicon Validation | Can add later, not required for federation |
-| Rate Limiting      | Single user, not needed for MVP            |
-| Account Migration  | Complex, post-MVP feature                  |
-| Labelling          | AppView concern, not PDS                   |
+| Component         | Reason                                  |
+| ----------------- | --------------------------------------- |
+| OAuth Provider    | Complex, not needed for single-user MVP |
+| Rate Limiting     | Single user, not needed for MVP         |
+| Account Migration | Complex, post-MVP feature               |
+| Labelling         | AppView concern, not PDS                |
 
 ---
 

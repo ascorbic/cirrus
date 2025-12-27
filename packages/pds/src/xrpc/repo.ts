@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { AtUri, ensureValidDid } from "@atproto/syntax";
 import { AccountDurableObject } from "../account-do";
+import { validator } from "../validation";
 
 export async function describeRepo(
 	c: Context<{ Bindings: Env }>,
@@ -206,6 +207,19 @@ export async function createRecord(
 		);
 	}
 
+	// Validate record against lexicon schema
+	try {
+		validator.validateRecord(collection, record);
+	} catch (err) {
+		return c.json(
+			{
+				error: "InvalidRecord",
+				message: err instanceof Error ? err.message : String(err),
+			},
+			400,
+		);
+	}
+
 	const result = await accountDO.rpcCreateRecord(collection, rkey, record);
 
 	return c.json(result);
@@ -280,6 +294,19 @@ export async function putRecord(
 		);
 	}
 
+	// Validate record against lexicon schema
+	try {
+		validator.validateRecord(collection, record);
+	} catch (err) {
+		return c.json(
+			{
+				error: "InvalidRecord",
+				message: err instanceof Error ? err.message : String(err),
+			},
+			400,
+		);
+	}
+
 	try {
 		const result = await accountDO.rpcPutRecord(collection, rkey, record);
 		return c.json(result);
@@ -329,6 +356,28 @@ export async function applyWrites(
 			},
 			400,
 		);
+	}
+
+	// Validate all records in create and update operations
+	for (let i = 0; i < writes.length; i++) {
+		const write = writes[i];
+		if (
+			write.$type === "com.atproto.repo.applyWrites#create" ||
+			write.$type === "com.atproto.repo.applyWrites#update"
+		) {
+			try {
+				validator.validateRecord(write.collection, write.value);
+			} catch (err) {
+				return c.json(
+					{
+						error: "InvalidRecord",
+						message: `Write ${i}: ${err instanceof Error ? err.message : String(err)}`,
+					},
+					400,
+				);
+			}
+		}
+		// Delete operations don't need validation
 	}
 
 	try {
