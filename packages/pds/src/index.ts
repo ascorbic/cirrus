@@ -6,6 +6,7 @@ export { Sequencer } from "./sequencer";
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { proxy } from "hono/proxy";
 import { env } from "cloudflare:workers";
 import { ensureValidDid, ensureValidHandle } from "@atproto/syntax";
 import { requireAuth } from "./middleware/auth";
@@ -173,6 +174,14 @@ app.get("/xrpc/app.bsky.ageassurance.getState", requireAuth, (c) => {
 			accountCreatedAt: new Date().toISOString(),
 		},
 	});
+});
+
+// Proxy unhandled XRPC requests to Bluesky AppView
+app.all("/xrpc/*", (c) => {
+	const url = new URL(c.req.url);
+	url.host = "api.bsky.app";
+	url.protocol = "https:";
+	return proxy(url);
 });
 
 export default app;
