@@ -1,4 +1,10 @@
 {
 	"extends": "../../tsconfig.json",
-	"include": ["src"]
+	"compilerOptions": {
+		"moduleResolution": "bundler"
+	},
+	"include": [
+		"src",
+		"worker-configuration.d.ts"
+	]
 }

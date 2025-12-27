@@ -12,26 +12,32 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
 
 **Live at: https://pds.mk.gg**
 
-### Completed (Phase 1 + Phase 2 + Partial Phase 6)
+### Completed (Phase 1 + Phase 2 + Phase 3 + Phase 6 + Phase 7)
 
 - ✅ **Storage Layer** (Phase 1) - `SqliteRepoStorage` implementing `@atproto/repo` RepoStorage interface
 - ✅ **Durable Object** (Phase 2) - `AccountDurableObject` with Repo integration
   - SQLite schema initialization
   - Lazy loading of Repo from storage
-  - Signing key import from environment
+  - Signing key import from environment with validation
   - Create new repo if none exists, load existing repo otherwise
-- ✅ **DID Document** (Phase 6 partial) - Served at `/.well-known/did.json` for did:web resolution
-- ✅ **Health Check** - `/health` endpoint
+  - RPC-first architecture following DO best practices
+- ✅ **XRPC Endpoints** (Phase 3) - Full router implementation with Hono
+  - Tier 1: Sync endpoints (`com.atproto.sync.getRepo`, `com.atproto.sync.getRepoStatus`)
+  - Tier 2: Repository operations (`com.atproto.repo.{describeRepo,getRecord,listRecords,createRecord,deleteRecord}`)
+  - Tier 3: Server identity (`com.atproto.server.describeServer`, `com.atproto.identity.resolveHandle`)
+- ✅ **DID Document** (Phase 6) - Served at `/.well-known/did.json` for did:web resolution
+- ✅ **Authentication** (Phase 7) - Bearer token middleware for write endpoints
+- ✅ **Health Check** - `/health` endpoint with version info
 - ✅ **Deployment** - Custom domain `pds.mk.gg` with auto-provisioned DNS
 - ✅ **Signing Keys** - secp256k1 keypair generated and configured
-- ✅ **Testing** - Migrated to vitest 4, all 18 tests passing including Repo integration tests
+- ✅ **Environment Validation** - Fail-fast validation for all required environment variables
+- ✅ **Testing** - Migrated to vitest 4, all 34 tests passing including integration tests
+- ✅ **TypeScript** - All diagnostic errors resolved, proper type declarations for cloudflare:test and package imports
 
 ### Not Started
 
-- ⬜ **XRPC Endpoints** (Phase 3) - Router and core endpoints
 - ⬜ **Firehose** (Phase 4) - WebSocket subscribeRepos
 - ⬜ **Blob Storage** (Phase 5) - R2 integration (R2 needs enabling in dashboard)
-- ⬜ **Authentication** (Phase 7) - Bearer token middleware
 
 ### Testing & Development Notes
 
@@ -48,6 +54,14 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
 const internalMap = (blocks as unknown as { map: Map<string, Uint8Array> }).map
 for (const [cidStr, bytes] of internalMap) { ... }
 ```
+
+**TypeScript Module Resolution**: Fixed module resolution for packages with broken exports (`multiformats`, `@ipld/dag-cbor`, `uint8arrays`) by:
+- Adding `moduleResolution: "bundler"` to tsconfig.json
+- Creating `src/types/modules.d.ts` with custom type declarations for problematic packages
+- Using `verbatimModuleSyntax` compatible imports (named imports instead of namespace imports)
+- Adding `@cloudflare/vitest-pool-workers/types` to test tsconfig for cloudflare:test module
+
+**Durable Object RPC Types**: Using `Rpc.Serializable<any>` for RPC method return types to ensure TypeScript correctly infers serializable types instead of `never`.
 
 ---
 

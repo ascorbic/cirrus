@@ -49,3 +49,53 @@ Uses strict TypeScript configuration with:
 - Module: preserve (for bundler compatibility)
 - Strict mode with additional safety checks (`noUncheckedIndexedAccess`, `noImplicitOverride`)
 - Library-focused settings (declaration files, declaration maps)
+
+## PDS Package Specifics
+
+### Testing with Cloudflare Workers
+
+The PDS package uses **vitest 4** with `@cloudflare/vitest-pool-workers` PR build (#11632):
+
+- Test configuration in `vitest.config.ts` using `cloudflareTest` plugin
+- Pool options: `maxWorkers: 1` and `isolate: false` for Durable Object testing
+- Test environment bindings configured in `.dev.vars` (not checked into git)
+- Use `cloudflare:test` module for `env` and `runInDurableObject` helpers
+- Use `cloudflare:workers` module for type imports like `DurableObject`, `Env`
+
+### TypeScript Module Resolution
+
+The PDS package requires special handling for certain dependencies:
+
+1. **Module Resolution**: Uses `moduleResolution: "bundler"` in tsconfig.json
+2. **Custom Type Declarations**: `src/types/modules.d.ts` provides declarations for packages with broken exports:
+   - `multiformats/cid`
+   - `@ipld/dag-cbor`
+   - `uint8arrays`
+   - `multiformats/hashes/sha2`
+3. **Test Types**: `test/tsconfig.json` includes `@cloudflare/vitest-pool-workers/types` for cloudflare:test module
+4. **Import Style**: Use named imports (not namespace imports) for `verbatimModuleSyntax` compatibility
+
+### Durable Objects Architecture
+
+- **Worker** (stateless): Routing, authentication, DID document serving
+- **AccountDurableObject** (stateful): Repository operations, SQLite storage
+- **RPC Pattern**: Use DO RPC methods (compatibility date >= 2024-04-03), not fetch handlers
+- **RPC Types**: Return types must use `Rpc.Serializable<T>` for proper type inference
+- **Error Handling**: Let errors propagate naturally, create fresh DO stubs per request
+- **Initialization**: Use lazy initialization with `blockConcurrencyWhile` for storage and repo setup
+
+### Environment Variables
+
+Required environment variables (validated at startup):
+- `DID` - The account's DID (did:web:...)
+- `HANDLE` - The account's handle
+- `PDS_HOSTNAME` - Public hostname
+- `AUTH_TOKEN` - Bearer token for write operations
+- `SIGNING_KEY` - Private key for signing commits
+- `SIGNING_KEY_PUBLIC` - Public key multibase for DID document
+
+### Vitest Configuration Notes
+
+- **Module Shimming**: Uses `resolve: { conditions: ["node", "require"] }` to force CJS builds for multiformats
+- **CID Deprecation**: Ignore `'CID' is deprecated` warnings - false positive from multiformats types
+- **BlockMap/CidSet**: Access internal Map/Set via `(blocks as unknown as { map: Map<...> }).map` when iterating

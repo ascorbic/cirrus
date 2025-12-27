@@ -35,6 +35,9 @@ importers:
       '@atproto/crypto':
         specifier: ^0.4.5
         version: 0.4.5
+      '@atproto/lexicon':
+        specifier: ^0.6.0
+        version: 0.6.0
       '@atproto/repo':
         specifier: ^0.8.12
         version: 0.8.12
@@ -47,12 +50,18 @@ importers:
       cborg:
         specifier: ^4.3.2
         version: 4.3.2
+      hono:
+        specifier: ^4.11.3
+        version: 4.11.3
       multiformats:
         specifier: ^9.9.0
         version: 9.9.0
       uint8arrays:
         specifier: 3.0.0
         version: 3.0.0
+      varint:
+        specifier: ^6.0.0
+        version: 6.0.0
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: ^0.18.2
@@ -66,6 +75,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20251225.0
         version: 4.20251225.0
+      '@types/varint':
+        specifier: ^6.0.3
+        version: 6.0.3
       publint:
         specifier: ^0.3.16
         version: 0.3.16
@@ -202,7 +214,7 @@ packages:
     engines: {node: '>=18.0.0'}
 
   '@cloudflare/kv-asset-handler@https://pkg.pr.new/cloudflare/workers-sdk/@cloudflare/kv-asset-handler@64982d4':
-    resolution: {integrity: sha512-A1qPBLIb6J9iKy2M8X/ywh4e9jyHsAucJZVPNqCHdHrkeJIUntVfozazCZj9Sdm+rr4om20toCQgoxRPQtlWLQ==, tarball: https://pkg.pr.new/cloudflare/workers-sdk/@cloudflare/kv-asset-handler@64982d4}
+    resolution: {tarball: https://pkg.pr.new/cloudflare/workers-sdk/@cloudflare/kv-asset-handler@64982d4}
     version: 0.4.1
     engines: {node: '>=18.0.0'}
 
@@ -216,7 +228,7 @@ packages:
         optional: true
 
   '@cloudflare/unenv-preset@https://pkg.pr.new/cloudflare/workers-sdk/@cloudflare/unenv-preset@64982d4':
-    resolution: {integrity: sha512-WXbktS8e26BzZjbqQL2syj9UTC4+8zdEIbRQ8hsVxsAp6bES9q9lkyGnreX9Ax/2ENWpc0VFidwq/k3M9MNkqA==, tarball: https://pkg.pr.new/cloudflare/workers-sdk/@cloudflare/unenv-preset@64982d4}
+    resolution: {tarball: https://pkg.pr.new/cloudflare/workers-sdk/@cloudflare/unenv-preset@64982d4}
     version: 2.7.13
     peerDependencies:
       unenv: 2.0.0-rc.24
@@ -232,7 +244,7 @@ packages:
       wrangler: ^4.53.0
 
   '@cloudflare/vitest-pool-workers@https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632':
-    resolution: {integrity: sha512-bUcBi9IflGaKQGFyxjyluNfZ4Wi+0jJzz2SMwWpHGqTPtfLJqfGv3VhfpecEE2Dir6Vohtn7Frs8uiIVThM9JA==, tarball: https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632}
+    resolution: {tarball: https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632}
     version: 0.11.1
     peerDependencies:
       '@vitest/runner': 4.0.16
@@ -1092,6 +1104,9 @@ packages:
   '@types/node@24.10.4':
     resolution: {integrity: sha512-vnDVpYPMzs4wunl27jHrfmwojOGKya0xyM3sH+UE5iv5uPS6vX7UIoh6m+vQc5LGBq52HBKPIn/zcSZVzeDEZg==}
 
+  '@types/varint@6.0.3':
+    resolution: {integrity: sha512-DHukoGWdJ2aYkveZJTB2rN2lp6m7APzVsoJQ7j/qy1fQxyamJTPD5xQzCMoJ2Qtgn0mE3wWeNOpbTyBFvF+dyA==}
+
   '@vitest/expect@3.2.4':
     resolution: {integrity: sha512-Io0yyORnB6sikFlt8QW5K7slY4OjqNX9jmJQ02QDda8lyM6B5oNgVWoSoKPac8/kgnCUzuHQKrSLtu/uOqqrig==}
 
@@ -1497,6 +1512,10 @@ packages:
   highlight.js@10.7.3:
     resolution: {integrity: sha512-tzcUFauisWKNHaRkN4Wjl/ZA07gENAjFl3J/c480dprkGTg5EQstgaNFqBfUqCq54kZRIEcreTsAgF/m2quD7A==}
 
+  hono@4.11.3:
+    resolution: {integrity: sha512-PmQi306+M/ct/m5s66Hrg+adPnkD5jiO6IjA7WhWw0gSBSo1EcRegwuI1deZ+wd5pzCGynCcn2DprnE4/yEV4w==}
+    engines: {node: '>=16.9.0'}
+
   human-id@4.1.1:
     resolution: {integrity: sha512-3gKm/gCSUipeLsRYZbbdA1BD83lBoWUkZ7G9VFrhWPAU76KwYo5KR8V28bpoPm/ygy0x5/GCbpRQdY7VLYCoIg==}
     hasBin: true
@@ -1621,7 +1640,7 @@ packages:
     hasBin: true
 
   miniflare@https://pkg.pr.new/cloudflare/workers-sdk/miniflare@64982d4:
-    resolution: {integrity: sha512-HygCuVJoQbUVyHBGRtvF3LorrbqWavL1R1gXhYJqaenbPYuP2d//2zp3zmYPF2yRkaTzVg/NDqN9BlaU6/btoA==, tarball: https://pkg.pr.new/cloudflare/workers-sdk/miniflare@64982d4}
+    resolution: {tarball: https://pkg.pr.new/cloudflare/workers-sdk/miniflare@64982d4}
     version: 4.20251217.0
     engines: {node: '>=18.0.0'}
     hasBin: true
@@ -2230,7 +2249,7 @@ packages:
         optional: true
 
   wrangler@https://pkg.pr.new/cloudflare/workers-sdk/wrangler@64982d4:
-    resolution: {integrity: sha512-x/FjewjH8KL8s4w09157cJOPpY/ovh9fPJQ8VTFA6ncxsi1BZrk/N2aRZqh8l6M2x58z+w4J6VbDtgBkE7pXnA==, tarball: https://pkg.pr.new/cloudflare/workers-sdk/wrangler@64982d4}
+    resolution: {tarball: https://pkg.pr.new/cloudflare/workers-sdk/wrangler@64982d4}
     version: 4.56.0
     engines: {node: '>=20.0.0'}
     hasBin: true
@@ -3103,6 +3122,10 @@ snapshots:
     dependencies:
       undici-types: 7.16.0
 
+  '@types/varint@6.0.3':
+    dependencies:
+      '@types/node': 24.10.4
+
   '@vitest/expect@3.2.4':
     dependencies:
       '@types/chai': 5.2.2
@@ -3534,6 +3557,8 @@ snapshots:
   has-flag@4.0.0: {}
 
   highlight.js@10.7.3: {}
+
+  hono@4.11.3: {}
 
   human-id@4.1.1: {}
 

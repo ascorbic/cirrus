@@ -20,18 +20,22 @@
 	},
 	"dependencies": {
 		"@atproto/crypto": "^0.4.5",
+		"@atproto/lexicon": "^0.6.0",
 		"@atproto/repo": "^0.8.12",
 		"@atproto/syntax": "^0.4.2",
 		"@ipld/dag-cbor": "^7.0.0",
 		"cborg": "^4.3.2",
+		"hono": "^4.11.3",
 		"multiformats": "^9.9.0",
-		"uint8arrays": "3.0.0"
+		"uint8arrays": "3.0.0",
+		"varint": "^6.0.0"
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
 		"@cloudflare/vite-plugin": "^1.17.0",
 		"@cloudflare/vitest-pool-workers": "https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632",
 		"@cloudflare/workers-types": "^4.20251225.0",
+		"@types/varint": "^6.0.3",
 		"publint": "^0.3.16",
 		"tsx": "^4.21.0",
 		"typescript": "^5.9.3",
