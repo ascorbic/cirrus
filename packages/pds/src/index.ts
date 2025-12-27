@@ -181,7 +181,7 @@ app.all("/xrpc/*", (c) => {
 	const url = new URL(c.req.url);
 	url.host = "api.bsky.app";
 	url.protocol = "https:";
-	return proxy(url);
+	return proxy(url, c.req);
 });
 
 export default app;
