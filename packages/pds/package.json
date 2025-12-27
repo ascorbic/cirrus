@@ -19,7 +19,9 @@
 		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm",
 		"test:firehose": "node scripts/load-env.js node scripts/test-firehose.js",
 		"test:firehose:prod": "PDS_URL=https://pds.mk.gg node scripts/load-env.js node scripts/test-firehose.js",
-		"create-post": "node scripts/load-env.js node scripts/create-post.js"
+		"create-post": "node scripts/load-env.js node scripts/create-post.js",
+		"setup:password": "node scripts/set-password.mjs",
+		"setup:jwt-secret": "node scripts/set-jwt-secret.mjs"
 	},
 	"dependencies": {
 		"@atproto/common-web": "^0.4.7",
@@ -29,10 +31,13 @@
 		"@atproto/lexicon": "^0.6.0",
 		"@atproto/repo": "^0.8.12",
 		"@atproto/syntax": "^0.4.2",
-		"hono": "^4.11.3"
+		"bcryptjs": "^3.0.3",
+		"hono": "^4.11.3",
+		"jose": "^6.1.3"
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
+		"@clack/prompts": "^0.11.0",
 		"@cloudflare/vite-plugin": "^1.17.0",
 		"@cloudflare/vitest-pool-workers": "https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632",
 		"@cloudflare/workers-types": "^4.20251225.0",

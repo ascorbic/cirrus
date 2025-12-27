@@ -13,6 +13,8 @@ declare namespace Cloudflare {
 		AUTH_TOKEN: string;
 		SIGNING_KEY: string;
 		SIGNING_KEY_PUBLIC: string;
+		JWT_SECRET: string;
+		PASSWORD_HASH?: string;
 		ACCOUNT: DurableObjectNamespace<import("./src/index").AccountDurableObject>;
 		BLOBS: R2Bucket;
 	}

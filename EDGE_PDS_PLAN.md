@@ -12,7 +12,7 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
 
 **Live at: https://pds.mk.gg**
 
-### Completed (Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6 + Phase 7)
+### Completed (Phase 1-8)
 
 - ✅ **Storage Layer** (Phase 1) - `SqliteRepoStorage` implementing `@atproto/repo` RepoStorage interface
 - ✅ **Durable Object** (Phase 2) - `AccountDurableObject` with Repo integration
@@ -47,11 +47,12 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - `com.atproto.sync.getBlob` endpoint (public read access)
   - Direct R2 access in endpoint (R2ObjectBody cannot be serialized across RPC)
   - Blobs stored with DID prefix for isolation
-- ✅ **Testing** - Migrated to vitest 4, all 58 tests passing
+- ✅ **Testing** - Migrated to vitest 4, all 73 tests passing
   - 16 storage tests
   - 26 XRPC tests (auth, concurrency, error handling, CAR validation)
   - 6 firehose tests (event sequencing, cursor validation, backfill)
   - 10 blob tests (upload, retrieval, size limits, content types)
+  - 15 session tests (login, refresh, getSession, JWT validation)
 - ✅ **TypeScript** - All diagnostic errors resolved, proper type declarations for cloudflare:test
 - ✅ **Protocol Helpers** - All protocol operations use official @atproto utilities
   - Record keys: `TID.nextStr()` from `@atproto/common-web`
@@ -65,6 +66,15 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - Removed: `varint`, `@types/varint`, `cborg`, `uint8arrays`, `@ipld/dag-cbor`, `multiformats`
   - Added: `@atproto/lex-data`, `@atproto/lex-cbor`, `@atproto/common-web`
   - Net reduction: 116 lines, better standards compliance
+- ✅ **Session Authentication** (Phase 8) - JWT-based login for Bluesky app compatibility
+  - `com.atproto.server.createSession` - login with identifier + password
+  - `com.atproto.server.refreshSession` - token rotation with refresh JWT
+  - `com.atproto.server.getSession` - get current session info
+  - `com.atproto.server.deleteSession` - logout (stateless, client-side)
+  - HS256 JWT signing with `jose` library (matches reference implementation)
+  - bcrypt password hashing with `bcryptjs`
+  - Auth middleware accepts both static `AUTH_TOKEN` and JWT access tokens
+  - 15 new tests for session endpoints
 
 ### Not Started
 
@@ -1577,6 +1587,292 @@ describe("Authentication", () => {
 
 ---
 
+### Phase 8: Session Authentication
+
+**Goal:** Enable login from Bluesky app and other AT Protocol clients via JWT sessions.
+
+#### Overview
+
+For single-user PDS, we simplify session auth:
+- Password stored as bcrypt hash in environment variable (`PASSWORD_HASH`)
+- JWTs signed with existing signing key (secp256k1)
+- Access tokens short-lived (2 hours), refresh tokens longer (90 days)
+- No email, no MFA, no complex account states
+
+#### Required Endpoints
+
+```typescript
+// com.atproto.server.createSession
+// POST - authenticate with identifier + password
+Input: { identifier: string, password: string }
+Output: { accessJwt, refreshJwt, handle, did, didDoc?, active: true }
+
+// com.atproto.server.refreshSession
+// POST - refresh tokens using refresh JWT (in Authorization header)
+Output: { accessJwt, refreshJwt, handle, did, didDoc?, active: true }
+
+// com.atproto.server.getSession
+// GET - get current session info (requires access JWT)
+Output: { handle, did, email?, didDoc?, active: true }
+
+// com.atproto.server.deleteSession
+// POST - logout (requires refresh JWT)
+Output: {}
+```
+
+#### JWT Token Format
+
+Per AT Protocol spec, use RFC 9068 token types:
+
+```typescript
+// Access Token (short-lived: 2 hours)
+{
+  typ: "at+jwt",
+  alg: "ES256K",  // secp256k1
+}
+{
+  iss: "did:web:pds.example.com",  // PDS DID
+  aud: "did:web:pds.example.com",  // Same for self-issued
+  sub: "did:web:user.example.com", // User DID
+  iat: 1234567890,
+  exp: 1234575090,  // +2 hours
+  scope: "atproto",
+}
+
+// Refresh Token (long-lived: 90 days)
+{
+  typ: "refresh+jwt",
+  alg: "ES256K",
+}
+{
+  iss: "did:web:pds.example.com",
+  aud: "did:web:pds.example.com",
+  sub: "did:web:user.example.com",
+  iat: 1234567890,
+  exp: 1242343890,  // +90 days
+  jti: "unique-token-id",  // For revocation
+  scope: "com.atproto.refresh",
+}
+```
+
+#### Implementation
+
+```typescript
+// src/session.ts
+import { Secp256k1Keypair } from "@atproto/crypto";
+
+const ACCESS_TOKEN_LIFETIME = 2 * 60 * 60;  // 2 hours
+const REFRESH_TOKEN_LIFETIME = 90 * 24 * 60 * 60;  // 90 days
+
+export async function createAccessToken(
+  keypair: Secp256k1Keypair,
+  did: string,
+  pdsDid: string,
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: pdsDid,
+    aud: pdsDid,
+    sub: did,
+    iat: now,
+    exp: now + ACCESS_TOKEN_LIFETIME,
+    scope: "atproto",
+  };
+  return signJwt(keypair, payload, "at+jwt");
+}
+
+export async function createRefreshToken(
+  keypair: Secp256k1Keypair,
+  did: string,
+  pdsDid: string,
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const jti = crypto.randomUUID();
+  const payload = {
+    iss: pdsDid,
+    aud: pdsDid,
+    sub: did,
+    iat: now,
+    exp: now + REFRESH_TOKEN_LIFETIME,
+    jti,
+    scope: "com.atproto.refresh",
+  };
+  return signJwt(keypair, payload, "refresh+jwt");
+}
+
+async function signJwt(
+  keypair: Secp256k1Keypair,
+  payload: Record<string, unknown>,
+  typ: string,
+): Promise<string> {
+  const header = { alg: "ES256K", typ };
+  const headerB64 = base64url(JSON.stringify(header));
+  const payloadB64 = base64url(JSON.stringify(payload));
+  const signingInput = `${headerB64}.${payloadB64}`;
+  const signature = await keypair.sign(new TextEncoder().encode(signingInput));
+  return `${signingInput}.${base64url(signature)}`;
+}
+```
+
+#### Password Verification
+
+```typescript
+// Use bcrypt for password hashing (via Web Crypto compatible library)
+import { compare } from "bcryptjs";  // Works in Workers
+
+export async function verifyPassword(
+  password: string,
+  hash: string,
+): Promise<boolean> {
+  return compare(password, hash);
+}
+```
+
+#### Auth Middleware Update
+
+```typescript
+// src/middleware/auth.ts
+export async function requireAuth(c: Context, next: Next) {
+  const authHeader = c.req.header("Authorization");
+
+  if (!authHeader?.startsWith("Bearer ")) {
+    return c.json({ error: "AuthRequired" }, 401);
+  }
+
+  const token = authHeader.slice(7);
+
+  // Try static token first (backwards compat)
+  if (token === c.env.AUTH_TOKEN) {
+    return next();
+  }
+
+  // Try JWT verification
+  try {
+    const payload = await verifyAccessToken(token, c.env);
+    c.set("auth", { did: payload.sub, scope: payload.scope });
+    return next();
+  } catch {
+    return c.json({ error: "InvalidToken" }, 401);
+  }
+}
+```
+
+#### Configuration
+
+New environment variable:
+- `PASSWORD_HASH` - bcrypt hash of user password (generate with `npx bcryptjs hash "password"`)
+
+#### Testing Strategy
+
+```typescript
+// test/session.test.ts
+describe("Session Authentication", () => {
+  it("creates session with valid credentials", async () => {
+    const response = await SELF.fetch(
+      "https://pds.test/xrpc/com.atproto.server.createSession",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identifier: "alice.test",
+          password: "test-password",
+        }),
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.accessJwt).toBeDefined();
+    expect(body.refreshJwt).toBeDefined();
+    expect(body.did).toBe("did:web:pds.test");
+    expect(body.handle).toBe("alice.test");
+  });
+
+  it("rejects invalid password", async () => {
+    const response = await SELF.fetch(
+      "https://pds.test/xrpc/com.atproto.server.createSession",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identifier: "alice.test",
+          password: "wrong-password",
+        }),
+      }
+    );
+
+    expect(response.status).toBe(401);
+  });
+
+  it("uses access token for authenticated requests", async () => {
+    // Login
+    const loginRes = await SELF.fetch(
+      "https://pds.test/xrpc/com.atproto.server.createSession",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identifier: "alice.test",
+          password: "test-password",
+        }),
+      }
+    );
+    const { accessJwt } = await loginRes.json();
+
+    // Use token
+    const response = await SELF.fetch(
+      "https://pds.test/xrpc/com.atproto.repo.createRecord",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessJwt}`,
+        },
+        body: JSON.stringify({
+          repo: "did:web:pds.test",
+          collection: "app.bsky.feed.post",
+          record: { text: "Hello!", createdAt: new Date().toISOString() },
+        }),
+      }
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it("refreshes session with refresh token", async () => {
+    // Login
+    const loginRes = await SELF.fetch(
+      "https://pds.test/xrpc/com.atproto.server.createSession",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identifier: "alice.test",
+          password: "test-password",
+        }),
+      }
+    );
+    const { refreshJwt } = await loginRes.json();
+
+    // Refresh
+    const response = await SELF.fetch(
+      "https://pds.test/xrpc/com.atproto.server.refreshSession",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${refreshJwt}` },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.accessJwt).toBeDefined();
+    expect(body.refreshJwt).toBeDefined();
+  });
+});
+```
+
+---
+
 ## Testing Configuration
 
 ### Vitest Setup
@@ -1687,7 +1983,9 @@ describe("Federation Integration", () => {
 | `SIGNING_KEY`        | Secret   | Private key for signing commits (hex or multibase) |
 | `SIGNING_KEY_PUBLIC` | Secret   | Public key for DID document                        |
 | `HANDLE`             | Variable | The account's handle                               |
-| `AUTH_TOKEN`         | Secret   | Bearer token for write auth (MVP)                  |
+| `AUTH_TOKEN`         | Secret   | Bearer token for write auth (API access)           |
+| `JWT_SECRET`         | Secret   | HS256 secret for session tokens (min 32 chars)     |
+| `PASSWORD_HASH`      | Secret   | Bcrypt hash for app login (optional)               |
 | `PDS_HOSTNAME`       | Variable | Public hostname of the PDS                         |
 
 Set secrets via:
@@ -1697,6 +1995,8 @@ wrangler secret put DID
 wrangler secret put SIGNING_KEY
 wrangler secret put SIGNING_KEY_PUBLIC
 wrangler secret put AUTH_TOKEN
+wrangler secret put JWT_SECRET    # Use a long random string (32+ chars)
+wrangler secret put PASSWORD_HASH # Generate: npx bcryptjs hash "your-password"
 ```
 
 ---

@@ -15,6 +15,9 @@ export default defineConfig({
 						"e5b452e70de7fb7864fdd7f0d67c6dbd0f128413a1daa1b2b8a871e906fc90cc",
 					SIGNING_KEY_PUBLIC:
 						"zQ3shbUq6umkAhwsxEXj6fRZ3ptBtF5CNZbAGoKjvFRatUkVY",
+					JWT_SECRET: "test-jwt-secret-at-least-32-chars-long",
+					PASSWORD_HASH:
+						"$2b$10$B6MKXNJ33Co3RoIVYAAvvO3jImuMiqL1T1YnFDN7E.hTZLtbB4SW6",
 				},
 			},
 		}),

@@ -1,4 +1,5 @@
 import type { Context, Next } from "hono";
+import { verifyAccessToken } from "../session";
 
 export async function requireAuth(
 	c: Context<{ Bindings: Env }>,
@@ -17,7 +18,36 @@ export async function requireAuth(
 	}
 
 	const token = auth.slice(7);
-	if (token !== c.env.AUTH_TOKEN) {
+
+	// Try static token first (backwards compatibility)
+	if (token === c.env.AUTH_TOKEN) {
+		return next();
+	}
+
+	// Try JWT verification
+	const serviceDid = `did:web:${c.env.PDS_HOSTNAME}`;
+	try {
+		const payload = await verifyAccessToken(
+			token,
+			c.env.JWT_SECRET,
+			serviceDid,
+		);
+
+		// Verify subject matches our DID
+		if (payload.sub !== c.env.DID) {
+			return c.json(
+				{
+					error: "AuthenticationRequired",
+					message: "Invalid access token",
+				},
+				401,
+			);
+		}
+
+		// Store auth info in context for downstream use
+		c.set("auth", { did: payload.sub, scope: payload.scope });
+		return next();
+	} catch {
 		return c.json(
 			{
 				error: "AuthenticationRequired",
@@ -26,6 +56,4 @@ export async function requireAuth(
 			401,
 		);
 	}
-
-	return next();
 }

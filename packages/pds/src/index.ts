@@ -22,6 +22,7 @@ const required = [
 	"AUTH_TOKEN",
 	"SIGNING_KEY",
 	"SIGNING_KEY_PUBLIC",
+	"JWT_SECRET",
 ] as const;
 
 for (const key of required) {
@@ -144,5 +145,11 @@ app.post("/xrpc/com.atproto.repo.uploadBlob", requireAuth, (c) =>
 // Server identity
 app.get("/xrpc/com.atproto.server.describeServer", server.describeServer);
 app.get("/xrpc/com.atproto.identity.resolveHandle", server.resolveHandle);
+
+// Session management
+app.post("/xrpc/com.atproto.server.createSession", server.createSession);
+app.post("/xrpc/com.atproto.server.refreshSession", server.refreshSession);
+app.get("/xrpc/com.atproto.server.getSession", server.getSession);
+app.post("/xrpc/com.atproto.server.deleteSession", server.deleteSession);
 
 export default app;
