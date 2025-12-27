@@ -5,7 +5,9 @@ import {
 	BlockMap,
 	blocksToCarFile,
 	type RecordCreateOp,
+	type RecordUpdateOp,
 	type RecordDeleteOp,
+	type RecordWriteOp,
 } from "@atproto/repo";
 import type { RepoRecord } from "@atproto/lexicon";
 import { Secp256k1Keypair } from "@atproto/crypto";
@@ -422,6 +424,202 @@ export class AccountDurableObject extends DurableObject<Env> {
 				cid: updatedRepo.cid.toString(),
 				rev: updatedRepo.cid.toString(),
 			},
+		};
+	}
+
+	/**
+	 * RPC method: Apply multiple writes (batch create/update/delete)
+	 */
+	async rpcApplyWrites(
+		writes: Array<{
+			$type: string;
+			collection: string;
+			rkey?: string;
+			value?: unknown;
+		}>,
+	): Promise<{
+		commit: { cid: string; rev: string };
+		results: Array<{
+			$type: string;
+			uri?: string;
+			cid?: string;
+			validationStatus?: string;
+		}>;
+	}> {
+		const repo = await this.getRepo();
+		const keypair = await this.getKeypair();
+
+		// Convert input writes to RecordWriteOp format
+		const ops: RecordWriteOp[] = [];
+		const results: Array<{
+			$type: string;
+			uri?: string;
+			cid?: string;
+			validationStatus?: string;
+			collection: string;
+			rkey: string;
+			action: WriteOpAction;
+		}> = [];
+
+		for (const write of writes) {
+			if (write.$type === "com.atproto.repo.applyWrites#create") {
+				const rkey = write.rkey || TID.nextStr();
+				const op: RecordCreateOp = {
+					action: WriteOpAction.Create,
+					collection: write.collection,
+					rkey,
+					record: write.value as RepoRecord,
+				};
+				ops.push(op);
+				results.push({
+					$type: "com.atproto.repo.applyWrites#createResult",
+					collection: write.collection,
+					rkey,
+					action: WriteOpAction.Create,
+				});
+			} else if (write.$type === "com.atproto.repo.applyWrites#update") {
+				if (!write.rkey) {
+					throw new Error("Update requires rkey");
+				}
+				const op: RecordUpdateOp = {
+					action: WriteOpAction.Update,
+					collection: write.collection,
+					rkey: write.rkey,
+					record: write.value as RepoRecord,
+				};
+				ops.push(op);
+				results.push({
+					$type: "com.atproto.repo.applyWrites#updateResult",
+					collection: write.collection,
+					rkey: write.rkey,
+					action: WriteOpAction.Update,
+				});
+			} else if (write.$type === "com.atproto.repo.applyWrites#delete") {
+				if (!write.rkey) {
+					throw new Error("Delete requires rkey");
+				}
+				const op: RecordDeleteOp = {
+					action: WriteOpAction.Delete,
+					collection: write.collection,
+					rkey: write.rkey,
+				};
+				ops.push(op);
+				results.push({
+					$type: "com.atproto.repo.applyWrites#deleteResult",
+					collection: write.collection,
+					rkey: write.rkey,
+					action: WriteOpAction.Delete,
+				});
+			} else {
+				throw new Error(`Unknown write type: ${write.$type}`);
+			}
+		}
+
+		const prevCid = repo.cid;
+		const updatedRepo = await repo.applyWrites(ops, keypair);
+		this.repo = updatedRepo;
+
+		// Build final results with CIDs
+		const finalResults: Array<{
+			$type: string;
+			uri?: string;
+			cid?: string;
+			validationStatus?: string;
+		}> = [];
+
+		for (const result of results) {
+			if (result.action === WriteOpAction.Delete) {
+				finalResults.push({
+					$type: result.$type,
+				});
+			} else {
+				// Get the CID for create/update
+				const dataKey = `${result.collection}/${result.rkey}`;
+				const recordCid = await this.repo.data.get(dataKey);
+				finalResults.push({
+					$type: result.$type,
+					uri: AtUri.make(this.repo.did, result.collection, result.rkey).toString(),
+					cid: recordCid?.toString(),
+					validationStatus: "valid",
+				});
+			}
+		}
+
+		// Sequence the commit for firehose
+		if (this.sequencer) {
+			const newBlocks = new BlockMap();
+			const rows = this.ctx.storage.sql
+				.exec(
+					"SELECT cid, bytes FROM blocks WHERE rev = ?",
+					this.repo.cid.toString(),
+				)
+				.toArray();
+
+			for (const row of rows) {
+				const cid = CID.parse(row.cid as string);
+				const bytes = new Uint8Array(row.bytes as ArrayBuffer);
+				newBlocks.set(cid, bytes);
+			}
+
+			const commitData: CommitData = {
+				did: this.repo.did,
+				commit: this.repo.cid,
+				rev: this.repo.cid.toString(),
+				since: prevCid.toString(),
+				newBlocks,
+				ops,
+			};
+
+			const seq = await this.sequencer.sequenceCommit(commitData);
+
+			// Build ops for firehose event
+			const firehoseOps = await Promise.all(
+				results.map(async (result) => {
+					if (result.action === WriteOpAction.Delete) {
+						return {
+							action: "delete" as const,
+							path: `${result.collection}/${result.rkey}`,
+							cid: null,
+						};
+					}
+					const dataKey = `${result.collection}/${result.rkey}`;
+					const cid = await this.repo!.data.get(dataKey);
+					return {
+						action: result.action === WriteOpAction.Create ? "create" as const : "update" as const,
+						path: `${result.collection}/${result.rkey}`,
+						cid,
+					};
+				}),
+			);
+
+			const event: SeqEvent = {
+				seq,
+				type: "commit",
+				event: {
+					seq,
+					rebase: false,
+					tooBig: false,
+					repo: this.repo.did,
+					commit: this.repo.cid,
+					rev: this.repo.cid.toString(),
+					since: prevCid.toString(),
+					blocks: new Uint8Array(),
+					ops: firehoseOps as any,
+					blobs: [],
+					time: new Date().toISOString(),
+				},
+				time: new Date().toISOString(),
+			};
+
+			await this.broadcastCommit(event);
+		}
+
+		return {
+			commit: {
+				cid: this.repo.cid.toString(),
+				rev: this.repo.cid.toString(),
+			},
+			results: finalResults,
 		};
 	}
 

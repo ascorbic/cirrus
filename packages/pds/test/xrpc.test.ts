@@ -633,6 +633,321 @@ describe("XRPC Endpoints", () => {
 		});
 	});
 
+	describe("applyWrites", () => {
+		it("should create multiple records in batch", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						writes: [
+							{
+								$type: "com.atproto.repo.applyWrites#create",
+								collection: "app.bsky.feed.post",
+								rkey: "batch-1",
+								value: {
+									$type: "app.bsky.feed.post",
+									text: "Batch post 1",
+									createdAt: new Date().toISOString(),
+								},
+							},
+							{
+								$type: "com.atproto.repo.applyWrites#create",
+								collection: "app.bsky.feed.post",
+								rkey: "batch-2",
+								value: {
+									$type: "app.bsky.feed.post",
+									text: "Batch post 2",
+									createdAt: new Date().toISOString(),
+								},
+							},
+						],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(200);
+
+			const data = (await response.json()) as any;
+			expect(data.commit).toBeDefined();
+			expect(data.commit.cid).toBeDefined();
+			expect(data.results).toHaveLength(2);
+			expect(data.results[0].$type).toBe("com.atproto.repo.applyWrites#createResult");
+			expect(data.results[0].uri).toContain("batch-1");
+			expect(data.results[1].uri).toContain("batch-2");
+		});
+
+		it("should update a record", async () => {
+			// First create a record
+			await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						rkey: "to-update",
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Original text",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
+				env,
+			);
+
+			// Update it via applyWrites
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						writes: [
+							{
+								$type: "com.atproto.repo.applyWrites#update",
+								collection: "app.bsky.feed.post",
+								rkey: "to-update",
+								value: {
+									$type: "app.bsky.feed.post",
+									text: "Updated text",
+									createdAt: new Date().toISOString(),
+								},
+							},
+						],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(200);
+
+			const data = (await response.json()) as any;
+			expect(data.results[0].$type).toBe("com.atproto.repo.applyWrites#updateResult");
+
+			// Verify the update
+			const getResponse = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=to-update`,
+				),
+				env,
+			);
+			const record = (await getResponse.json()) as any;
+			expect(record.value.text).toBe("Updated text");
+		});
+
+		it("should delete a record via applyWrites", async () => {
+			// First create a record
+			await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						rkey: "to-delete-batch",
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Delete me via batch",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
+				env,
+			);
+
+			// Delete via applyWrites
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						writes: [
+							{
+								$type: "com.atproto.repo.applyWrites#delete",
+								collection: "app.bsky.feed.post",
+								rkey: "to-delete-batch",
+							},
+						],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(200);
+
+			const data = (await response.json()) as any;
+			expect(data.results[0].$type).toBe("com.atproto.repo.applyWrites#deleteResult");
+
+			// Verify deletion
+			const getResponse = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=to-delete-batch`,
+				),
+				env,
+			);
+			expect(getResponse.status).toBe(404);
+		});
+
+		it("should handle mixed operations", async () => {
+			// Create records to work with
+			await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						rkey: "mixed-update",
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Will be updated",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
+				env,
+			);
+
+			await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						rkey: "mixed-delete",
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Will be deleted",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
+				env,
+			);
+
+			// Mixed batch: create, update, delete
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						writes: [
+							{
+								$type: "com.atproto.repo.applyWrites#create",
+								collection: "app.bsky.feed.post",
+								rkey: "mixed-new",
+								value: {
+									$type: "app.bsky.feed.post",
+									text: "New from batch",
+									createdAt: new Date().toISOString(),
+								},
+							},
+							{
+								$type: "com.atproto.repo.applyWrites#update",
+								collection: "app.bsky.feed.post",
+								rkey: "mixed-update",
+								value: {
+									$type: "app.bsky.feed.post",
+									text: "Updated from batch",
+									createdAt: new Date().toISOString(),
+								},
+							},
+							{
+								$type: "com.atproto.repo.applyWrites#delete",
+								collection: "app.bsky.feed.post",
+								rkey: "mixed-delete",
+							},
+						],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(200);
+
+			const data = (await response.json()) as any;
+			expect(data.results).toHaveLength(3);
+			expect(data.results[0].$type).toBe("com.atproto.repo.applyWrites#createResult");
+			expect(data.results[1].$type).toBe("com.atproto.repo.applyWrites#updateResult");
+			expect(data.results[2].$type).toBe("com.atproto.repo.applyWrites#deleteResult");
+		});
+
+		it("should require authentication", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						writes: [],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(401);
+		});
+
+		it("should reject too many writes", async () => {
+			const writes = Array.from({ length: 201 }, (_, i) => ({
+				$type: "com.atproto.repo.applyWrites#create",
+				collection: "app.bsky.feed.post",
+				value: {
+					$type: "app.bsky.feed.post",
+					text: `Post ${i}`,
+					createdAt: new Date().toISOString(),
+				},
+			}));
+
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						writes,
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(400);
+
+			const data = (await response.json()) as any;
+			expect(data.message).toContain("Too many writes");
+		});
+	});
+
 	describe("Sync Endpoints", () => {
 		it("should get repo status", async () => {
 			const response = await worker.fetch(

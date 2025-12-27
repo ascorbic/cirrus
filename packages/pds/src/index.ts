@@ -142,6 +142,9 @@ app.post("/xrpc/com.atproto.repo.deleteRecord", requireAuth, (c) =>
 app.post("/xrpc/com.atproto.repo.uploadBlob", requireAuth, (c) =>
 	repo.uploadBlob(c, getAccountDO(c.env)),
 );
+app.post("/xrpc/com.atproto.repo.applyWrites", requireAuth, (c) =>
+	repo.applyWrites(c, getAccountDO(c.env)),
+);
 
 // Server identity
 app.get("/xrpc/com.atproto.server.describeServer", server.describeServer);

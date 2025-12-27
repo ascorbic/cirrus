@@ -253,6 +253,57 @@ export async function deleteRecord(
 	return c.json(result);
 }
 
+export async function applyWrites(
+	c: Context<{ Bindings: Env }>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
+	const body = await c.req.json();
+	const { repo, writes } = body;
+
+	if (!repo || !writes || !Array.isArray(writes)) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required parameters: repo, writes",
+			},
+			400,
+		);
+	}
+
+	if (repo !== c.env.DID) {
+		return c.json(
+			{
+				error: "InvalidRepo",
+				message: `Invalid repository: ${repo}`,
+			},
+			400,
+		);
+	}
+
+	if (writes.length > 200) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Too many writes. Max: 200",
+			},
+			400,
+		);
+	}
+
+	try {
+		const result = await accountDO.rpcApplyWrites(writes);
+		return c.json(result);
+	} catch (err) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: err instanceof Error ? err.message : String(err),
+			},
+			400,
+		);
+	}
+}
+
 export async function uploadBlob(
 	c: Context<{ Bindings: Env }>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
