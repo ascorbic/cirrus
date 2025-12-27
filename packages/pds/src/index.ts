@@ -90,6 +90,17 @@ app.get("/xrpc/com.atproto.sync.getRepoStatus", (c) =>
 	sync.getRepoStatus(c, getAccountDO(c.env)),
 );
 
+// WebSocket firehose
+app.get("/xrpc/com.atproto.sync.subscribeRepos", async (c) => {
+	const upgradeHeader = c.req.header("Upgrade");
+	if (upgradeHeader !== "websocket") {
+		return c.json({ error: "InvalidRequest", message: "Expected WebSocket upgrade" }, 400);
+	}
+
+	const accountDO = getAccountDO(c.env);
+	return accountDO.handleFirehoseUpgrade(c.req.raw);
+});
+
 // Repository operations
 app.get("/xrpc/com.atproto.repo.describeRepo", (c) =>
 	repo.describeRepo(c, getAccountDO(c.env)),

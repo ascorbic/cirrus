@@ -69,6 +69,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20251225.0
         version: 4.20251225.0
+      '@ipld/car':
+        specifier: ^5.4.2
+        version: 5.4.2
       publint:
         specifier: ^0.3.16
         version: 0.3.16
@@ -910,8 +913,16 @@ packages:
       '@types/node':
         optional: true
 
+  '@ipld/car@5.4.2':
+    resolution: {integrity: sha512-gfyrJvePyXnh2Fbj8mPg4JYvEZ3izhk8C9WgAle7xIYbrJNSXmNQ6BxAls8Gof97vvGbCROdxbTWRmHJtTCbcg==}
+    engines: {node: '>=16.0.0', npm: '>=7.0.0'}
+
   '@ipld/dag-cbor@7.0.3':
     resolution: {integrity: sha512-1VVh2huHsuohdXC1bGJNE8WR72slZ9XE2T3wbBBq31dm7ZBatmKLLxrB+XAqafxfRFjv08RZmj/W/ZqaM13AuA==}
+
+  '@ipld/dag-cbor@9.2.5':
+    resolution: {integrity: sha512-84wSr4jv30biui7endhobYhXBQzQE4c/wdoWlFrKcfiwH+ofaPg8fwsM8okX9cOzkkrsAsNdDyH3ou+kiLquwQ==}
+    engines: {node: '>=16.0.0', npm: '>=7.0.0'}
 
   '@jridgewell/resolve-uri@3.1.2':
     resolution: {integrity: sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==}
@@ -1226,6 +1237,10 @@ packages:
 
   cborg@1.10.2:
     resolution: {integrity: sha512-b3tFPA9pUr2zCUiCfRd2+wok2/LBSNUMKOuRRok+WlvvAgEt/PlbgPTsZUcwCOs53IJvLgTp0eotwtosE6njug==}
+    hasBin: true
+
+  cborg@4.3.2:
+    resolution: {integrity: sha512-l+QzebEAG0vb09YKkaOrMi2zmm80UNjmbvocMIeW5hO7JOXWdrQ/H49yOKfYX0MBgrj/KWgatBnEgRXyNyKD+A==}
     hasBin: true
 
   chai@5.2.0:
@@ -1635,6 +1650,9 @@ packages:
 
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
+
+  multiformats@13.4.2:
+    resolution: {integrity: sha512-eh6eHCrRi1+POZ3dA+Dq1C6jhP1GNtr9CRINMb67OKzqW9I5DUuZM/3jLPlzhgpGeiNUlEGEbkCYChXMCc/8DQ==}
 
   multiformats@9.9.0:
     resolution: {integrity: sha512-HoMUjhH9T8DDBNT+6xzkrd9ga/XiBI4xLr58LJACwK6G3HTOPeMz4nB4KJs33L2BelrIJa7P0VuNaVF3hMYfjg==}
@@ -2957,10 +2975,22 @@ snapshots:
     optionalDependencies:
       '@types/node': 24.10.4
 
+  '@ipld/car@5.4.2':
+    dependencies:
+      '@ipld/dag-cbor': 9.2.5
+      cborg: 4.3.2
+      multiformats: 13.4.2
+      varint: 6.0.0
+
   '@ipld/dag-cbor@7.0.3':
     dependencies:
       cborg: 1.10.2
       multiformats: 9.9.0
+
+  '@ipld/dag-cbor@9.2.5':
+    dependencies:
+      cborg: 4.3.2
+      multiformats: 13.4.2
 
   '@jridgewell/resolve-uri@3.1.2': {}
 
@@ -3241,6 +3271,8 @@ snapshots:
   cac@6.7.14: {}
 
   cborg@1.10.2: {}
+
+  cborg@4.3.2: {}
 
   chai@5.2.0:
     dependencies:
@@ -3687,6 +3719,8 @@ snapshots:
   mri@1.2.0: {}
 
   ms@2.1.3: {}
+
+  multiformats@13.4.2: {}
 
   multiformats@9.9.0: {}
 

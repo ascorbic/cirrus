@@ -30,9 +30,20 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
 - ✅ **Health Check** - `/health` endpoint with version info
 - ✅ **Deployment** - Custom domain `pds.mk.gg` with auto-provisioned DNS
 - ✅ **Signing Keys** - secp256k1 keypair generated and configured
-- ✅ **Environment Validation** - Fail-fast validation for all required environment variables
-- ✅ **Testing** - Migrated to vitest 4, all 34 tests passing including integration tests
-- ✅ **TypeScript** - All diagnostic errors resolved, proper type declarations for cloudflare:test and package imports
+- ✅ **Environment Validation** - Module-scope validation using `cloudflare:workers` env import
+- ✅ **Testing** - Migrated to vitest 4, all 28 tests passing
+- ✅ **TypeScript** - All diagnostic errors resolved, proper type declarations for cloudflare:test
+- ✅ **Protocol Helpers** - All protocol operations use official @atproto utilities
+  - Record keys: `TID.nextStr()` from `@atproto/common-web`
+  - AT URI construction: `AtUri.make()` from `@atproto/syntax`
+  - DID validation: `ensureValidDid()` from `@atproto/syntax`
+  - Handle validation: `ensureValidHandle()` from `@atproto/syntax`
+  - CBOR encoding: `@atproto/lex-cbor`
+  - CAR export: `blocksToCarFile()` from `@atproto/repo`
+- ✅ **Dependency Optimization** - Removed 6 low-level dependencies, added 3 @atproto helpers
+  - Removed: `varint`, `@types/varint`, `cborg`, `uint8arrays`, `@ipld/dag-cbor`, `multiformats`
+  - Added: `@atproto/lex-data`, `@atproto/lex-cbor`, `@atproto/common-web`
+  - Net reduction: 116 lines, better standards compliance
 
 ### Not Started
 
@@ -98,11 +109,11 @@ for (const [cidStr, bytes] of internalMap) { ... }
 |-----------|---------|-----------|
 | MST & Repo Operations | `@atproto/repo` | Core protocol logic, well-tested, handles commits, MST updates, CAR export |
 | Cryptographic Operations | `@atproto/crypto` | Signing, verification, did:key - critical to get right |
-| Syntax Utilities | `@atproto/syntax` | TID generation, AT-URI parsing, handle validation |
-| Schema Validation | `@atproto/lexicon` | Optional but useful for record validation |
-| CBOR Encoding | `cborg` + `@ipld/dag-cbor` | Standard, tested, Workers-compatible |
-| CAR Files | `@ipld/car` | Standard IPLD library, used by @atproto/repo |
-| CID Utilities | `multiformats` | Standard library for content addressing |
+| Protocol Utilities | `@atproto/syntax` | TID generation, AT-URI parsing, DID/handle validation |
+| Schema Validation | `@atproto/lexicon` | Record type validation |
+| CBOR Encoding | `@atproto/lex-cbor` | Official AT Protocol CBOR utilities, Workers-compatible |
+| CID Operations | `@atproto/lex-data` | Stable CID interface wrapping multiformats |
+| Common Utilities | `@atproto/common-web` | TID generation, timestamp utilities |
 
 ### Components We Will BUILD
 
@@ -134,24 +145,36 @@ All verified to work on Cloudflare Workers with `nodejs_compat`:
 ```json
 {
   "dependencies": {
-    "@atproto/repo": "^0.8.0",
-    "@atproto/crypto": "^0.4.0",
-    "@atproto/syntax": "^0.3.0",
-    "@atproto/lexicon": "^0.4.0",
-    "@ipld/car": "^5.4.0",
-    "@ipld/dag-cbor": "^9.0.0",
-    "multiformats": "^13.0.0",
-    "cborg": "^4.0.0",
-    "uint8arrays": "^5.0.0",
-    "hono": "^4.0.0"
+    "@atproto/common-web": "^0.4.7",
+    "@atproto/crypto": "^0.4.5",
+    "@atproto/lex-cbor": "^0.0.3",
+    "@atproto/lex-data": "^0.0.3",
+    "@atproto/lexicon": "^0.6.0",
+    "@atproto/repo": "^0.8.12",
+    "@atproto/syntax": "^0.4.2",
+    "hono": "^4.11.3"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.8.0",
-    "vitest": "~3.2.0",
-    "wrangler": "^4.0.0"
+    "@arethetypeswrong/cli": "^0.18.2",
+    "@cloudflare/vite-plugin": "^1.17.0",
+    "@cloudflare/vitest-pool-workers": "https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632",
+    "@cloudflare/workers-types": "^4.20251225.0",
+    "publint": "^0.3.16",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0",
+    "vitest": "^4.0.0",
+    "wrangler": "^4.54.0"
   }
 }
 ```
+
+**Key Changes from Original Plan:**
+- Using official `@atproto/lex-cbor` instead of direct `@ipld/dag-cbor` and `cborg`
+- Using `@atproto/lex-data` for CID operations instead of direct `multiformats`
+- Added `@atproto/common-web` for TID utilities
+- Removed low-level encoding libraries - all handled by @atproto packages
+- Using vitest 4 via PR build for Durable Object testing support
 
 ### Compatibility Notes
 

@@ -33,6 +33,7 @@
 		"@cloudflare/vite-plugin": "^1.17.0",
 		"@cloudflare/vitest-pool-workers": "https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632",
 		"@cloudflare/workers-types": "^4.20251225.0",
+		"@ipld/car": "^5.4.2",
 		"publint": "^0.3.16",
 		"tsx": "^4.21.0",
 		"typescript": "^5.9.3",

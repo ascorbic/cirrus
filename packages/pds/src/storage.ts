@@ -44,6 +44,16 @@ export class SqliteRepoStorage
 			-- Initialize with empty state if not exists
 			INSERT OR IGNORE INTO repo_state (id, root_cid, rev, seq)
 			VALUES (1, NULL, NULL, 0);
+
+			-- Firehose events (sequenced commit log)
+			CREATE TABLE IF NOT EXISTS firehose_events (
+				seq INTEGER PRIMARY KEY AUTOINCREMENT,
+				event_type TEXT NOT NULL,
+				payload BLOB NOT NULL,
+				created_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_firehose_created_at ON firehose_events(created_at);
 		`);
 	}
 
