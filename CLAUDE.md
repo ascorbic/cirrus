@@ -64,16 +64,11 @@ The PDS package uses **vitest 4** with `@cloudflare/vitest-pool-workers` PR buil
 
 ### TypeScript Module Resolution
 
-The PDS package requires special handling for certain dependencies:
+The PDS package TypeScript configuration:
 
 1. **Module Resolution**: Uses `moduleResolution: "bundler"` in tsconfig.json
-2. **Custom Type Declarations**: `src/types/modules.d.ts` provides declarations for packages with broken exports:
-   - `multiformats/cid`
-   - `@ipld/dag-cbor`
-   - `uint8arrays`
-   - `multiformats/hashes/sha2`
-3. **Test Types**: `test/tsconfig.json` includes `@cloudflare/vitest-pool-workers/types` for cloudflare:test module
-4. **Import Style**: Use named imports (not namespace imports) for `verbatimModuleSyntax` compatibility
+2. **Test Types**: `test/tsconfig.json` includes `@cloudflare/vitest-pool-workers/types` for cloudflare:test module
+3. **Import Style**: Use named imports (not namespace imports) for `verbatimModuleSyntax` compatibility
 
 ### Durable Objects Architecture
 
@@ -86,16 +81,58 @@ The PDS package requires special handling for certain dependencies:
 
 ### Environment Variables
 
-Required environment variables (validated at startup):
-- `DID` - The account's DID (did:web:...)
-- `HANDLE` - The account's handle
+Required environment variables (validated at module load using `cloudflare:workers` env import):
+- `DID` - The account's DID (did:web:...) - validated with `ensureValidDid()`
+- `HANDLE` - The account's handle - validated with `ensureValidHandle()`
 - `PDS_HOSTNAME` - Public hostname
 - `AUTH_TOKEN` - Bearer token for write operations
 - `SIGNING_KEY` - Private key for signing commits
 - `SIGNING_KEY_PUBLIC` - Public key multibase for DID document
 
+**Note**: Environment validation happens at module scope. Worker fails fast at startup if any required variables are missing or invalid.
+
+### Protocol Helpers and Dependencies
+
+The codebase uses official @atproto packages for all protocol operations:
+
+**Encoding and Data Structures:**
+- `@atproto/lex-cbor` - CBOR encoding/decoding with `encode()` and `cidForCbor()`
+- `@atproto/lex-data` - CID operations via stable interface wrapping multiformats
+- `@atproto/repo` - Repository operations, `BlockMap`, `blocksToCarFile()`
+
+**Protocol Utilities:**
+- `@atproto/common-web` - `TID.nextStr()` for record key generation
+- `@atproto/syntax` - `AtUri.make()`, `ensureValidDid()`, `ensureValidHandle()`
+- `@atproto/crypto` - `Secp256k1Keypair` for signing operations
+- `@atproto/lexicon` - Schema validation and type definitions
+
+**Important Notes:**
+- Never manually construct AT URIs - use `AtUri.make(did, collection, rkey).toString()`
+- Never manually generate record keys - use `TID.nextStr()`
+- Always validate DIDs and handles using `ensureValidDid()` / `ensureValidHandle()`
+- Use `@atproto/lex-cbor` for test fixtures instead of direct `@ipld/dag-cbor`
+- CAR file export uses `blocksToCarFile()` from `@atproto/repo`
+
 ### Vitest Configuration Notes
 
 - **Module Shimming**: Uses `resolve: { conditions: ["node", "require"] }` to force CJS builds for multiformats
-- **CID Deprecation**: Ignore `'CID' is deprecated` warnings - false positive from multiformats types
 - **BlockMap/CidSet**: Access internal Map/Set via `(blocks as unknown as { map: Map<...> }).map` when iterating
+- **Test Count**: 48 tests (16 storage tests, 26 XRPC tests, 6 firehose tests)
+
+### Firehose Implementation
+
+The PDS implements the WebSocket-based firehose for real-time federation:
+
+- **Sequencer**: Manages commit event log in `firehose_events` SQLite table
+- **WebSocket Hibernation API**: DurableObject WebSocket handlers (message, close, error)
+- **Frame Encoding**: DAG-CBOR frame encoding (header + body concatenation)
+- **Event Broadcasting**: Automatic sequencing and broadcast on write operations
+- **Cursor-based Backfill**: Replay events from sequence number with validation
+
+**Event Flow:**
+1. `createRecord`/`deleteRecord` → sequence commit to SQLite
+2. Broadcast CBOR-encoded frame to all connected WebSocket clients
+3. Update client cursor positions in WebSocket attachments
+
+**Endpoint:**
+- `GET /xrpc/com.atproto.sync.subscribeRepos?cursor={seq}` - WebSocket upgrade for commit stream

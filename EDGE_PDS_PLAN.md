@@ -12,7 +12,7 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
 
 **Live at: https://pds.mk.gg**
 
-### Completed (Phase 1 + Phase 2 + Phase 3 + Phase 6 + Phase 7)
+### Completed (Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 6 + Phase 7)
 
 - ✅ **Storage Layer** (Phase 1) - `SqliteRepoStorage` implementing `@atproto/repo` RepoStorage interface
 - ✅ **Durable Object** (Phase 2) - `AccountDurableObject` with Repo integration
@@ -22,16 +22,26 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - Create new repo if none exists, load existing repo otherwise
   - RPC-first architecture following DO best practices
 - ✅ **XRPC Endpoints** (Phase 3) - Full router implementation with Hono
-  - Tier 1: Sync endpoints (`com.atproto.sync.getRepo`, `com.atproto.sync.getRepoStatus`)
+  - Tier 1: Sync endpoints (`com.atproto.sync.getRepo`, `com.atproto.sync.getRepoStatus`, `com.atproto.sync.subscribeRepos`)
   - Tier 2: Repository operations (`com.atproto.repo.{describeRepo,getRecord,listRecords,createRecord,deleteRecord}`)
   - Tier 3: Server identity (`com.atproto.server.describeServer`, `com.atproto.identity.resolveHandle`)
+- ✅ **Firehose** (Phase 4) - WebSocket subscribeRepos event stream
+  - Sequencer class for commit event log management
+  - WebSocket hibernation API handlers (message, close, error)
+  - DAG-CBOR frame encoding (header + body)
+  - Event broadcasting to connected clients
+  - Cursor-based backfill and validation
+  - SQLite `firehose_events` table for event persistence
 - ✅ **DID Document** (Phase 6) - Served at `/.well-known/did.json` for did:web resolution
 - ✅ **Authentication** (Phase 7) - Bearer token middleware for write endpoints
 - ✅ **Health Check** - `/health` endpoint with version info
 - ✅ **Deployment** - Custom domain `pds.mk.gg` with auto-provisioned DNS
 - ✅ **Signing Keys** - secp256k1 keypair generated and configured
 - ✅ **Environment Validation** - Module-scope validation using `cloudflare:workers` env import
-- ✅ **Testing** - Migrated to vitest 4, all 28 tests passing
+- ✅ **Testing** - Migrated to vitest 4, all 48 tests passing
+  - 16 storage tests
+  - 26 XRPC tests (auth, concurrency, error handling, CAR validation)
+  - 6 firehose tests (event sequencing, cursor validation, backfill)
 - ✅ **TypeScript** - All diagnostic errors resolved, proper type declarations for cloudflare:test
 - ✅ **Protocol Helpers** - All protocol operations use official @atproto utilities
   - Record keys: `TID.nextStr()` from `@atproto/common-web`
@@ -47,7 +57,6 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
 
 ### Not Started
 
-- ⬜ **Firehose** (Phase 4) - WebSocket subscribeRepos
 - ⬜ **Blob Storage** (Phase 5) - R2 integration (R2 needs enabling in dashboard)
 
 ### Testing & Development Notes
