@@ -32,6 +32,9 @@ importers:
 
   packages/pds:
     dependencies:
+      '@atproto/common-web':
+        specifier: ^0.4.7
+        version: 0.4.7
       '@atproto/crypto':
         specifier: ^0.4.5
         version: 0.4.5

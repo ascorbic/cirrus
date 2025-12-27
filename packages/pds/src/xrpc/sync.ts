@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { ensureValidDid } from "@atproto/syntax";
 import type { AccountDurableObject } from "../account-do.js";
 
 export async function getRepo(
@@ -12,6 +13,19 @@ export async function getRepo(
 			{
 				error: "InvalidRequest",
 				message: "Missing required parameter: did",
+			},
+			400,
+		);
+	}
+
+	// Validate DID format
+	try {
+		ensureValidDid(did);
+	} catch (err) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
 			},
 			400,
 		);
@@ -49,6 +63,19 @@ export async function getRepoStatus(
 			{
 				error: "InvalidRequest",
 				message: "Missing required parameter: did",
+			},
+			400,
+		);
+	}
+
+	// Validate DID format
+	try {
+		ensureValidDid(did);
+	} catch (err) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
 			},
 			400,
 		);

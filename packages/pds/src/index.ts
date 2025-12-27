@@ -2,37 +2,41 @@ export { SqliteRepoStorage } from "./storage";
 export { AccountDurableObject } from "./account-do";
 
 import { Hono } from "hono";
+import { env } from "cloudflare:workers";
+import { ensureValidDid, ensureValidHandle } from "@atproto/syntax";
 import { requireAuth } from "./middleware/auth";
 import * as sync from "./xrpc/sync";
 import * as repo from "./xrpc/repo";
 import * as server from "./xrpc/server";
 import { version } from "../package.json" with { type: "json" };
 
-const app = new Hono<{ Bindings: Env }>();
+// Validate required environment variables at module load
+const required = [
+	"DID",
+	"HANDLE",
+	"PDS_HOSTNAME",
+	"AUTH_TOKEN",
+	"SIGNING_KEY",
+	"SIGNING_KEY_PUBLIC",
+] as const;
 
-// Validate required environment variables
-app.use("*", async (c, next) => {
-	const required = [
-		"DID",
-		"HANDLE",
-		"PDS_HOSTNAME",
-		"AUTH_TOKEN",
-		"SIGNING_KEY",
-		"SIGNING_KEY_PUBLIC",
-	] as const;
-	for (const key of required) {
-		if (!c.env[key]) {
-			return c.json(
-				{
-					error: "ConfigurationError",
-					message: `Missing required environment variable: ${key}`,
-				},
-				500,
-			);
-		}
+for (const key of required) {
+	if (!env[key]) {
+		throw new Error(`Missing required environment variable: ${key}`);
 	}
-	await next();
-});
+}
+
+// Validate DID and handle formats
+try {
+	ensureValidDid(env.DID);
+	ensureValidHandle(env.HANDLE);
+} catch (err) {
+	throw new Error(
+		`Invalid DID or handle: ${err instanceof Error ? err.message : String(err)}`,
+	);
+}
+
+const app = new Hono<{ Bindings: Env }>();
 
 // Helper to get Account DO stub
 function getAccountDO(env: Env) {
@@ -78,7 +82,7 @@ app.get("/health", (c) =>
 	}),
 );
 
-// Tier 1: Sync endpoints (federation)
+// Sync endpoints (federation)
 app.get("/xrpc/com.atproto.sync.getRepo", (c) =>
 	sync.getRepo(c, getAccountDO(c.env)),
 );
@@ -86,7 +90,7 @@ app.get("/xrpc/com.atproto.sync.getRepoStatus", (c) =>
 	sync.getRepoStatus(c, getAccountDO(c.env)),
 );
 
-// Tier 2: Repository operations
+// Repository operations
 app.get("/xrpc/com.atproto.repo.describeRepo", (c) =>
 	repo.describeRepo(c, getAccountDO(c.env)),
 );
@@ -105,7 +109,7 @@ app.post("/xrpc/com.atproto.repo.deleteRecord", requireAuth, (c) =>
 	repo.deleteRecord(c, getAccountDO(c.env)),
 );
 
-// Tier 3: Server identity
+// Server identity
 app.get("/xrpc/com.atproto.server.describeServer", server.describeServer);
 app.get("/xrpc/com.atproto.identity.resolveHandle", server.resolveHandle);
 

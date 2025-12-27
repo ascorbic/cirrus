@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { ensureValidHandle } from "@atproto/syntax";
 
 export async function describeServer(
 	c: Context<{ Bindings: Env }>,
@@ -20,6 +21,19 @@ export async function resolveHandle(
 			{
 				error: "InvalidRequest",
 				message: "Missing required parameter: handle",
+			},
+			400,
+		);
+	}
+
+	// Validate handle format
+	try {
+		ensureValidHandle(handle);
+	} catch (err) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: `Invalid handle format: ${err instanceof Error ? err.message : String(err)}`,
 			},
 			400,
 		);

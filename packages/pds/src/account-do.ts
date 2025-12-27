@@ -10,6 +10,8 @@ import {
 import type { RepoRecord } from "@atproto/lexicon";
 import { Secp256k1Keypair } from "@atproto/crypto";
 import { CID } from "@atproto/lex-data";
+import { TID } from "@atproto/common-web";
+import { AtUri } from "@atproto/syntax";
 import { SqliteRepoStorage } from "./storage";
 
 /**
@@ -201,7 +203,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 			}
 
 			records.push({
-				uri: `at://${repo.did}/${record.collection}/${record.rkey}`,
+				uri: AtUri.make(repo.did, record.collection, record.rkey).toString(),
 				cid: record.cid.toString(),
 				value: record.record,
 			});
@@ -237,7 +239,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 		const repo = await this.getRepo();
 		const keypair = await this.getKeypair();
 
-		const actualRkey = rkey || this.generateRkey();
+		const actualRkey = rkey || TID.nextStr();
 		const createOp: RecordCreateOp = {
 			action: WriteOpAction.Create,
 			collection,
@@ -257,7 +259,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 		}
 
 		return {
-			uri: `at://${this.repo.did}/${collection}/${actualRkey}`,
+			uri: AtUri.make(this.repo.did, collection, actualRkey).toString(),
 			cid: recordCid.toString(),
 			commit: {
 				cid: this.repo.cid.toString(),
@@ -338,7 +340,4 @@ export class AccountDurableObject extends DurableObject<Env> {
 		return blocksToCarFile(root, blocks);
 	}
 
-	private generateRkey(): string {
-		return Date.now().toString(36) + Math.random().toString(36).slice(2);
-	}
 }

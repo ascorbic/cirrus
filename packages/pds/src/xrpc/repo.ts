@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { AtUri, ensureValidDid } from "@atproto/syntax";
 import { AccountDurableObject } from "../account-do";
 
 export async function describeRepo(
@@ -12,6 +13,19 @@ export async function describeRepo(
 			{
 				error: "InvalidRequest",
 				message: "Missing required parameter: repo",
+			},
+			400,
+		);
+	}
+
+	// Validate DID format
+	try {
+		ensureValidDid(repo);
+	} catch (err) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
 			},
 			400,
 		);
@@ -68,6 +82,19 @@ export async function getRecord(
 		);
 	}
 
+	// Validate DID format
+	try {
+		ensureValidDid(repo);
+	} catch (err) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
+			},
+			400,
+		);
+	}
+
 	if (repo !== c.env.DID) {
 		return c.json(
 			{
@@ -91,7 +118,7 @@ export async function getRecord(
 	}
 
 	return c.json({
-		uri: `at://${repo}/${collection}/${rkey}`,
+		uri: AtUri.make(repo, collection, rkey).toString(),
 		cid: result.cid,
 		value: result.record,
 	});
@@ -112,6 +139,19 @@ export async function listRecords(
 			{
 				error: "InvalidRequest",
 				message: "Missing required parameters: repo, collection",
+			},
+			400,
+		);
+	}
+
+	// Validate DID format
+	try {
+		ensureValidDid(repo);
+	} catch (err) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
 			},
 			400,
 		);

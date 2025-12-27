@@ -19,6 +19,7 @@
 		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm"
 	},
 	"dependencies": {
+		"@atproto/common-web": "^0.4.7",
 		"@atproto/crypto": "^0.4.5",
 		"@atproto/lex-cbor": "^0.0.3",
 		"@atproto/lex-data": "^0.0.3",
