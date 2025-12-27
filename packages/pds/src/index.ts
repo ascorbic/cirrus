@@ -3,13 +3,16 @@ export { SqliteRepoStorage } from "./storage";
 export { AccountDurableObject } from "./account-do";
 export { BlobStore, type BlobRef } from "./blobs";
 export { Sequencer } from "./sequencer";
+export { createServiceJwt } from "./service-auth";
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { proxy } from "hono/proxy";
 import { env } from "cloudflare:workers";
+import { Secp256k1Keypair } from "@atproto/crypto";
 import { ensureValidDid, ensureValidHandle } from "@atproto/syntax";
 import { requireAuth } from "./middleware/auth";
+import { createServiceJwt } from "./service-auth";
+import { verifyAccessToken } from "./session";
 import * as sync from "./xrpc/sync";
 import * as repo from "./xrpc/repo";
 import * as server from "./xrpc/server";
@@ -40,6 +43,18 @@ try {
 	throw new Error(
 		`Invalid DID or handle: ${err instanceof Error ? err.message : String(err)}`,
 	);
+}
+
+// Bluesky AppView DID for service auth
+const APPVIEW_DID = "did:web:api.bsky.app";
+
+// Lazy-loaded keypair for service auth
+let keypairPromise: Promise<Secp256k1Keypair> | null = null;
+function getKeypair(): Promise<Secp256k1Keypair> {
+	if (!keypairPromise) {
+		keypairPromise = Secp256k1Keypair.import(env.SIGNING_KEY);
+	}
+	return keypairPromise;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -180,11 +195,68 @@ app.get("/xrpc/app.bsky.ageassurance.getState", requireAuth, (c) => {
 });
 
 // Proxy unhandled XRPC requests to Bluesky AppView
-app.all("/xrpc/*", (c) => {
+app.all("/xrpc/*", async (c) => {
 	const url = new URL(c.req.url);
 	url.host = "api.bsky.app";
 	url.protocol = "https:";
-	return proxy(url, c.req);
+
+	// Extract XRPC method name from path (e.g., "app.bsky.feed.getTimeline")
+	const lxm = url.pathname.replace("/xrpc/", "");
+
+	// Check for authorization header
+	const auth = c.req.header("Authorization");
+	let headers: Record<string, string> = {};
+
+	if (auth?.startsWith("Bearer ")) {
+		const token = auth.slice(7);
+		const serviceDid = `did:web:${c.env.PDS_HOSTNAME}`;
+
+		// Try to verify the token - if valid, create a service JWT
+		try {
+			// Check static token first
+			let userDid: string;
+			if (token === c.env.AUTH_TOKEN) {
+				userDid = c.env.DID;
+			} else {
+				// Verify JWT
+				const payload = await verifyAccessToken(
+					token,
+					c.env.JWT_SECRET,
+					serviceDid,
+				);
+				userDid = payload.sub;
+			}
+
+			// Create service JWT for AppView
+			const keypair = await getKeypair();
+			const serviceJwt = await createServiceJwt({
+				iss: userDid,
+				aud: APPVIEW_DID,
+				lxm,
+				keypair,
+			});
+			headers["Authorization"] = `Bearer ${serviceJwt}`;
+		} catch {
+			// Token verification failed - forward without auth
+			// AppView will return appropriate error
+		}
+	}
+
+	// Forward request with potentially replaced auth header
+	const reqInit: RequestInit = {
+		method: c.req.method,
+		headers: {
+			...Object.fromEntries(c.req.raw.headers),
+			...headers,
+		},
+	};
+
+	// Include body for non-GET requests
+	if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+		reqInit.body = c.req.raw.body;
+	}
+
+	return fetch(url.toString(), reqInit);
 });
 
 export default app;
