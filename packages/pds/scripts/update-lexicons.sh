@@ -12,44 +12,52 @@ echo "Updating lexicon schemas in: $LEXICONS_DIR"
 mkdir -p "$LEXICONS_DIR"
 cd "$LEXICONS_DIR"
 
-# Core AT Proto schemas (dependencies)
-echo "Fetching com.atproto schemas..."
-curl -sS "$REPO_BASE/com/atproto/repo/strongRef.json" -o com.atproto.repo.strongRef.json
-curl -sS "$REPO_BASE/com/atproto/label/defs.json" -o com.atproto.label.defs.json
+# Define schemas to fetch (namespace/name format)
+schemas=(
+  # Core AT Proto schemas
+  "com/atproto/repo/strongRef"
+  "com/atproto/label/defs"
 
-# Bluesky feed schemas
-echo "Fetching app.bsky.feed schemas..."
-curl -sS "$REPO_BASE/app/bsky/feed/post.json" -o app.bsky.feed.post.json
-curl -sS "$REPO_BASE/app/bsky/feed/like.json" -o app.bsky.feed.like.json
-curl -sS "$REPO_BASE/app/bsky/feed/repost.json" -o app.bsky.feed.repost.json
-curl -sS "$REPO_BASE/app/bsky/feed/threadgate.json" -o app.bsky.feed.threadgate.json
+  # Feed schemas
+  "app/bsky/feed/post"
+  "app/bsky/feed/like"
+  "app/bsky/feed/repost"
+  "app/bsky/feed/threadgate"
 
-# Bluesky actor schemas
-echo "Fetching app.bsky.actor schemas..."
-curl -sS "$REPO_BASE/app/bsky/actor/profile.json" -o app.bsky.actor.profile.json
+  # Actor schemas
+  "app/bsky/actor/profile"
 
-# Bluesky graph schemas
-echo "Fetching app.bsky.graph schemas..."
-curl -sS "$REPO_BASE/app/bsky/graph/follow.json" -o app.bsky.graph.follow.json
-curl -sS "$REPO_BASE/app/bsky/graph/block.json" -o app.bsky.graph.block.json
-curl -sS "$REPO_BASE/app/bsky/graph/list.json" -o app.bsky.graph.list.json
-curl -sS "$REPO_BASE/app/bsky/graph/listitem.json" -o app.bsky.graph.listitem.json
+  # Graph schemas
+  "app/bsky/graph/follow"
+  "app/bsky/graph/block"
+  "app/bsky/graph/list"
+  "app/bsky/graph/listitem"
 
-# Bluesky richtext schemas (for facets)
-echo "Fetching app.bsky.richtext schemas..."
-curl -sS "$REPO_BASE/app/bsky/richtext/facet.json" -o app.bsky.richtext.facet.json
+  # Richtext schemas
+  "app/bsky/richtext/facet"
 
-# Bluesky embed schemas
-echo "Fetching app.bsky.embed schemas..."
-curl -sS "$REPO_BASE/app/bsky/embed/images.json" -o app.bsky.embed.images.json
-curl -sS "$REPO_BASE/app/bsky/embed/external.json" -o app.bsky.embed.external.json
-curl -sS "$REPO_BASE/app/bsky/embed/record.json" -o app.bsky.embed.record.json
-curl -sS "$REPO_BASE/app/bsky/embed/recordWithMedia.json" -o app.bsky.embed.recordWithMedia.json
+  # Embed schemas
+  "app/bsky/embed/images"
+  "app/bsky/embed/external"
+  "app/bsky/embed/record"
+  "app/bsky/embed/recordWithMedia"
+)
+
+# Fetch each schema
+echo "Fetching ${#schemas[@]} schemas..."
+for schema in "${schemas[@]}"; do
+  # Convert path to NSID (e.g., com/atproto/repo/strongRef -> com.atproto.repo.strongRef)
+  nsid="${schema//\//.}"
+  file="${nsid}.json"
+
+  echo "  → ${nsid}"
+  if ! curl -fsSL "$REPO_BASE/${schema}.json" -o "$file"; then
+    echo "    ✗ Failed to fetch ${nsid}" >&2
+    exit 1
+  fi
+done
 
 echo ""
-echo "✓ Lexicons updated successfully!"
-echo ""
-echo "Files fetched:"
-ls -1 *.json | wc -l | xargs echo "  Total:"
+echo "✓ Successfully fetched ${#schemas[@]} lexicon schemas!"
 echo ""
 echo "To use in code, import from './lexicons/*.json'"
