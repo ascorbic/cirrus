@@ -31,13 +31,13 @@
 			]
 		}
 	],
-	// R2 bucket for blob storage (enable R2 in dashboard, then uncomment)
-	// "r2_buckets": [
-	// 	{
-	// 		"binding": "BLOBS",
-	// 		"bucket_name": "pds-blobs"
-	// 	}
-	// ],
+	// R2 bucket for blob storage
+	"r2_buckets": [
+		{
+			"binding": "BLOBS",
+			"bucket_name": "pds-blobs"
+		}
+	],
 	// Environment variables (non-secret)
 	"vars": {
 		"PDS_HOSTNAME": "pds.mk.gg"

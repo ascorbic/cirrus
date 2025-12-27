@@ -252,3 +252,43 @@ export async function deleteRecord(
 
 	return c.json(result);
 }
+
+export async function uploadBlob(
+	c: Context<{ Bindings: Env }>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
+	const contentType =
+		c.req.header("Content-Type") || "application/octet-stream";
+	const bytes = new Uint8Array(await c.req.arrayBuffer());
+
+	// Size limit check (5MB)
+	const MAX_BLOB_SIZE = 5 * 1024 * 1024;
+	if (bytes.length > MAX_BLOB_SIZE) {
+		return c.json(
+			{
+				error: "BlobTooLarge",
+				message: `Blob size ${bytes.length} exceeds maximum of ${MAX_BLOB_SIZE} bytes`,
+			},
+			400,
+		);
+	}
+
+	try {
+		const blobRef = await accountDO.rpcUploadBlob(bytes, contentType);
+		return c.json({ blob: blobRef });
+	} catch (err) {
+		if (
+			err instanceof Error &&
+			err.message.includes("Blob storage not configured")
+		) {
+			return c.json(
+				{
+					error: "ServiceUnavailable",
+					message: "Blob storage is not configured",
+				},
+				503,
+			);
+		}
+		throw err;
+	}
+}

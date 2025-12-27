@@ -12,7 +12,7 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
 
 **Live at: https://pds.mk.gg**
 
-### Completed (Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 6 + Phase 7)
+### Completed (Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6 + Phase 7)
 
 - ✅ **Storage Layer** (Phase 1) - `SqliteRepoStorage` implementing `@atproto/repo` RepoStorage interface
 - ✅ **Durable Object** (Phase 2) - `AccountDurableObject` with Repo integration
@@ -41,10 +41,17 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
 - ✅ **Deployment** - Custom domain `pds.mk.gg` with auto-provisioned DNS
 - ✅ **Signing Keys** - secp256k1 keypair generated and configured
 - ✅ **Environment Validation** - Module-scope validation using `cloudflare:workers` env import
-- ✅ **Testing** - Migrated to vitest 4, all 48 tests passing
+- ✅ **Blob Storage** (Phase 5) - R2 integration for image/media uploads
+  - `BlobStore` class using `cidForRawBytes()` from `@atproto/lex-cbor`
+  - `com.atproto.repo.uploadBlob` endpoint (authenticated, 5MB limit)
+  - `com.atproto.sync.getBlob` endpoint (public read access)
+  - Direct R2 access in endpoint (R2ObjectBody cannot be serialized across RPC)
+  - Blobs stored with DID prefix for isolation
+- ✅ **Testing** - Migrated to vitest 4, all 58 tests passing
   - 16 storage tests
   - 26 XRPC tests (auth, concurrency, error handling, CAR validation)
   - 6 firehose tests (event sequencing, cursor validation, backfill)
+  - 10 blob tests (upload, retrieval, size limits, content types)
 - ✅ **TypeScript** - All diagnostic errors resolved, proper type declarations for cloudflare:test
 - ✅ **Protocol Helpers** - All protocol operations use official @atproto utilities
   - Record keys: `TID.nextStr()` from `@atproto/common-web`
@@ -52,6 +59,7 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - DID validation: `ensureValidDid()` from `@atproto/syntax`
   - Handle validation: `ensureValidHandle()` from `@atproto/syntax`
   - CBOR encoding: `@atproto/lex-cbor`
+  - Blob CID generation: `cidForRawBytes()` from `@atproto/lex-cbor`
   - CAR export: `blocksToCarFile()` from `@atproto/repo`
 - ✅ **Dependency Optimization** - Removed 6 low-level dependencies, added 3 @atproto helpers
   - Removed: `varint`, `@types/varint`, `cborg`, `uint8arrays`, `@ipld/dag-cbor`, `multiformats`
@@ -60,7 +68,7 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
 
 ### Not Started
 
-- ⬜ **Blob Storage** (Phase 5) - R2 integration (R2 needs enabling in dashboard)
+- None! All planned phases are complete.
 
 ### Testing & Development Notes
 
@@ -88,6 +96,8 @@ for (const [cidStr, bytes] of internalMap) { ... }
 - Adding `@cloudflare/vitest-pool-workers/types` to test tsconfig for cloudflare:test module
 
 **Durable Object RPC Types**: Using `Rpc.Serializable<any>` for RPC method return types to ensure TypeScript correctly infers serializable types instead of `never`.
+
+**R2 Blob Retrieval**: The `getBlob` endpoint accesses R2 directly rather than going through DO RPC because `R2ObjectBody` cannot be serialized (contains ReadableStream). Upload operations still use DO RPC since they only need to pass Uint8Array and return serializable metadata.
 
 ---
 
@@ -1717,6 +1727,125 @@ wrangler secret put AUTH_TOKEN
 - Admin endpoints
 
 These can all be added later.
+
+---
+
+## Deployment Architecture
+
+### Design Decision: Zero-Code Re-Export Pattern
+
+For maximum simplicity, users deploying a PDS should not need to write any code. The `@ascorbic/pds-worker` package provides everything needed, and users simply re-export it.
+
+#### User's Worker (Minimal)
+
+```typescript
+// src/index.ts
+export { default, AccountDurableObject } from '@ascorbic/pds-worker'
+```
+
+That's it. No additional code required.
+
+#### Package Exports
+
+The `@ascorbic/pds-worker` package exports:
+
+```typescript
+// Core exports for advanced users
+export { SqliteRepoStorage } from "./storage"
+export { AccountDurableObject } from "./account-do"
+export { BlobStore, type BlobRef } from "./blobs"
+export { Sequencer } from "./sequencer"
+
+// Default export: configured Hono app
+export default app
+```
+
+#### Configuration
+
+All configuration is via environment variables and secrets:
+
+**Required environment variables:**
+- `PDS_HOSTNAME` - Public hostname (set in wrangler.jsonc)
+
+**Required secrets:**
+- `DID` - Account's DID (e.g., "did:web:pds.example.com")
+- `HANDLE` - Account's handle (e.g., "alice.pds.example.com")
+- `AUTH_TOKEN` - Bearer token for write operations
+- `SIGNING_KEY` - Private key for signing commits (secp256k1 JWK)
+- `SIGNING_KEY_PUBLIC` - Public key for DID document (multibase)
+
+**Resource bindings:**
+- `ACCOUNT` - DurableObjectNamespace binding
+- `BLOBS` - R2Bucket binding
+
+#### Deployment Workflow
+
+1. **Scaffold** (future: via `npm create @ascorbic/pds`)
+   - Creates project directory with re-export pattern
+   - Generates wrangler.jsonc with bindings
+   - Provides setup script for key generation
+
+2. **Setup** (via setup script)
+   - Interactive prompts for hostname and handle
+   - Generates secp256k1 keypair
+   - Creates DID (did:web based on hostname)
+   - Generates random AUTH_TOKEN
+   - Writes to `.dev.vars` for local dev
+
+3. **Local Development**
+   ```bash
+   wrangler dev
+   ```
+
+4. **Production Deployment**
+   ```bash
+   # Create R2 bucket
+   wrangler r2 bucket create pds-blobs
+
+   # Set secrets
+   wrangler secret put DID
+   wrangler secret put HANDLE
+   wrangler secret put AUTH_TOKEN
+   wrangler secret put SIGNING_KEY
+   wrangler secret put SIGNING_KEY_PUBLIC
+
+   # Deploy
+   wrangler deploy
+   ```
+
+#### Demo Structure
+
+```
+demos/pds/
+├── src/
+│   └── index.ts          # Re-exports @ascorbic/pds-worker
+├── wrangler.jsonc        # Worker config with bindings
+├── package.json          # Dependencies
+├── .env.example          # Template for required vars
+└── README.md            # Setup instructions
+```
+
+#### Future: create-pds CLI
+
+```bash
+npm create @ascorbic/pds my-pds
+cd my-pds
+npm install
+npm run dev
+```
+
+This will scaffold a complete deployment with:
+- Project structure
+- Generated keys and configuration
+- Pre-configured wrangler.jsonc
+- Setup instructions
+
+#### Rationale
+
+1. **Single-user PDS**: Not a multi-tenant platform - each deployment serves one account
+2. **Configuration via environment**: All customization is environment-based
+3. **No code needed**: Users shouldn't need to understand Hono/Workers/DOs to deploy
+4. **Future-proof**: Can add factory function later for customization without breaking changes
 
 ---
 

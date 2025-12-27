@@ -110,11 +110,17 @@ Required environment variables (validated at module load using `cloudflare:worke
 
 ### Protocol Helpers and Dependencies
 
-The codebase uses official @atproto packages for all protocol operations:
+**CRITICAL: Always use @atproto libraries instead of low-level dependencies where available.**
+
+The codebase uses official @atproto packages for all protocol operations. When implementing new features:
+
+- **Always prefer @atproto packages** over direct use of `multiformats`, `uint8arrays`, `cborg`, etc.
+- **Reference the atproto monorepo** at `~/Repos/atproto` to understand available functions and patterns
+- The @atproto packages provide stable, tested abstractions over low-level primitives
 
 **Encoding and Data Structures:**
 
-- `@atproto/lex-cbor` - CBOR encoding/decoding with `encode()` and `cidForCbor()`
+- `@atproto/lex-cbor` - CBOR encoding/decoding with `encode()`, `cidForCbor()`, `cidForRawBytes()`
 - `@atproto/lex-data` - CID operations via stable interface wrapping multiformats
 - `@atproto/repo` - Repository operations, `BlockMap`, `blocksToCarFile()`
 
@@ -122,7 +128,7 @@ The codebase uses official @atproto packages for all protocol operations:
 
 - `@atproto/common-web` - `TID.nextStr()` for record key generation
 - `@atproto/syntax` - `AtUri.make()`, `ensureValidDid()`, `ensureValidHandle()`
-- `@atproto/crypto` - `Secp256k1Keypair` for signing operations
+- `@atproto/crypto` - `Secp256k1Keypair` for signing operations, `sha256()` for hashing
 - `@atproto/lexicon` - Schema validation and type definitions
 
 **Important Notes:**
@@ -130,6 +136,7 @@ The codebase uses official @atproto packages for all protocol operations:
 - Never manually construct AT URIs - use `AtUri.make(did, collection, rkey).toString()`
 - Never manually generate record keys - use `TID.nextStr()`
 - Always validate DIDs and handles using `ensureValidDid()` / `ensureValidHandle()`
+- Use `cidForRawBytes()` from `@atproto/lex-cbor` for blob CID generation
 - Use `@atproto/lex-cbor` for test fixtures instead of direct `@ipld/dag-cbor`
 - CAR file export uses `blocksToCarFile()` from `@atproto/repo`
 
@@ -137,7 +144,7 @@ The codebase uses official @atproto packages for all protocol operations:
 
 - **Module Shimming**: Uses `resolve: { conditions: ["node", "require"] }` to force CJS builds for multiformats
 - **BlockMap/CidSet**: Access internal Map/Set via `(blocks as unknown as { map: Map<...> }).map` when iterating
-- **Test Count**: 48 tests (16 storage tests, 26 XRPC tests, 6 firehose tests)
+- **Test Count**: 58 tests (16 storage tests, 26 XRPC tests, 6 firehose tests, 10 blob tests)
 
 ### Firehose Implementation
 

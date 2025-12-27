@@ -15,6 +15,7 @@ import { AtUri } from "@atproto/syntax";
 import { encode as cborEncode } from "@atproto/lex-cbor";
 import { SqliteRepoStorage } from "./storage";
 import { Sequencer, type SeqEvent, type CommitData } from "./sequencer";
+import { BlobStore, type BlobRef } from "./blobs";
 
 /**
  * Account Durable Object - manages a single user's AT Protocol repository.
@@ -30,6 +31,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 	private repo: Repo | null = null;
 	private keypair: Secp256k1Keypair | null = null;
 	private sequencer: Sequencer | null = null;
+	private blobStore: BlobStore | null = null;
 	private storageInitialized = false;
 	private repoInitialized = false;
 
@@ -42,6 +44,11 @@ export class AccountDurableObject extends DurableObject<Env> {
 		}
 		if (!env.DID) {
 			throw new Error("Missing required environment variable: DID");
+		}
+
+		// Initialize BlobStore if R2 bucket is available
+		if (env.BLOBS) {
+			this.blobStore = new BlobStore(env.BLOBS, env.DID);
 		}
 	}
 
@@ -242,7 +249,6 @@ export class AccountDurableObject extends DurableObject<Env> {
 	}> {
 		const repo = await this.getRepo();
 		const keypair = await this.getKeypair();
-		const storage = await this.getStorage();
 
 		const actualRkey = rkey || TID.nextStr();
 		const createOp: RecordCreateOp = {
@@ -462,6 +468,37 @@ export class AccountDurableObject extends DurableObject<Env> {
 	}
 
 	/**
+	 * RPC method: Upload a blob to R2
+	 */
+	async rpcUploadBlob(bytes: Uint8Array, mimeType: string): Promise<BlobRef> {
+		if (!this.blobStore) {
+			throw new Error("Blob storage not configured");
+		}
+
+		// Enforce size limit (5MB)
+		const MAX_BLOB_SIZE = 5 * 1024 * 1024;
+		if (bytes.length > MAX_BLOB_SIZE) {
+			throw new Error(
+				`Blob too large: ${bytes.length} bytes (max ${MAX_BLOB_SIZE})`,
+			);
+		}
+
+		return this.blobStore.putBlob(bytes, mimeType);
+	}
+
+	/**
+	 * RPC method: Get a blob from R2
+	 */
+	async rpcGetBlob(cidStr: string): Promise<R2ObjectBody | null> {
+		if (!this.blobStore) {
+			throw new Error("Blob storage not configured");
+		}
+
+		const cid = CID.parse(cidStr);
+		return this.blobStore.getBlob(cid);
+	}
+
+	/**
 	 * Encode a firehose frame (header + body CBOR).
 	 */
 	private encodeFrame(header: object, body: object): Uint8Array {
@@ -495,10 +532,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 	/**
 	 * Backfill firehose events from a cursor.
 	 */
-	private async backfillFirehose(
-		ws: WebSocket,
-		cursor: number,
-	): Promise<void> {
+	private async backfillFirehose(ws: WebSocket, cursor: number): Promise<void> {
 		if (!this.sequencer) {
 			throw new Error("Sequencer not initialized");
 		}
@@ -594,7 +628,10 @@ export class AccountDurableObject extends DurableObject<Env> {
 	/**
 	 * WebSocket message handler (hibernation API).
 	 */
-	override webSocketMessage(_ws: WebSocket, _message: string | ArrayBuffer): void {
+	override webSocketMessage(
+		_ws: WebSocket,
+		_message: string | ArrayBuffer,
+	): void {
 		// Firehose is server-push only, ignore client messages
 	}
 

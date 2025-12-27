@@ -1,5 +1,8 @@
+// Core exports for advanced users
 export { SqliteRepoStorage } from "./storage";
 export { AccountDurableObject } from "./account-do";
+export { BlobStore, type BlobRef } from "./blobs";
+export { Sequencer } from "./sequencer";
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -97,6 +100,9 @@ app.get("/xrpc/com.atproto.sync.getRepo", (c) =>
 app.get("/xrpc/com.atproto.sync.getRepoStatus", (c) =>
 	sync.getRepoStatus(c, getAccountDO(c.env)),
 );
+app.get("/xrpc/com.atproto.sync.getBlob", (c) =>
+	sync.getBlob(c, getAccountDO(c.env)),
+);
 
 // WebSocket firehose
 app.get("/xrpc/com.atproto.sync.subscribeRepos", async (c) => {
@@ -130,6 +136,9 @@ app.post("/xrpc/com.atproto.repo.createRecord", requireAuth, (c) =>
 );
 app.post("/xrpc/com.atproto.repo.deleteRecord", requireAuth, (c) =>
 	repo.deleteRecord(c, getAccountDO(c.env)),
+);
+app.post("/xrpc/com.atproto.repo.uploadBlob", requireAuth, (c) =>
+	repo.uploadBlob(c, getAccountDO(c.env)),
 );
 
 // Server identity

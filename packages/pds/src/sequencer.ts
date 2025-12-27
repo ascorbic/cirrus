@@ -1,15 +1,15 @@
-import { encode as cborEncode, decode as cborDecode } from "@atproto/lex-cbor";
+import { encode as cborEncode, decode as cborDecode, type LexValue } from "@atproto/lex-cbor";
 import { CID } from "@atproto/lex-data";
 import { blocksToCarFile, type BlockMap } from "@atproto/repo";
-import type { WriteOp } from "@atproto/repo/dist/types";
+import type { RecordWriteOp } from "@atproto/repo";
 
 /**
  * Commit event payload for the firehose
  */
 export interface CommitEvent {
 	seq: number;
-	rebase: false;
-	tooBig: false;
+	rebase: boolean;
+	tooBig: boolean;
 	repo: string;
 	commit: CID;
 	rev: string;
@@ -48,7 +48,7 @@ export interface CommitData {
 	rev: string;
 	since: string | null;
 	newBlocks: BlockMap;
-	ops: WriteOp[];
+	ops: RecordWriteOp[];
 }
 
 /**
@@ -77,10 +77,10 @@ export class Sequencer {
 			rev: data.rev,
 			since: data.since,
 			blocks: carBytes,
-			ops: data.ops.map((op) => ({
+			ops: data.ops.map((op): RepoOp => ({
 				action: op.action as "create" | "update" | "delete",
 				path: `${op.collection}/${op.rkey}`,
-				cid: "cid" in op && op.cid ? op.cid : null,
+				cid: ("cid" in op && op.cid ? op.cid : null) as CID | null,
 			})),
 			rebase: false,
 			tooBig: carBytes.length > 1_000_000,
@@ -89,7 +89,8 @@ export class Sequencer {
 		};
 
 		// Store in SQLite
-		const payload = cborEncode(event);
+		// Type assertion: CBOR handles CID/Uint8Array serialization
+		const payload = cborEncode(event as {} as LexValue);
 		const result = this.sql
 			.exec(
 				`INSERT INTO firehose_events (event_type, payload)
@@ -124,13 +125,13 @@ export class Sequencer {
 
 		return rows.map((row) => {
 			const payload = new Uint8Array(row.payload as ArrayBuffer);
-			const event = cborDecode(payload) as Omit<CommitEvent, "seq">;
+			const decoded = cborDecode(payload);
 
 			return {
 				seq: row.seq as number,
 				type: "commit",
 				event: {
-					...event,
+					...(decoded as unknown as Omit<CommitEvent, "seq">),
 					seq: row.seq as number,
 				},
 				time: row.created_at as string,
