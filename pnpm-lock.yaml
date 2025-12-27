@@ -32,6 +32,9 @@ importers:
 
   packages/pds:
     dependencies:
+      '@atproto/api':
+        specifier: ^0.18.8
+        version: 0.18.8
       '@atproto/common-web':
         specifier: ^0.4.7
         version: 0.4.7
@@ -123,6 +126,9 @@ packages:
     resolution: {integrity: sha512-GiwTmBFOU1/+UVNqqCGzFJYfBXEytUkiI+iRZ6Qx7KmUVtLm00sYySkfe203C9QtPG11yOz1ZaMek8dT/xnlgg==}
     engines: {node: '>=20'}
 
+  '@atproto/api@0.18.8':
+    resolution: {integrity: sha512-Qo3sGd1N5hdHTaEWUBgptvPkULt2SXnMcWRhveSyctSd/IQwTMyaIH6E62A1SU+8xBSN5QLpoUJNE7iSrYM2Zg==}
+
   '@atproto/common-web@0.4.7':
     resolution: {integrity: sha512-vjw2+81KPo2/SAbbARGn64Ln+6JTI0FTI4xk8if0ebBfDxFRmHb2oSN1y77hzNq/ybGHqA2mecfhS03pxC5+lg==}
 
@@ -152,6 +158,9 @@ packages:
 
   '@atproto/syntax@0.4.2':
     resolution: {integrity: sha512-X9XSRPinBy/0VQ677j8VXlBsYSsUXaiqxWVpGGxJYsAhugdQRb0jqaVKJFtm6RskeNkV6y9xclSUi9UYG/COrA==}
+
+  '@atproto/xrpc@0.7.7':
+    resolution: {integrity: sha512-K1ZyO/BU8JNtXX5dmPp7b5UrkLMMqpsIa/Lrj5D3Su+j1Xwq1m6QJ2XJ1AgjEjkI1v4Muzm7klianLE6XGxtmA==}
 
   '@babel/runtime@7.24.8':
     resolution: {integrity: sha512-5F7SDGs1T72ZczbRwbGO9lQi0NLjQxzl6i4lJxLxfW9U5UluCSyEJeniWvnhl3/euNiqQVbo8zruhsDfid0esA==}
@@ -1241,6 +1250,9 @@ packages:
     resolution: {integrity: sha512-kNOjDqAh7px0XWNI+4QbzoiR/nTkHAWNud2uvnJquD1/x5a7EQZMJT0AczqK0Qn67oY/TTQ1LbUKajZpp3I9tQ==}
     engines: {node: '>=8.0.0'}
 
+  await-lock@2.2.2:
+    resolution: {integrity: sha512-aDczADvlvTGajTDjcjpJMqRkOF6Qdz3YbPZm/PyW6tKPkx2hlYBzxMhEywM/tU72HrVZjgl5VCdRuMlA7pZ8Gw==}
+
   base64-js@1.5.1:
     resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
 
@@ -2055,6 +2067,10 @@ packages:
     resolution: {integrity: sha512-t2T/WLB2WRgZ9EpE4jgPJ9w+i66UZfDc8wHh0xrwiRNN+UwH98GIJkTeZqX9rg0i0ptwzqW+uYeIF0T4F8LR7A==}
     engines: {node: '>=14.0.0'}
 
+  tlds@1.261.0:
+    resolution: {integrity: sha512-QXqwfEl9ddlGBaRFXIvNKK6OhipSiLXuRuLJX5DErz0o0Q0rYxulWLdFryTkV5PkdZct5iMInwYEGe/eR++1AA==}
+    hasBin: true
+
   to-regex-range@5.0.1:
     resolution: {integrity: sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ==}
     engines: {node: '>=8.0'}
@@ -2375,6 +2391,17 @@ snapshots:
       typescript: 5.6.1-rc
       validate-npm-package-name: 5.0.1
 
+  '@atproto/api@0.18.8':
+    dependencies:
+      '@atproto/common-web': 0.4.7
+      '@atproto/lexicon': 0.6.0
+      '@atproto/syntax': 0.4.2
+      '@atproto/xrpc': 0.7.7
+      await-lock: 2.2.2
+      multiformats: 9.9.0
+      tlds: 1.261.0
+      zod: 3.25.76
+
   '@atproto/common-web@0.4.7':
     dependencies:
       '@atproto/lex-data': 0.0.3
@@ -2436,6 +2463,11 @@ snapshots:
       zod: 3.25.76
 
   '@atproto/syntax@0.4.2': {}
+
+  '@atproto/xrpc@0.7.7':
+    dependencies:
+      '@atproto/lexicon': 0.6.0
+      zod: 3.25.76
 
   '@babel/runtime@7.24.8':
     dependencies:
@@ -3315,6 +3347,8 @@ snapshots:
 
   atomic-sleep@1.0.0: {}
 
+  await-lock@2.2.2: {}
+
   base64-js@1.5.1: {}
 
   bcryptjs@3.0.3: {}
@@ -4132,6 +4166,8 @@ snapshots:
   tinyrainbow@3.0.3: {}
 
   tinyspy@4.0.3: {}
+
+  tlds@1.261.0: {}
 
   to-regex-range@5.0.1:
     dependencies:
