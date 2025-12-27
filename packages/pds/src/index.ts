@@ -152,4 +152,27 @@ app.post("/xrpc/com.atproto.server.refreshSession", server.refreshSession);
 app.get("/xrpc/com.atproto.server.getSession", server.getSession);
 app.post("/xrpc/com.atproto.server.deleteSession", server.deleteSession);
 
+// Actor preferences (stub - returns empty preferences)
+app.get("/xrpc/app.bsky.actor.getPreferences", requireAuth, (c) => {
+	return c.json({ preferences: [] });
+});
+app.post("/xrpc/app.bsky.actor.putPreferences", requireAuth, async (c) => {
+	// TODO: persist preferences in DO
+	return c.json({});
+});
+
+// Age assurance (stub - self-hosted users are pre-verified)
+app.get("/xrpc/app.bsky.ageassurance.getState", requireAuth, (c) => {
+	return c.json({
+		state: {
+			status: "assured",
+			access: "full",
+			lastInitiatedAt: new Date().toISOString(),
+		},
+		metadata: {
+			accountCreatedAt: new Date().toISOString(),
+		},
+	});
+});
+
 export default app;
