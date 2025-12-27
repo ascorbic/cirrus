@@ -616,4 +616,19 @@ export class AccountDurableObject extends DurableObject<Env> {
 	override webSocketError(_ws: WebSocket, error: Error): void {
 		console.error("WebSocket error:", error);
 	}
+
+	/**
+	 * HTTP fetch handler for WebSocket upgrades.
+	 * This is used instead of RPC to avoid WebSocket serialization errors.
+	 */
+	override async fetch(request: Request): Promise<Response> {
+		// Only handle WebSocket upgrades via fetch
+		const url = new URL(request.url);
+		if (url.pathname === "/xrpc/com.atproto.sync.subscribeRepos") {
+			return this.handleFirehoseUpgrade(request);
+		}
+
+		// All other requests should use RPC methods, not fetch
+		return new Response("Method not allowed", { status: 405 });
+	}
 }

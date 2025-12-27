@@ -1,10 +1,26 @@
 This file provides guidance to agentic coding tools when working with code in this repository.
 
+## CRITICAL: Working Directory and Plan Document
+
+**ALWAYS verify your current working directory before operating on files:**
+
+- Repository root is `atproto-worker` not `packages/pds/`
+- Use `pwd` or check `process.cwd()` to confirm location
+- Many project files (CLAUDE.md, EDGE_PDS_PLAN.md) are at repository root
+- Package-specific files are in `packages/pds/`
+
+**ALWAYS read and update the implementation plan:**
+
+- **Read** `EDGE_PDS_PLAN.md` at the repository root before starting work to understand project status
+- **Update** `EDGE_PDS_PLAN.md` when you complete phases or discover important implementation details
+- The plan tracks what's completed, what's pending, and critical technical notes
+- Keep the "Completed" section updated with new learnings (WebSocket patterns, CBOR encoding, etc.)
+
 ## Repository Structure
 
 This is a monorepo using pnpm workspaces with the following structure:
 
-- **Root**: Workspace configuration and shared tooling
+- **Root** (`atproto-worker`): Workspace configuration, shared tooling, plan documents
 - **packages/pds**: The main PDS library (`@ascorbic/pds-worker`)
 - **demos/pds**: Demo PDS deployment
 
@@ -82,6 +98,7 @@ The PDS package TypeScript configuration:
 ### Environment Variables
 
 Required environment variables (validated at module load using `cloudflare:workers` env import):
+
 - `DID` - The account's DID (did:web:...) - validated with `ensureValidDid()`
 - `HANDLE` - The account's handle - validated with `ensureValidHandle()`
 - `PDS_HOSTNAME` - Public hostname
@@ -96,17 +113,20 @@ Required environment variables (validated at module load using `cloudflare:worke
 The codebase uses official @atproto packages for all protocol operations:
 
 **Encoding and Data Structures:**
+
 - `@atproto/lex-cbor` - CBOR encoding/decoding with `encode()` and `cidForCbor()`
 - `@atproto/lex-data` - CID operations via stable interface wrapping multiformats
 - `@atproto/repo` - Repository operations, `BlockMap`, `blocksToCarFile()`
 
 **Protocol Utilities:**
+
 - `@atproto/common-web` - `TID.nextStr()` for record key generation
 - `@atproto/syntax` - `AtUri.make()`, `ensureValidDid()`, `ensureValidHandle()`
 - `@atproto/crypto` - `Secp256k1Keypair` for signing operations
 - `@atproto/lexicon` - Schema validation and type definitions
 
 **Important Notes:**
+
 - Never manually construct AT URIs - use `AtUri.make(did, collection, rkey).toString()`
 - Never manually generate record keys - use `TID.nextStr()`
 - Always validate DIDs and handles using `ensureValidDid()` / `ensureValidHandle()`
@@ -130,9 +150,11 @@ The PDS implements the WebSocket-based firehose for real-time federation:
 - **Cursor-based Backfill**: Replay events from sequence number with validation
 
 **Event Flow:**
+
 1. `createRecord`/`deleteRecord` → sequence commit to SQLite
 2. Broadcast CBOR-encoded frame to all connected WebSocket clients
 3. Update client cursor positions in WebSocket attachments
 
 **Endpoint:**
+
 - `GET /xrpc/com.atproto.sync.subscribeRepos?cursor={seq}` - WebSocket upgrade for commit stream

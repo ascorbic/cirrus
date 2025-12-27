@@ -72,6 +72,12 @@ importers:
       '@ipld/car':
         specifier: ^5.4.2
         version: 5.4.2
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+      cborg:
+        specifier: ^4.3.2
+        version: 4.3.2
       publint:
         specifier: ^0.3.16
         version: 0.3.16
@@ -90,6 +96,9 @@ importers:
       wrangler:
         specifier: ^4.54.0
         version: 4.54.0(@cloudflare/workers-types@4.20251225.0)
+      ws:
+        specifier: ^8.18.3
+        version: 8.18.3
 
 packages:
 
@@ -1105,6 +1114,9 @@ packages:
 
   '@types/node@24.10.4':
     resolution: {integrity: sha512-vnDVpYPMzs4wunl27jHrfmwojOGKya0xyM3sH+UE5iv5uPS6vX7UIoh6m+vQc5LGBq52HBKPIn/zcSZVzeDEZg==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@vitest/expect@3.2.4':
     resolution: {integrity: sha512-Io0yyORnB6sikFlt8QW5K7slY4OjqNX9jmJQ02QDda8lyM6B5oNgVWoSoKPac8/kgnCUzuHQKrSLtu/uOqqrig==}
@@ -2277,6 +2289,18 @@ packages:
       utf-8-validate:
         optional: true
 
+  ws@8.18.3:
+    resolution: {integrity: sha512-PEIGCY5tSlUt50cqyMXfCzX+oOPqN0vuGqWzbcJ2xvnkzkq46oOpz7dQaTDBdfICb4N14+GARUDw2XV2N4tvzg==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
     engines: {node: '>=10'}
@@ -3135,6 +3159,10 @@ snapshots:
   '@types/node@24.10.4':
     dependencies:
       undici-types: 7.16.0
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 24.10.4
 
   '@vitest/expect@3.2.4':
     dependencies:
@@ -4306,6 +4334,8 @@ snapshots:
       strip-ansi: 6.0.1
 
   ws@8.18.0: {}
+
+  ws@8.18.3: {}
 
   y18n@5.0.8: {}
 
