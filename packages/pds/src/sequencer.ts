@@ -48,7 +48,7 @@ export interface CommitData {
 	rev: string;
 	since: string | null;
 	newBlocks: BlockMap;
-	ops: RecordWriteOp[];
+	ops: Array<RecordWriteOp & { cid?: CID | null }>;
 }
 
 /**
@@ -64,14 +64,15 @@ export class Sequencer {
 
 	/**
 	 * Add a commit to the firehose sequence.
-	 * Returns the sequence number assigned to this event.
+	 * Returns the complete sequenced event for broadcasting.
 	 */
-	async sequenceCommit(data: CommitData): Promise<number> {
+	async sequenceCommit(data: CommitData): Promise<SeqEvent> {
 		// Create CAR slice with commit diff
 		const carBytes = await blocksToCarFile(data.commit, data.newBlocks);
+		const time = new Date().toISOString();
 
 		// Build event payload
-		const event: Omit<CommitEvent, "seq"> = {
+		const eventPayload: Omit<CommitEvent, "seq"> = {
 			repo: data.did,
 			commit: data.commit,
 			rev: data.rev,
@@ -85,12 +86,12 @@ export class Sequencer {
 			rebase: false,
 			tooBig: carBytes.length > 1_000_000,
 			blobs: [],
-			time: new Date().toISOString(),
+			time,
 		};
 
 		// Store in SQLite
 		// Type assertion: CBOR handles CID/Uint8Array serialization
-		const payload = cborEncode(event as {} as LexValue);
+		const payload = cborEncode(eventPayload as {} as LexValue);
 		const result = this.sql
 			.exec(
 				`INSERT INTO firehose_events (event_type, payload)
@@ -100,7 +101,17 @@ export class Sequencer {
 			)
 			.one();
 
-		return result.seq as number;
+		const seq = result.seq as number;
+
+		return {
+			seq,
+			type: "commit",
+			event: {
+				...eventPayload,
+				seq,
+			},
+			time,
+		};
 	}
 
 	/**

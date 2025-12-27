@@ -45,8 +45,9 @@ try {
 	);
 }
 
-// Bluesky AppView DID for service auth
+// Bluesky service DIDs for service auth
 const APPVIEW_DID = "did:web:api.bsky.app";
+const CHAT_DID = "did:web:api.bsky.chat";
 
 // Lazy-loaded keypair for service auth
 let keypairPromise: Promise<Secp256k1Keypair> | null = null;
@@ -60,13 +61,16 @@ function getKeypair(): Promise<Secp256k1Keypair> {
 const app = new Hono<{ Bindings: Env }>();
 
 // CORS middleware for all routes
-app.use("*", cors({
-	origin: "*",
-	allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-	allowHeaders: ["Content-Type", "Authorization", "atproto-accept-labelers", "atproto-proxy"],
-	exposeHeaders: ["Content-Type"],
-	maxAge: 86400,
-}));
+app.use(
+	"*",
+	cors({
+		origin: "*",
+		allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+		allowHeaders: ["*"],
+		exposeHeaders: ["Content-Type"],
+		maxAge: 86400,
+	}),
+);
 
 // Helper to get Account DO stub
 function getAccountDO(env: Env) {
@@ -120,6 +124,12 @@ app.get("/xrpc/com.atproto.sync.getRepoStatus", (c) =>
 app.get("/xrpc/com.atproto.sync.getBlob", (c) =>
 	sync.getBlob(c, getAccountDO(c.env)),
 );
+app.get("/xrpc/com.atproto.sync.listRepos", (c) =>
+	sync.listRepos(c, getAccountDO(c.env)),
+);
+app.get("/xrpc/com.atproto.sync.listBlobs", (c) =>
+	sync.listBlobs(c, getAccountDO(c.env)),
+);
 
 // WebSocket firehose
 app.get("/xrpc/com.atproto.sync.subscribeRepos", async (c) => {
@@ -163,7 +173,15 @@ app.post("/xrpc/com.atproto.repo.applyWrites", requireAuth, (c) =>
 
 // Server identity
 app.get("/xrpc/com.atproto.server.describeServer", server.describeServer);
-app.get("/xrpc/com.atproto.identity.resolveHandle", server.resolveHandle);
+
+// Handle resolution - return our DID for our handle, let others fall through to proxy
+app.use("/xrpc/com.atproto.identity.resolveHandle", async (c, next) => {
+	const handle = c.req.query("handle");
+	if (handle === c.env.HANDLE) {
+		return c.json({ did: c.env.DID });
+	}
+	await next();
+});
 
 // Session management
 app.post("/xrpc/com.atproto.server.createSession", server.createSession);
@@ -194,14 +212,18 @@ app.get("/xrpc/app.bsky.ageassurance.getState", requireAuth, (c) => {
 	});
 });
 
-// Proxy unhandled XRPC requests to Bluesky AppView
+// Proxy unhandled XRPC requests to Bluesky services
 app.all("/xrpc/*", async (c) => {
 	const url = new URL(c.req.url);
-	url.host = "api.bsky.app";
 	url.protocol = "https:";
 
 	// Extract XRPC method name from path (e.g., "app.bsky.feed.getTimeline")
 	const lxm = url.pathname.replace("/xrpc/", "");
+
+	// Route to appropriate service based on lexicon namespace
+	const isChat = lxm.startsWith("chat.bsky.");
+	url.host = isChat ? "api.bsky.chat" : "api.bsky.app";
+	const audienceDid = isChat ? CHAT_DID : APPVIEW_DID;
 
 	// Check for authorization header
 	const auth = c.req.header("Authorization");
@@ -227,26 +249,30 @@ app.all("/xrpc/*", async (c) => {
 				userDid = payload.sub;
 			}
 
-			// Create service JWT for AppView
+			// Create service JWT for target service
 			const keypair = await getKeypair();
 			const serviceJwt = await createServiceJwt({
 				iss: userDid,
-				aud: APPVIEW_DID,
+				aud: audienceDid,
 				lxm,
 				keypair,
 			});
 			headers["Authorization"] = `Bearer ${serviceJwt}`;
 		} catch {
 			// Token verification failed - forward without auth
-			// AppView will return appropriate error
+			// Target service will return appropriate error
 		}
 	}
 
 	// Forward request with potentially replaced auth header
+	// Remove original authorization header to prevent conflicts
+	const originalHeaders = Object.fromEntries(c.req.raw.headers);
+	delete originalHeaders["authorization"];
+
 	const reqInit: RequestInit = {
 		method: c.req.method,
 		headers: {
-			...Object.fromEntries(c.req.raw.headers),
+			...originalHeaders,
 			...headers,
 		},
 	};

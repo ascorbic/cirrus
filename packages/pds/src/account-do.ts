@@ -260,7 +260,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 			record: record as RepoRecord,
 		};
 
-		const prevCid = repo.cid;
+		const prevRev = repo.commit.rev;
 		const updatedRepo = await repo.applyWrites([createOp], keypair);
 		this.repo = updatedRepo;
 
@@ -279,7 +279,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 			const rows = this.ctx.storage.sql
 				.exec(
 					"SELECT cid, bytes FROM blocks WHERE rev = ?",
-					this.repo.cid.toString(),
+					this.repo.commit.rev,
 				)
 				.toArray();
 
@@ -289,43 +289,19 @@ export class AccountDurableObject extends DurableObject<Env> {
 				newBlocks.set(cid, bytes);
 			}
 
+			// Include the record CID in the op for the firehose
+			const opWithCid = { ...createOp, cid: recordCid };
+
 			const commitData: CommitData = {
 				did: this.repo.did,
 				commit: this.repo.cid,
 				rev: this.repo.commit.rev,
-				since: prevCid.toString(),
+				since: prevRev,
 				newBlocks,
-				ops: [createOp],
+				ops: [opWithCid],
 			};
 
-			const seq = await this.sequencer.sequenceCommit(commitData);
-
-			// Broadcast to connected firehose clients
-			const event: SeqEvent = {
-				seq,
-				type: "commit",
-				event: {
-					seq,
-					rebase: false,
-					tooBig: false,
-					repo: this.repo.did,
-					commit: this.repo.cid,
-					rev: this.repo.commit.rev,
-					since: prevCid.toString(),
-					blocks: new Uint8Array(), // Will be filled by sequencer
-					ops: [
-						{
-							action: "create",
-							path: `${collection}/${actualRkey}`,
-							cid: recordCid,
-						},
-					],
-					blobs: [],
-					time: new Date().toISOString(),
-				},
-				time: new Date().toISOString(),
-			};
-
+			const event = await this.sequencer.sequenceCommit(commitData);
 			await this.broadcastCommit(event);
 		}
 
@@ -358,7 +334,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 			rkey,
 		};
 
-		const prevCid = repo.cid;
+		const prevRev = repo.commit.rev;
 		const updatedRepo = await repo.applyWrites([deleteOp], keypair);
 		this.repo = updatedRepo;
 
@@ -369,7 +345,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 			const rows = this.ctx.storage.sql
 				.exec(
 					"SELECT cid, bytes FROM blocks WHERE rev = ?",
-					this.repo.cid.toString(),
+					this.repo.commit.rev,
 				)
 				.toArray();
 
@@ -383,39 +359,12 @@ export class AccountDurableObject extends DurableObject<Env> {
 				did: this.repo.did,
 				commit: this.repo.cid,
 				rev: this.repo.commit.rev,
-				since: prevCid.toString(),
+				since: prevRev,
 				newBlocks,
 				ops: [deleteOp],
 			};
 
-			const seq = await this.sequencer.sequenceCommit(commitData);
-
-			// Broadcast to connected firehose clients
-			const event: SeqEvent = {
-				seq,
-				type: "commit",
-				event: {
-					seq,
-					rebase: false,
-					tooBig: false,
-					repo: this.repo.did,
-					commit: this.repo.cid,
-					rev: this.repo.commit.rev,
-					since: prevCid.toString(),
-					blocks: new Uint8Array(), // Will be filled by sequencer
-					ops: [
-						{
-							action: "delete",
-							path: `${collection}/${rkey}`,
-							cid: null,
-						},
-					],
-					blobs: [],
-					time: new Date().toISOString(),
-				},
-				time: new Date().toISOString(),
-			};
-
+			const event = await this.sequencer.sequenceCommit(commitData);
 			await this.broadcastCommit(event);
 		}
 
@@ -515,23 +464,28 @@ export class AccountDurableObject extends DurableObject<Env> {
 			}
 		}
 
-		const prevCid = repo.cid;
+		const prevRev = repo.commit.rev;
 		const updatedRepo = await repo.applyWrites(ops, keypair);
 		this.repo = updatedRepo;
 
-		// Build final results with CIDs
+		// Build final results with CIDs and prepare ops with CIDs for firehose
 		const finalResults: Array<{
 			$type: string;
 			uri?: string;
 			cid?: string;
 			validationStatus?: string;
 		}> = [];
+		const opsWithCids: Array<RecordWriteOp & { cid?: CID | null }> = [];
 
-		for (const result of results) {
+		for (let i = 0; i < results.length; i++) {
+			const result = results[i]!;
+			const op = ops[i]!;
+
 			if (result.action === WriteOpAction.Delete) {
 				finalResults.push({
 					$type: result.$type,
 				});
+				opsWithCids.push(op);
 			} else {
 				// Get the CID for create/update
 				const dataKey = `${result.collection}/${result.rkey}`;
@@ -542,6 +496,8 @@ export class AccountDurableObject extends DurableObject<Env> {
 					cid: recordCid?.toString(),
 					validationStatus: "valid",
 				});
+				// Include the record CID in the op for the firehose
+				opsWithCids.push({ ...op, cid: recordCid });
 			}
 		}
 
@@ -551,7 +507,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 			const rows = this.ctx.storage.sql
 				.exec(
 					"SELECT cid, bytes FROM blocks WHERE rev = ?",
-					this.repo.cid.toString(),
+					this.repo.commit.rev,
 				)
 				.toArray();
 
@@ -565,52 +521,12 @@ export class AccountDurableObject extends DurableObject<Env> {
 				did: this.repo.did,
 				commit: this.repo.cid,
 				rev: this.repo.commit.rev,
-				since: prevCid.toString(),
+				since: prevRev,
 				newBlocks,
-				ops,
+				ops: opsWithCids,
 			};
 
-			const seq = await this.sequencer.sequenceCommit(commitData);
-
-			// Build ops for firehose event
-			const firehoseOps = await Promise.all(
-				results.map(async (result) => {
-					if (result.action === WriteOpAction.Delete) {
-						return {
-							action: "delete" as const,
-							path: `${result.collection}/${result.rkey}`,
-							cid: null,
-						};
-					}
-					const dataKey = `${result.collection}/${result.rkey}`;
-					const cid = await this.repo!.data.get(dataKey);
-					return {
-						action: result.action === WriteOpAction.Create ? "create" as const : "update" as const,
-						path: `${result.collection}/${result.rkey}`,
-						cid,
-					};
-				}),
-			);
-
-			const event: SeqEvent = {
-				seq,
-				type: "commit",
-				event: {
-					seq,
-					rebase: false,
-					tooBig: false,
-					repo: this.repo.did,
-					commit: this.repo.cid,
-					rev: this.repo.commit.rev,
-					since: prevCid.toString(),
-					blocks: new Uint8Array(),
-					ops: firehoseOps as any,
-					blobs: [],
-					time: new Date().toISOString(),
-				},
-				time: new Date().toISOString(),
-			};
-
+			const event = await this.sequencer.sequenceCommit(commitData);
 			await this.broadcastCommit(event);
 		}
 
@@ -628,11 +544,13 @@ export class AccountDurableObject extends DurableObject<Env> {
 	 */
 	async rpcGetRepoStatus(): Promise<{
 		did: string;
+		head: string;
 		rev: string;
 	}> {
 		const repo = await this.getRepo();
 		return {
 			did: repo.did,
+			head: repo.cid.toString(),
 			rev: repo.commit.rev,
 		};
 	}

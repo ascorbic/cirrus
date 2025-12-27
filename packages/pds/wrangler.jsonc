@@ -41,6 +41,10 @@
 	// Environment variables (non-secret)
 	"vars": {
 		"PDS_HOSTNAME": "pds.mk.gg"
+	},
+	// Enable observability for logs
+	"observability": {
+		"enabled": true
 	}
 	// Secrets (set via `wrangler secret put`):
 	// - DID: The account's DID (did:web:pds.mk.gg)

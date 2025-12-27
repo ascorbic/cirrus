@@ -4,22 +4,21 @@
  */
 
 import { Secp256k1Keypair } from "@atproto/crypto"
-import * as uint8arrays from "uint8arrays"
 
 async function main() {
 	// Generate a new secp256k1 keypair
 	const keypair = await Secp256k1Keypair.create({ exportable: true })
 
-	// Export the private key
+	// Export the private key as hex
 	const privateKeyBytes = await keypair.export()
-	const privateKeyHex = uint8arrays.toString(privateKeyBytes, "hex")
+	const privateKeyHex = Buffer.from(privateKeyBytes).toString("hex")
 
 	// Get the public key in did:key format
 	const did = keypair.did()
 
-	// Get the public key bytes for DID document
-	const publicKeyBytes = keypair.publicKeyBytes()
-	const publicKeyMultibase = "z" + uint8arrays.toString(publicKeyBytes, "base58btc")
+	// Get the public key multibase from did:key (includes multicodec prefix)
+	// This is the correct format for DID document verificationMethod
+	const publicKeyMultibase = did.replace("did:key:", "")
 
 	console.log("=== Edge PDS Signing Keys ===\n")
 	console.log("Set these secrets with wrangler:\n")

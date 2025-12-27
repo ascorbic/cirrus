@@ -203,19 +203,17 @@ describe("XRPC Endpoints", () => {
 			});
 		});
 
-		it("should return 404 for unknown handle", async () => {
+		it("should proxy unknown handles to AppView", async () => {
+			// Unknown handles are proxied to AppView (api.bsky.app)
+			// In test environment this may fail or return an error from the proxy
 			const response = await worker.fetch(
 				new Request(
 					"http://pds.test/xrpc/com.atproto.identity.resolveHandle?handle=bob.test",
 				),
 				env,
 			);
-			expect(response.status).toBe(404);
-
-			const data = await response.json();
-			expect(data).toMatchObject({
-				error: "HandleNotFound",
-			});
+			// We don't control the AppView response, just verify we don't return our own 404
+			expect(response.status).not.toBe(404);
 		});
 	});
 
