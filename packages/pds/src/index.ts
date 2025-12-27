@@ -2,6 +2,7 @@ export { SqliteRepoStorage } from "./storage";
 export { AccountDurableObject } from "./account-do";
 
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { env } from "cloudflare:workers";
 import { ensureValidDid, ensureValidHandle } from "@atproto/syntax";
 import { requireAuth } from "./middleware/auth";
@@ -38,6 +39,15 @@ try {
 
 const app = new Hono<{ Bindings: Env }>();
 
+// CORS middleware for all routes
+app.use("*", cors({
+	origin: "*",
+	allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+	allowHeaders: ["Content-Type", "Authorization"],
+	exposeHeaders: ["Content-Type"],
+	maxAge: 86400,
+}));
+
 // Helper to get Account DO stub
 function getAccountDO(env: Env) {
 	const id = env.ACCOUNT.idFromName("account");
@@ -69,9 +79,7 @@ app.get("/.well-known/did.json", (c) => {
 			},
 		],
 	};
-	return c.json(didDocument, 200, {
-		"Access-Control-Allow-Origin": "*",
-	});
+	return c.json(didDocument);
 });
 
 // Health check
@@ -89,6 +97,21 @@ app.get("/xrpc/com.atproto.sync.getRepo", (c) =>
 app.get("/xrpc/com.atproto.sync.getRepoStatus", (c) =>
 	sync.getRepoStatus(c, getAccountDO(c.env)),
 );
+
+// WebSocket firehose
+app.get("/xrpc/com.atproto.sync.subscribeRepos", async (c) => {
+	const upgradeHeader = c.req.header("Upgrade");
+	if (upgradeHeader !== "websocket") {
+		return c.json(
+			{ error: "InvalidRequest", message: "Expected WebSocket upgrade" },
+			400,
+		);
+	}
+
+	// Use fetch() instead of RPC to avoid WebSocket serialization error
+	const accountDO = getAccountDO(c.env);
+	return accountDO.fetch(c.req.raw);
+});
 
 // Repository operations
 app.get("/xrpc/com.atproto.repo.describeRepo", (c) =>

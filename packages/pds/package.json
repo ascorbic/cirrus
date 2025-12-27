@@ -16,7 +16,10 @@
 		"preview": "vite preview",
 		"deploy": "wrangler deploy",
 		"test": "vitest run",
-		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm"
+		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm",
+		"test:firehose": "node scripts/load-env.js node scripts/test-firehose.js",
+		"test:firehose:prod": "PDS_URL=https://pds.mk.gg node scripts/load-env.js node scripts/test-firehose.js",
+		"create-post": "node scripts/load-env.js node scripts/create-post.js"
 	},
 	"dependencies": {
 		"@atproto/common-web": "^0.4.7",
@@ -33,12 +36,16 @@
 		"@cloudflare/vite-plugin": "^1.17.0",
 		"@cloudflare/vitest-pool-workers": "https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632",
 		"@cloudflare/workers-types": "^4.20251225.0",
+		"@ipld/car": "^5.4.2",
+		"@types/ws": "^8.18.1",
+		"cborg": "^4.3.2",
 		"publint": "^0.3.16",
 		"tsx": "^4.21.0",
 		"typescript": "^5.9.3",
 		"vite": "^6.0.0",
 		"vitest": "^4.0.0",
-		"wrangler": "^4.54.0"
+		"wrangler": "^4.54.0",
+		"ws": "^8.18.3"
 	},
 	"repository": {
 		"type": "git",

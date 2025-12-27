@@ -12,7 +12,9 @@ import { Secp256k1Keypair } from "@atproto/crypto";
 import { CID } from "@atproto/lex-data";
 import { TID } from "@atproto/common-web";
 import { AtUri } from "@atproto/syntax";
+import { encode as cborEncode } from "@atproto/lex-cbor";
 import { SqliteRepoStorage } from "./storage";
+import { Sequencer, type SeqEvent, type CommitData } from "./sequencer";
 
 /**
  * Account Durable Object - manages a single user's AT Protocol repository.
@@ -27,6 +29,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 	private storage: SqliteRepoStorage | null = null;
 	private repo: Repo | null = null;
 	private keypair: Secp256k1Keypair | null = null;
+	private sequencer: Sequencer | null = null;
 	private storageInitialized = false;
 	private repoInitialized = false;
 
@@ -52,6 +55,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 
 				this.storage = new SqliteRepoStorage(this.ctx.storage.sql);
 				this.storage.initSchema();
+				this.sequencer = new Sequencer(this.ctx.storage.sql);
 				this.storageInitialized = true;
 			});
 		}
@@ -238,6 +242,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 	}> {
 		const repo = await this.getRepo();
 		const keypair = await this.getKeypair();
+		const storage = await this.getStorage();
 
 		const actualRkey = rkey || TID.nextStr();
 		const createOp: RecordCreateOp = {
@@ -247,6 +252,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 			record: record as RepoRecord,
 		};
 
+		const prevCid = repo.cid;
 		const updatedRepo = await repo.applyWrites([createOp], keypair);
 		this.repo = updatedRepo;
 
@@ -256,6 +262,63 @@ export class AccountDurableObject extends DurableObject<Env> {
 
 		if (!recordCid) {
 			throw new Error(`Failed to create record: ${collection}/${actualRkey}`);
+		}
+
+		// Sequence the commit for firehose
+		if (this.sequencer) {
+			// Get blocks that changed
+			const newBlocks = new BlockMap();
+			const rows = this.ctx.storage.sql
+				.exec(
+					"SELECT cid, bytes FROM blocks WHERE rev = ?",
+					this.repo.cid.toString(),
+				)
+				.toArray();
+
+			for (const row of rows) {
+				const cid = CID.parse(row.cid as string);
+				const bytes = new Uint8Array(row.bytes as ArrayBuffer);
+				newBlocks.set(cid, bytes);
+			}
+
+			const commitData: CommitData = {
+				did: this.repo.did,
+				commit: this.repo.cid,
+				rev: this.repo.cid.toString(),
+				since: prevCid.toString(),
+				newBlocks,
+				ops: [createOp],
+			};
+
+			const seq = await this.sequencer.sequenceCommit(commitData);
+
+			// Broadcast to connected firehose clients
+			const event: SeqEvent = {
+				seq,
+				type: "commit",
+				event: {
+					seq,
+					rebase: false,
+					tooBig: false,
+					repo: this.repo.did,
+					commit: this.repo.cid,
+					rev: this.repo.cid.toString(),
+					since: prevCid.toString(),
+					blocks: new Uint8Array(), // Will be filled by sequencer
+					ops: [
+						{
+							action: "create",
+							path: `${collection}/${actualRkey}`,
+							cid: recordCid,
+						},
+					],
+					blobs: [],
+					time: new Date().toISOString(),
+				},
+				time: new Date().toISOString(),
+			};
+
+			await this.broadcastCommit(event);
 		}
 
 		return {
@@ -287,8 +350,66 @@ export class AccountDurableObject extends DurableObject<Env> {
 			rkey,
 		};
 
+		const prevCid = repo.cid;
 		const updatedRepo = await repo.applyWrites([deleteOp], keypair);
 		this.repo = updatedRepo;
+
+		// Sequence the commit for firehose
+		if (this.sequencer) {
+			// Get blocks that changed
+			const newBlocks = new BlockMap();
+			const rows = this.ctx.storage.sql
+				.exec(
+					"SELECT cid, bytes FROM blocks WHERE rev = ?",
+					this.repo.cid.toString(),
+				)
+				.toArray();
+
+			for (const row of rows) {
+				const cid = CID.parse(row.cid as string);
+				const bytes = new Uint8Array(row.bytes as ArrayBuffer);
+				newBlocks.set(cid, bytes);
+			}
+
+			const commitData: CommitData = {
+				did: this.repo.did,
+				commit: this.repo.cid,
+				rev: this.repo.cid.toString(),
+				since: prevCid.toString(),
+				newBlocks,
+				ops: [deleteOp],
+			};
+
+			const seq = await this.sequencer.sequenceCommit(commitData);
+
+			// Broadcast to connected firehose clients
+			const event: SeqEvent = {
+				seq,
+				type: "commit",
+				event: {
+					seq,
+					rebase: false,
+					tooBig: false,
+					repo: this.repo.did,
+					commit: this.repo.cid,
+					rev: this.repo.cid.toString(),
+					since: prevCid.toString(),
+					blocks: new Uint8Array(), // Will be filled by sequencer
+					ops: [
+						{
+							action: "delete",
+							path: `${collection}/${rkey}`,
+							cid: null,
+						},
+					],
+					blobs: [],
+					time: new Date().toISOString(),
+				},
+				time: new Date().toISOString(),
+			};
+
+			await this.broadcastCommit(event);
+		}
 
 		return {
 			commit: {
@@ -340,4 +461,174 @@ export class AccountDurableObject extends DurableObject<Env> {
 		return blocksToCarFile(root, blocks);
 	}
 
+	/**
+	 * Encode a firehose frame (header + body CBOR).
+	 */
+	private encodeFrame(header: object, body: object): Uint8Array {
+		const headerBytes = cborEncode(header as any);
+		const bodyBytes = cborEncode(body as any);
+
+		const frame = new Uint8Array(headerBytes.length + bodyBytes.length);
+		frame.set(headerBytes, 0);
+		frame.set(bodyBytes, headerBytes.length);
+
+		return frame;
+	}
+
+	/**
+	 * Encode a commit event frame.
+	 */
+	private encodeCommitFrame(event: SeqEvent): Uint8Array {
+		const header = { op: 1, t: "#commit" };
+		return this.encodeFrame(header, event.event);
+	}
+
+	/**
+	 * Encode an error frame.
+	 */
+	private encodeErrorFrame(error: string, message: string): Uint8Array {
+		const header = { op: -1 };
+		const body = { error, message };
+		return this.encodeFrame(header, body);
+	}
+
+	/**
+	 * Backfill firehose events from a cursor.
+	 */
+	private async backfillFirehose(
+		ws: WebSocket,
+		cursor: number,
+	): Promise<void> {
+		if (!this.sequencer) {
+			throw new Error("Sequencer not initialized");
+		}
+
+		const latestSeq = this.sequencer.getLatestSeq();
+
+		// Check if cursor is in the future
+		if (cursor > latestSeq) {
+			const frame = this.encodeErrorFrame(
+				"FutureCursor",
+				"Cursor is in the future",
+			);
+			ws.send(frame);
+			ws.close(1008, "FutureCursor");
+			return;
+		}
+
+		// Backfill from cursor
+		const events = await this.sequencer.getEventsSince(cursor, 1000);
+
+		for (const event of events) {
+			const frame = this.encodeCommitFrame(event);
+			ws.send(frame);
+		}
+
+		// Update cursor in attachment
+		if (events.length > 0) {
+			const lastEvent = events[events.length - 1];
+			if (lastEvent) {
+				const attachment = ws.deserializeAttachment() as { cursor: number };
+				attachment.cursor = lastEvent.seq;
+				ws.serializeAttachment(attachment);
+			}
+		}
+	}
+
+	/**
+	 * Broadcast a commit event to all connected firehose clients.
+	 */
+	private async broadcastCommit(event: SeqEvent): Promise<void> {
+		const frame = this.encodeCommitFrame(event);
+
+		for (const ws of this.ctx.getWebSockets()) {
+			try {
+				ws.send(frame);
+
+				// Update cursor
+				const attachment = ws.deserializeAttachment() as { cursor: number };
+				attachment.cursor = event.seq;
+				ws.serializeAttachment(attachment);
+			} catch (e) {
+				// Client disconnected, will be cleaned up
+				console.error("Error broadcasting to WebSocket:", e);
+			}
+		}
+	}
+
+	/**
+	 * Handle WebSocket upgrade for firehose (subscribeRepos).
+	 */
+	async handleFirehoseUpgrade(request: Request): Promise<Response> {
+		await this.ensureStorageInitialized();
+
+		const url = new URL(request.url);
+		const cursorParam = url.searchParams.get("cursor");
+		const cursor = cursorParam ? parseInt(cursorParam, 10) : null;
+
+		// Create WebSocket pair
+		const pair = new WebSocketPair();
+		const client = pair[0];
+		const server = pair[1];
+
+		// Accept with hibernation
+		this.ctx.acceptWebSocket(server);
+
+		// Store cursor in attachment
+		server.serializeAttachment({
+			cursor: cursor ?? 0,
+			connectedAt: Date.now(),
+		});
+
+		// Backfill if cursor provided
+		if (cursor !== null) {
+			await this.backfillFirehose(server, cursor);
+		}
+
+		return new Response(null, {
+			status: 101,
+			webSocket: client,
+		});
+	}
+
+	/**
+	 * WebSocket message handler (hibernation API).
+	 */
+	override webSocketMessage(_ws: WebSocket, _message: string | ArrayBuffer): void {
+		// Firehose is server-push only, ignore client messages
+	}
+
+	/**
+	 * WebSocket close handler (hibernation API).
+	 */
+	override webSocketClose(
+		_ws: WebSocket,
+		_code: number,
+		_reason: string,
+		_wasClean: boolean,
+	): void {
+		// Cleanup handled automatically by hibernation API
+	}
+
+	/**
+	 * WebSocket error handler (hibernation API).
+	 */
+	override webSocketError(_ws: WebSocket, error: Error): void {
+		console.error("WebSocket error:", error);
+	}
+
+	/**
+	 * HTTP fetch handler for WebSocket upgrades.
+	 * This is used instead of RPC to avoid WebSocket serialization errors.
+	 */
+	override async fetch(request: Request): Promise<Response> {
+		// Only handle WebSocket upgrades via fetch
+		const url = new URL(request.url);
+		if (url.pathname === "/xrpc/com.atproto.sync.subscribeRepos") {
+			return this.handleFirehoseUpgrade(request);
+		}
+
+		// All other requests should use RPC methods, not fetch
+		return new Response("Method not allowed", { status: 405 });
+	}
 }
