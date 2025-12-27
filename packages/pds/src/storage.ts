@@ -1,4 +1,4 @@
-import { CID } from "multiformats/cid";
+import { CID } from "@atproto/lex-data";
 import { BlockMap, type CommitData } from "@atproto/repo";
 import {
 	ReadableBlockstore,

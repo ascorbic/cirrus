@@ -35,6 +35,12 @@ importers:
       '@atproto/crypto':
         specifier: ^0.4.5
         version: 0.4.5
+      '@atproto/lex-cbor':
+        specifier: ^0.0.3
+        version: 0.0.3
+      '@atproto/lex-data':
+        specifier: ^0.0.3
+        version: 0.0.3
       '@atproto/lexicon':
         specifier: ^0.6.0
         version: 0.6.0
@@ -44,24 +50,9 @@ importers:
       '@atproto/syntax':
         specifier: ^0.4.2
         version: 0.4.2
-      '@ipld/dag-cbor':
-        specifier: ^7.0.0
-        version: 7.0.3
-      cborg:
-        specifier: ^4.3.2
-        version: 4.3.2
       hono:
         specifier: ^4.11.3
         version: 4.11.3
-      multiformats:
-        specifier: ^9.9.0
-        version: 9.9.0
-      uint8arrays:
-        specifier: 3.0.0
-        version: 3.0.0
-      varint:
-        specifier: ^6.0.0
-        version: 6.0.0
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: ^0.18.2
@@ -75,9 +66,6 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20251225.0
         version: 4.20251225.0
-      '@types/varint':
-        specifier: ^6.0.3
-        version: 6.0.3
       publint:
         specifier: ^0.3.16
         version: 0.3.16
@@ -1104,9 +1092,6 @@ packages:
   '@types/node@24.10.4':
     resolution: {integrity: sha512-vnDVpYPMzs4wunl27jHrfmwojOGKya0xyM3sH+UE5iv5uPS6vX7UIoh6m+vQc5LGBq52HBKPIn/zcSZVzeDEZg==}
 
-  '@types/varint@6.0.3':
-    resolution: {integrity: sha512-DHukoGWdJ2aYkveZJTB2rN2lp6m7APzVsoJQ7j/qy1fQxyamJTPD5xQzCMoJ2Qtgn0mE3wWeNOpbTyBFvF+dyA==}
-
   '@vitest/expect@3.2.4':
     resolution: {integrity: sha512-Io0yyORnB6sikFlt8QW5K7slY4OjqNX9jmJQ02QDda8lyM6B5oNgVWoSoKPac8/kgnCUzuHQKrSLtu/uOqqrig==}
 
@@ -1238,10 +1223,6 @@ packages:
 
   cborg@1.10.2:
     resolution: {integrity: sha512-b3tFPA9pUr2zCUiCfRd2+wok2/LBSNUMKOuRRok+WlvvAgEt/PlbgPTsZUcwCOs53IJvLgTp0eotwtosE6njug==}
-    hasBin: true
-
-  cborg@4.3.2:
-    resolution: {integrity: sha512-l+QzebEAG0vb09YKkaOrMi2zmm80UNjmbvocMIeW5hO7JOXWdrQ/H49yOKfYX0MBgrj/KWgatBnEgRXyNyKD+A==}
     hasBin: true
 
   chai@5.2.0:
@@ -3122,10 +3103,6 @@ snapshots:
     dependencies:
       undici-types: 7.16.0
 
-  '@types/varint@6.0.3':
-    dependencies:
-      '@types/node': 24.10.4
-
   '@vitest/expect@3.2.4':
     dependencies:
       '@types/chai': 5.2.2
@@ -3261,8 +3238,6 @@ snapshots:
   cac@6.7.14: {}
 
   cborg@1.10.2: {}
-
-  cborg@4.3.2: {}
 
   chai@5.2.0:
     dependencies:

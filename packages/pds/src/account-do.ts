@@ -2,16 +2,15 @@ import { DurableObject } from "cloudflare:workers";
 import {
 	Repo,
 	WriteOpAction,
+	BlockMap,
+	blocksToCarFile,
 	type RecordCreateOp,
 	type RecordDeleteOp,
 } from "@atproto/repo";
 import type { RepoRecord } from "@atproto/lexicon";
 import { Secp256k1Keypair } from "@atproto/crypto";
+import { CID } from "@atproto/lex-data";
 import { SqliteRepoStorage } from "./storage";
-import { CID } from "multiformats/cid";
-import { encode } from "@ipld/dag-cbor";
-import { encode as varintEncode } from "varint";
-import { concat } from "uint8arrays";
 
 /**
  * Account Durable Object - manages a single user's AT Protocol repository.
@@ -327,35 +326,16 @@ export class AccountDurableObject extends DurableObject<Env> {
 			.exec("SELECT cid, bytes FROM blocks")
 			.toArray();
 
-		// Build CAR file manually to avoid async generator issues
-		const chunks: Uint8Array[] = [];
-
-		// CAR header
-		const header = new Uint8Array(
-			encode({
-				version: 1,
-				roots: [root],
-			}),
-		);
-		chunks.push(new Uint8Array(varintEncode(header.byteLength)));
-		chunks.push(header);
-
-		// Add each block
+		// Build BlockMap
+		const blocks = new BlockMap();
 		for (const row of rows) {
-			const cidStr = row.cid as string;
+			const cid = CID.parse(row.cid as string);
 			const bytes = new Uint8Array(row.bytes as ArrayBuffer);
-			const cid = CID.parse(cidStr);
-
-			// Block format: varint(cid.bytes.length + block.length) + cid.bytes + block
-			chunks.push(
-				new Uint8Array(varintEncode(cid.bytes.byteLength + bytes.byteLength)),
-			);
-			chunks.push(cid.bytes);
-			chunks.push(bytes);
+			blocks.set(cid, bytes);
 		}
 
-		// Concatenate all chunks
-		return concat(chunks);
+		// Use the official CAR builder
+		return blocksToCarFile(root, blocks);
 	}
 
 	private generateRkey(): string {

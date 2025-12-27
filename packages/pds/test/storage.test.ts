@@ -1,20 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { CID } from "multiformats/cid";
-import { sha256 } from "multiformats/hashes/sha2";
-import * as dagCbor from "@ipld/dag-cbor";
+import { CID } from "@atproto/lex-data";
+import { encode, cidForCbor, type LexValue } from "@atproto/lex-cbor";
 import { BlockMap, CidSet } from "@atproto/repo";
 import { AccountDurableObject } from "../src/account-do";
 import { SqliteRepoStorage } from "../src/storage";
 
 // Helper to create a CID from data
 async function createCid(
-	data: unknown,
+	data: LexValue,
 ): Promise<{ cid: CID; bytes: Uint8Array }> {
-	const bytes = dagCbor.encode(data);
-	const hash = await sha256.digest(bytes);
-	const cid = CID.create(1, dagCbor.code, hash);
+	const bytes = encode(data);
+	const cid = await cidForCbor(bytes);
 	return { cid, bytes };
 }
 
