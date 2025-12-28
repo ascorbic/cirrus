@@ -21,8 +21,8 @@ export interface PDSEnv {
 	SIGNING_KEY_PUBLIC: string;
 	/** Secret for signing session JWTs */
 	JWT_SECRET: string;
-	/** Bcrypt hash of account password (optional, for app login) */
-	PASSWORD_HASH?: string;
+	/** Bcrypt hash of account password */
+	PASSWORD_HASH: string;
 	/** Durable Object namespace for account storage */
 	ACCOUNT: DurableObjectNamespace<AccountDurableObject>;
 	/** R2 bucket for blob storage (optional) */

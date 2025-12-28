@@ -1,36 +1,44 @@
+/**
+ * JWT secret generation command
+ */
 import { defineCommand } from "citty";
-import * as p from "@clack/prompts";
 import { randomBytes } from "node:crypto";
-import { setWranglerSecret } from "../../utils/wrangler.js";
-import { appendDevVar } from "../../utils/dotenv.js";
+import * as p from "@clack/prompts";
+import { setSecret } from "../../utils/wrangler.js";
+import { setDevVar } from "../../utils/dotenv.js";
 
-export default defineCommand({
+export const jwtCommand = defineCommand({
 	meta: {
 		name: "jwt",
-		description: "Generate and set JWT secret",
+		description: "Generate and set JWT signing secret",
 	},
 	args: {
 		local: {
 			type: "boolean",
-			alias: "l",
-			description: "Write to .dev.vars instead of wrangler",
+			description: "Write to .dev.vars instead of wrangler secrets",
+			default: false,
 		},
 	},
 	async run({ args }) {
-		p.intro("Set JWT Secret");
+		p.intro("Generate JWT Secret");
 
 		const secret = randomBytes(32).toString("base64");
-		const spin = p.spinner();
 
 		if (args.local) {
-			appendDevVar("JWT_SECRET", secret);
-			p.note("JWT_SECRET written to .dev.vars");
+			setDevVar("JWT_SECRET", secret);
+			p.outro("JWT_SECRET written to .dev.vars");
 		} else {
-			spin.start("Setting JWT_SECRET via wrangler");
-			await setWranglerSecret("JWT_SECRET", secret);
-			spin.stop("JWT_SECRET set");
+			const spinner = p.spinner();
+			spinner.start("Setting JWT_SECRET via wrangler...");
+			try {
+				await setSecret("JWT_SECRET", secret);
+				spinner.stop("JWT_SECRET set successfully");
+				p.outro("Done!");
+			} catch (error) {
+				spinner.stop("Failed to set JWT_SECRET");
+				p.log.error(String(error));
+				process.exit(1);
+			}
 		}
-
-		p.outro("JWT secret configured!");
 	},
 });

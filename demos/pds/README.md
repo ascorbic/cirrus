@@ -1,4 +1,4 @@
-# Demo PDS Deployment
+# Personal PDS on Cloudflare Workers
 
 This is an example deployment of `@ascorbic/pds-worker` - a single-user AT Protocol Personal Data Server on Cloudflare Workers.
 
@@ -15,35 +15,35 @@ pnpm install
 Use the PDS CLI to generate keys and configure your environment:
 
 ```bash
-npx @ascorbic/pds-worker init --local
+pnpm pds init --local
 ```
 
-This will prompt for your hostname, handle, and password, then write all secrets to `.dev.vars`.
-
-Alternatively, copy `.env.example` to `.dev.vars` and fill in values manually.
+This will prompt for your hostname, handle, and password, then write configuration to `.dev.vars`.
 
 ### 3. Run locally
 
 ```bash
-pnpm run dev
+pnpm dev
 ```
 
 This starts a local development server using Miniflare with your `.dev.vars` configuration.
 
 ### 4. Deploy to production
 
-Use the PDS CLI to set secrets via wrangler:
+Use the PDS CLI to configure for production:
 
 ```bash
-npx @ascorbic/pds-worker init --production
+pnpm pds init
 ```
 
-Or set secrets individually:
+This sets vars in `wrangler.jsonc` and secrets via `wrangler secret put`.
+
+Or configure secrets individually:
 
 ```bash
-npx @ascorbic/pds-worker secret key      # Generate signing keypair
-npx @ascorbic/pds-worker secret jwt      # Generate JWT secret
-npx @ascorbic/pds-worker secret password # Set login password
+pnpm pds secret key      # Generate signing keypair
+pnpm pds secret jwt      # Generate JWT secret
+pnpm pds secret password # Set login password
 ```
 
 Then deploy:
@@ -54,21 +54,21 @@ pnpm run deploy
 
 ## Configuration
 
-All configuration is via environment variables:
+Configuration is via environment variables: vars in the `wrangler.jsonc` and secrets. Use `pnpm pds init` to configure interactively.
 
-**Required (non-secret):**
-- `PDS_HOSTNAME` - Public hostname (set in wrangler.jsonc)
+**Vars (in wrangler.jsonc):**
 
-**Required (secrets):**
-- `DID` - Your account's DID
-- `HANDLE` - Your account's handle
-- `AUTH_TOKEN` - Bearer token for write operations
-- `SIGNING_KEY` - Private key for signing commits (secp256k1 JWK)
+- `PDS_HOSTNAME` - Public hostname of the PDS
+- `DID` - Account DID (e.g., did:web:pds.example.com)
+- `HANDLE` - Account handle (e.g., alice.example.com)
 - `SIGNING_KEY_PUBLIC` - Public key for DID document (multibase)
-- `JWT_SECRET` - Secret for signing session JWTs
 
-**Optional (secrets):**
-- `PASSWORD_HASH` - Bcrypt hash of account password (enables app login)
+**Secrets (via wrangler):**
+
+- `AUTH_TOKEN` - Bearer token for API write operations
+- `SIGNING_KEY` - Private signing key (secp256k1 JWK)
+- `JWT_SECRET` - Secret for signing session JWTs
+- `PASSWORD_HASH` - Bcrypt hash of account password (for Bluesky app login)
 
 ## Architecture
 
@@ -76,7 +76,7 @@ This deployment simply re-exports the `@ascorbic/pds-worker` package:
 
 ```typescript
 // src/index.ts
-export { default, AccountDurableObject } from '@ascorbic/pds-worker';
+export { default, AccountDurableObject } from "@ascorbic/pds-worker";
 ```
 
 No additional code needed!
@@ -95,6 +95,5 @@ Once deployed, your PDS will serve:
 
 ## Resources
 
-- [PDS Package](../../packages/pds)
 - [AT Protocol Docs](https://atproto.com)
 - [Cloudflare Workers Docs](https://developers.cloudflare.com/workers/)

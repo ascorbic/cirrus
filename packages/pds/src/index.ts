@@ -29,6 +29,7 @@ const required = [
 	"SIGNING_KEY",
 	"SIGNING_KEY_PUBLIC",
 	"JWT_SECRET",
+	"PASSWORD_HASH",
 ] as const;
 
 for (const key of required) {

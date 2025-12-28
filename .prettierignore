@@ -1,3 +1,4 @@
 package.json
 CHANGELOG.md
 pnpm-lock.yaml
+packages/pds/src/lexicons

@@ -16,6 +16,13 @@ export default defineConfig([
 		format: ["esm"],
 		outExtensions: () => ({ js: ".js" }),
 		outDir: "dist",
-		external: [/^node:/, /^@atproto\//, /^@clack\//, "citty", "bcryptjs"],
+		external: [
+			/^node:/,
+			/^@atproto\//,
+			/^@clack\//,
+			"citty",
+			"bcryptjs",
+			"wrangler",
+		],
 	},
 ]);

@@ -174,7 +174,9 @@ describe("Blob Storage", () => {
 
 		it("should require both did and cid parameters", async () => {
 			const response1 = await worker.fetch(
-				new Request(`http://pds.test/xrpc/com.atproto.sync.getBlob?did=${env.DID}`),
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getBlob?did=${env.DID}`,
+				),
 				env,
 			);
 
@@ -246,7 +248,12 @@ describe("Blob Storage", () => {
 			expect(uploadResponse.status).toBe(200);
 
 			const { blob } = (await uploadResponse.json()) as {
-				blob: { $type: string; ref: { $link: string }; mimeType: string; size: number };
+				blob: {
+					$type: string;
+					ref: { $link: string };
+					mimeType: string;
+					size: number;
+				};
 			};
 			expect(blob.$type).toBe("blob");
 			expect(blob.ref.$link).toBeTruthy();

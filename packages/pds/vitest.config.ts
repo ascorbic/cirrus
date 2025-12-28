@@ -33,5 +33,6 @@ export default defineConfig({
 		// Vitest 4: singleWorker is now maxWorkers: 1, isolate: false
 		maxWorkers: 1,
 		isolate: false,
+		exclude: ["test/cli/**", "node_modules/**"],
 	},
 });

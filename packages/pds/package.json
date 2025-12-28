@@ -16,6 +16,7 @@
 	"scripts": {
 		"build": "tsdown",
 		"test": "vitest run",
+		"test:cli": "vitest run --config vitest.config.cli.ts",
 		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm"
 	},
 	"dependencies": {

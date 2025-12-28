@@ -1,10 +1,13 @@
+/**
+ * Signing key generation command
+ */
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import { Secp256k1Keypair } from "@atproto/crypto";
-import { setWranglerSecrets } from "../../utils/wrangler.js";
-import { appendDevVars } from "../../utils/dotenv.js";
+import { setSecret, setVar } from "../../utils/wrangler.js";
+import { setDevVar } from "../../utils/dotenv.js";
 
-export default defineCommand({
+export const keyCommand = defineCommand({
 	meta: {
 		name: "key",
 		description: "Generate and set signing keypair",
@@ -12,36 +15,46 @@ export default defineCommand({
 	args: {
 		local: {
 			type: "boolean",
-			alias: "l",
-			description: "Write to .dev.vars instead of wrangler",
+			description: "Write to .dev.vars instead of wrangler secrets/config",
+			default: false,
 		},
 	},
 	async run({ args }) {
 		p.intro("Generate Signing Keypair");
 
-		const spin = p.spinner();
-		spin.start("Generating secp256k1 keypair");
+		const spinner = p.spinner();
+		spinner.start("Generating secp256k1 keypair...");
 
 		const keypair = await Secp256k1Keypair.create({ exportable: true });
-		const privateKeyBytes = await keypair.export();
-		const privateKeyHex = Buffer.from(privateKeyBytes).toString("hex");
+		const privateKeyJwk = await keypair.export();
 		const publicKeyMultibase = keypair.did().replace("did:key:", "");
 
-		const secrets = {
-			SIGNING_KEY: privateKeyHex,
-			SIGNING_KEY_PUBLIC: publicKeyMultibase,
-		};
+		spinner.stop("Keypair generated");
+
+		const privateKeyJson = JSON.stringify(privateKeyJwk);
 
 		if (args.local) {
-			appendDevVars(secrets);
-			spin.stop("Keys written to .dev.vars");
+			setDevVar("SIGNING_KEY", privateKeyJson);
+			setDevVar("SIGNING_KEY_PUBLIC", publicKeyMultibase);
+			p.outro("SIGNING_KEY and SIGNING_KEY_PUBLIC written to .dev.vars");
 		} else {
-			spin.message("Setting keys via wrangler");
-			await setWranglerSecrets(secrets);
-			spin.stop("Signing keys set");
+			spinner.start("Setting SIGNING_KEY via wrangler secret...");
+			try {
+				await setSecret("SIGNING_KEY", privateKeyJson);
+				spinner.stop("SIGNING_KEY set");
+
+				spinner.start("Setting SIGNING_KEY_PUBLIC in wrangler.jsonc...");
+				setVar("SIGNING_KEY_PUBLIC", publicKeyMultibase);
+				spinner.stop("SIGNING_KEY_PUBLIC set");
+
+				p.outro("Done!");
+			} catch (error) {
+				spinner.stop("Failed");
+				p.log.error(String(error));
+				process.exit(1);
+			}
 		}
 
-		p.note(`did:key:${publicKeyMultibase}`);
-		p.outro("Signing keypair configured!");
+		p.log.info("Public key (for DID document): " + publicKeyMultibase);
 	},
 });

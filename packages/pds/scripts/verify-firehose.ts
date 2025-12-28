@@ -60,7 +60,9 @@ async function verifyCommitEvent(
 	console.log(`  Ops: ${event.ops.length}`);
 
 	for (const op of event.ops) {
-		console.log(`    - ${op.action}: ${op.path} (cid: ${op.cid?.toString() || "null"})`);
+		console.log(
+			`    - ${op.action}: ${op.path} (cid: ${op.cid?.toString() || "null"})`,
+		);
 	}
 
 	// Check blocks
@@ -113,7 +115,9 @@ async function verifyCommitEvent(
 		if (op.action !== "delete" && op.cid) {
 			const cidStr = op.cid.toString();
 			const hasRecord = blockCids.includes(cidStr);
-			console.log(`  Record CID ${cidStr.slice(0, 20)}... in blocks: ${hasRecord ? "✓" : "✗"}`);
+			console.log(
+				`  Record CID ${cidStr.slice(0, 20)}... in blocks: ${hasRecord ? "✓" : "✗"}`,
+			);
 			if (!hasRecord) {
 				errors.push(`Record CID ${cidStr} for ${op.path} not found in blocks`);
 			}
@@ -129,7 +133,9 @@ async function verifyCommitEvent(
 }
 
 async function main() {
-	console.log(`Connecting to ${PDS_URL}/xrpc/com.atproto.sync.subscribeRepos?cursor=${CURSOR}`);
+	console.log(
+		`Connecting to ${PDS_URL}/xrpc/com.atproto.sync.subscribeRepos?cursor=${CURSOR}`,
+	);
 	console.log(`Will verify up to ${MAX_EVENTS} events\n`);
 
 	const ws = new WebSocket(

@@ -15,7 +15,7 @@ For maximum simplicity, users deploying a PDS should not need to write any code.
 
 ```typescript
 // src/index.ts (user's worker)
-export { default, AccountDurableObject } from '@ascorbic/pds-worker'
+export { default, AccountDurableObject } from "@ascorbic/pds-worker";
 ```
 
 That's it. No additional code required.
@@ -26,12 +26,12 @@ The `@ascorbic/pds-worker` package exports:
 
 ```typescript
 // packages/pds/src/index.ts
-export { SqliteRepoStorage } from "./storage"
-export { AccountDurableObject } from "./account-do"
-export { BlobStore } from "./blobs"
+export { SqliteRepoStorage } from "./storage";
+export { AccountDurableObject } from "./account-do";
+export { BlobStore } from "./blobs";
 
 // Default export: configured Hono app
-export default app
+export default app;
 ```
 
 ## Configuration
@@ -39,9 +39,11 @@ export default app
 All configuration is via environment variables and secrets:
 
 **Required environment variables:**
+
 - `PDS_HOSTNAME` - Public hostname (e.g., "pds.example.com")
 
 **Required secrets (set via `wrangler secret put`):**
+
 - `DID` - The account's DID (e.g., "did:web:pds.example.com")
 - `HANDLE` - The account's handle (e.g., "alice.pds.example.com")
 - `AUTH_TOKEN` - Bearer token for write operations
@@ -49,6 +51,7 @@ All configuration is via environment variables and secrets:
 - `SIGNING_KEY_PUBLIC` - Public key for DID document
 
 **Resource bindings (in wrangler.jsonc):**
+
 - `ACCOUNT` - DurableObjectNamespace binding
 - `BLOBS` - R2Bucket binding
 
@@ -63,6 +66,7 @@ npm install
 ```
 
 This scaffolds:
+
 ```
 my-pds/
 ├── src/
@@ -81,6 +85,7 @@ npm run setup
 ```
 
 This interactive script:
+
 1. Prompts for hostname and handle
 2. Generates secp256k1 keypair
 3. Creates DID (did:web based on hostname)
@@ -156,28 +161,28 @@ If users need customization in the future, we can provide a factory function:
 
 ```typescript
 // Future API (backward compatible)
-import { createPDS } from '@ascorbic/pds-worker'
+import { createPDS } from "@ascorbic/pds-worker";
 
 export default createPDS({
-  // Custom middleware, rate limiting, etc.
-  beforeAuth: async (c, next) => {
-    // Custom logic
-    await next()
-  }
-})
+	// Custom middleware, rate limiting, etc.
+	beforeAuth: async (c, next) => {
+		// Custom logic
+		await next();
+	},
+});
 
-export { AccountDurableObject } from '@ascorbic/pds-worker'
+export { AccountDurableObject } from "@ascorbic/pds-worker";
 ```
 
 This would be a non-breaking addition to the API.
 
 ## Comparison with Other Approaches
 
-| Approach | Pros | Cons | Decision |
-|----------|------|------|----------|
-| Re-export | Dead simple, no code needed | No customization | ✅ **Chosen for MVP** |
-| Factory function | Allows config, still simple | Requires understanding config API | Future enhancement |
-| Mount on user's Hono app | Maximum flexibility | User must know Hono/Workers | Too complex for target audience |
+| Approach                 | Pros                        | Cons                              | Decision                        |
+| ------------------------ | --------------------------- | --------------------------------- | ------------------------------- |
+| Re-export                | Dead simple, no code needed | No customization                  | ✅ **Chosen for MVP**           |
+| Factory function         | Allows config, still simple | Requires understanding config API | Future enhancement              |
+| Mount on user's Hono app | Maximum flexibility         | User must know Hono/Workers       | Too complex for target audience |
 
 ## Implementation Checklist
 

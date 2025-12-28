@@ -37,11 +37,14 @@ describe("Account Migration", () => {
 			);
 
 			const response = await worker.fetch(
-				new Request(`http://pds.test/xrpc/com.atproto.server.getAccountStatus`, {
-					headers: {
-						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+				new Request(
+					`http://pds.test/xrpc/com.atproto.server.getAccountStatus`,
+					{
+						headers: {
+							Authorization: `Bearer ${env.AUTH_TOKEN}`,
+						},
 					},
-				}),
+				),
 				env,
 			);
 
@@ -58,11 +61,14 @@ describe("Account Migration", () => {
 			// so the repo likely already exists from previous tests.
 			// This test just verifies the endpoint returns valid data.
 			const response = await worker.fetch(
-				new Request(`http://pds.test/xrpc/com.atproto.server.getAccountStatus`, {
-					headers: {
-						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+				new Request(
+					`http://pds.test/xrpc/com.atproto.server.getAccountStatus`,
+					{
+						headers: {
+							Authorization: `Bearer ${env.AUTH_TOKEN}`,
+						},
 					},
-				}),
+				),
 				env,
 			);
 
@@ -156,7 +162,9 @@ describe("Account Migration", () => {
 
 			// Export the repo
 			const exportResponse = await worker.fetch(
-				new Request(`http://pds.test/xrpc/com.atproto.sync.getRepo?did=${env.DID}`),
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getRepo?did=${env.DID}`,
+				),
 				env,
 			);
 
@@ -236,11 +244,14 @@ describe("Account Migration", () => {
 
 			// Step 2: Check account status before export
 			const statusBeforeResponse = await worker.fetch(
-				new Request(`http://pds.test/xrpc/com.atproto.server.getAccountStatus`, {
-					headers: {
-						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+				new Request(
+					`http://pds.test/xrpc/com.atproto.server.getAccountStatus`,
+					{
+						headers: {
+							Authorization: `Bearer ${env.AUTH_TOKEN}`,
+						},
 					},
-				}),
+				),
 				env,
 			);
 
@@ -254,7 +265,9 @@ describe("Account Migration", () => {
 
 			// Step 3: Export the repo
 			const exportResponse = await worker.fetch(
-				new Request(`http://pds.test/xrpc/com.atproto.sync.getRepo?did=${env.DID}`),
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getRepo?did=${env.DID}`,
+				),
 				env,
 			);
 

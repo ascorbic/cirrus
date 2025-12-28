@@ -17,11 +17,8 @@
 		"build": "vite build",
 		"deploy": "vite build && wrangler deploy",
 		"preview": "vite preview",
-		"setup": "pds init --local",
-		"setup:prod": "pds init --production",
-		"secret:jwt": "pds secret jwt",
-		"secret:password": "pds secret password",
-		"secret:key": "pds secret key",
+		"pds": "pds",
+		"wrangler": "wrangler",
 		"types": "wrangler types"
 	},
 	"keywords": [],

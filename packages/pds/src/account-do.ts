@@ -582,7 +582,11 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 				const recordCid = await this.repo.data.get(dataKey);
 				finalResults.push({
 					$type: result.$type,
-					uri: AtUri.make(this.repo.did, result.collection, result.rkey).toString(),
+					uri: AtUri.make(
+						this.repo.did,
+						result.collection,
+						result.rkey,
+					).toString(),
 					cid: recordCid?.toString(),
 					validationStatus: "valid",
 				});
@@ -938,8 +942,12 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			handle,
 		};
 
-		const headerBytes = cborEncode(header as unknown as import("@atproto/lex-cbor").LexValue);
-		const bodyBytes = cborEncode(body as unknown as import("@atproto/lex-cbor").LexValue);
+		const headerBytes = cborEncode(
+			header as unknown as import("@atproto/lex-cbor").LexValue,
+		);
+		const bodyBytes = cborEncode(
+			body as unknown as import("@atproto/lex-cbor").LexValue,
+		);
 		const frame = new Uint8Array(headerBytes.length + bodyBytes.length);
 		frame.set(headerBytes, 0);
 		frame.set(bodyBytes, headerBytes.length);

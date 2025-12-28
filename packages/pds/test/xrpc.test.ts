@@ -684,7 +684,9 @@ describe("XRPC Endpoints", () => {
 			expect(data.commit).toBeDefined();
 			expect(data.commit.cid).toBeDefined();
 			expect(data.results).toHaveLength(2);
-			expect(data.results[0].$type).toBe("com.atproto.repo.applyWrites#createResult");
+			expect(data.results[0].$type).toBe(
+				"com.atproto.repo.applyWrites#createResult",
+			);
 			expect(data.results[0].uri).toContain("batch-1");
 			expect(data.results[1].uri).toContain("batch-2");
 		});
@@ -741,7 +743,9 @@ describe("XRPC Endpoints", () => {
 			expect(response.status).toBe(200);
 
 			const data = (await response.json()) as any;
-			expect(data.results[0].$type).toBe("com.atproto.repo.applyWrites#updateResult");
+			expect(data.results[0].$type).toBe(
+				"com.atproto.repo.applyWrites#updateResult",
+			);
 
 			// Verify the update
 			const getResponse = await worker.fetch(
@@ -801,7 +805,9 @@ describe("XRPC Endpoints", () => {
 			expect(response.status).toBe(200);
 
 			const data = (await response.json()) as any;
-			expect(data.results[0].$type).toBe("com.atproto.repo.applyWrites#deleteResult");
+			expect(data.results[0].$type).toBe(
+				"com.atproto.repo.applyWrites#deleteResult",
+			);
 
 			// Verify deletion
 			const getResponse = await worker.fetch(
@@ -902,9 +908,15 @@ describe("XRPC Endpoints", () => {
 
 			const data = (await response.json()) as any;
 			expect(data.results).toHaveLength(3);
-			expect(data.results[0].$type).toBe("com.atproto.repo.applyWrites#createResult");
-			expect(data.results[1].$type).toBe("com.atproto.repo.applyWrites#updateResult");
-			expect(data.results[2].$type).toBe("com.atproto.repo.applyWrites#deleteResult");
+			expect(data.results[0].$type).toBe(
+				"com.atproto.repo.applyWrites#createResult",
+			);
+			expect(data.results[1].$type).toBe(
+				"com.atproto.repo.applyWrites#updateResult",
+			);
+			expect(data.results[2].$type).toBe(
+				"com.atproto.repo.applyWrites#deleteResult",
+			);
 		});
 
 		it("should require authentication", async () => {

@@ -1,4 +1,8 @@
-import { encode as cborEncode, decode as cborDecode, type LexValue } from "@atproto/lex-cbor";
+import {
+	encode as cborEncode,
+	decode as cborDecode,
+	type LexValue,
+} from "@atproto/lex-cbor";
 import { CID } from "@atproto/lex-data";
 import { blocksToCarFile, type BlockMap } from "@atproto/repo";
 import type { RecordWriteOp } from "@atproto/repo";
@@ -78,11 +82,13 @@ export class Sequencer {
 			rev: data.rev,
 			since: data.since,
 			blocks: carBytes,
-			ops: data.ops.map((op): RepoOp => ({
-				action: op.action as "create" | "update" | "delete",
-				path: `${op.collection}/${op.rkey}`,
-				cid: ("cid" in op && op.cid ? op.cid : null) as CID | null,
-			})),
+			ops: data.ops.map(
+				(op): RepoOp => ({
+					action: op.action as "create" | "update" | "delete",
+					path: `${op.collection}/${op.rkey}`,
+					cid: ("cid" in op && op.cid ? op.cid : null) as CID | null,
+				}),
+			),
 			rebase: false,
 			tooBig: carBytes.length > 1_000_000,
 			blobs: [],
@@ -118,10 +124,7 @@ export class Sequencer {
 	 * Get events from a cursor position.
 	 * Returns up to `limit` events after the cursor.
 	 */
-	async getEventsSince(
-		cursor: number,
-		limit = 100,
-	): Promise<SeqEvent[]> {
+	async getEventsSince(cursor: number, limit = 100): Promise<SeqEvent[]> {
 		const rows = this.sql
 			.exec(
 				`SELECT seq, event_type, payload, created_at
