@@ -102,9 +102,18 @@ Required environment variables (validated at module load using `cloudflare:worke
 - `DID` - The account's DID (did:web:...) - validated with `ensureValidDid()`
 - `HANDLE` - The account's handle - validated with `ensureValidHandle()`
 - `PDS_HOSTNAME` - Public hostname
-- `AUTH_TOKEN` - Bearer token for write operations
+- `AUTH_TOKEN` - Bearer token for write operations (simple auth)
 - `SIGNING_KEY` - Private key for signing commits
 - `SIGNING_KEY_PUBLIC` - Public key multibase for DID document
+
+**Optional (for session-based auth):**
+
+- `JWT_SECRET` - Secret for signing session JWTs
+- `PASSWORD_HASH` - Bcrypt hash of account password
+
+**Optional (for blob storage):**
+
+- `BLOBS` - R2 bucket binding for blob storage
 
 **Note**: Environment validation happens at module scope. Worker fails fast at startup if any required variables are missing or invalid.
 
@@ -122,7 +131,7 @@ The codebase uses official @atproto packages for all protocol operations. When i
 
 - `@atproto/lex-cbor` - CBOR encoding/decoding with `encode()`, `cidForCbor()`, `cidForRawBytes()`
 - `@atproto/lex-data` - CID operations via stable interface wrapping multiformats
-- `@atproto/repo` - Repository operations, `BlockMap`, `blocksToCarFile()`
+- `@atproto/repo` - Repository operations, `BlockMap`, `blocksToCarFile()`, `readCarWithRoot()`
 
 **Protocol Utilities:**
 
@@ -144,7 +153,7 @@ The codebase uses official @atproto packages for all protocol operations. When i
 
 - **Module Shimming**: Uses `resolve: { conditions: ["node", "require"] }` to force CJS builds for multiformats
 - **BlockMap/CidSet**: Access internal Map/Set via `(blocks as unknown as { map: Map<...> }).map` when iterating
-- **Test Count**: 58 tests (16 storage tests, 26 XRPC tests, 6 firehose tests, 10 blob tests)
+- **Test Count**: 112 tests across 9 test files (16 storage, 32 XRPC, 15 session, 9 migration, 8 firehose, 10 blob, 8 validation, 3 service-auth, 11 bluesky-validation)
 
 ### Firehose Implementation
 
@@ -165,3 +174,69 @@ The PDS implements the WebSocket-based firehose for real-time federation:
 **Endpoint:**
 
 - `GET /xrpc/com.atproto.sync.subscribeRepos?cursor={seq}` - WebSocket upgrade for commit stream
+
+### Lexicon Validation
+
+Records are validated against official Bluesky lexicon schemas:
+
+- **RecordValidator**: Class in `src/validation.ts` for record validation
+- **Vendored Schemas**: JSON lexicons in `src/lexicons/` (posts, profiles, follows, etc.)
+- **Optimistic Validation**: Fail-open for unknown schemas - records with no loaded schema are accepted
+- **Vite Glob Import**: Schemas loaded dynamically via `import.meta.glob("./lexicons/*.json", { eager: true })`
+
+**Usage:**
+
+```ts
+import { validator } from "./validation";
+validator.validateRecord("app.bsky.feed.post", record); // throws on invalid
+```
+
+**Updating Lexicons:**
+
+Run `packages/pds/scripts/update-lexicons.sh` to sync schemas from the atproto monorepo.
+
+### Session Authentication
+
+JWT-based session authentication for Bluesky app compatibility:
+
+- **Access Tokens**: Short-lived JWTs for API requests (60 min expiry)
+- **Refresh Tokens**: Long-lived JWTs for session refresh (90 day expiry)
+- **Password Auth**: `verifyPassword()` using bcrypt-compatible hashing
+- **Static Token**: `AUTH_TOKEN` env var still supported for simple auth
+
+**Required Environment Variables:**
+
+- `JWT_SECRET` - Secret for signing JWTs
+- `PASSWORD_HASH` - Bcrypt hash of account password (for app login)
+
+### Service Auth for AppView Proxy
+
+The PDS proxies unknown XRPC methods to the Bluesky AppView:
+
+- **Service JWT**: `createServiceJwt()` in `src/service-auth.ts`
+- **Audience**: `did:web:api.bsky.app` (the AppView)
+- **Issuer**: User's DID (the PDS vouches for the user)
+- **LXM Claim**: Lexicon method being called (for authorization scoping)
+
+**Flow:**
+
+1. Client requests unknown XRPC method
+2. PDS creates service JWT asserting user identity
+3. Request proxied to AppView with `Authorization: Bearer <service-jwt>`
+4. AppView trusts the PDS's assertion
+
+### Account Migration
+
+Support for importing repositories via CAR file:
+
+- **Import Endpoint**: `com.atproto.repo.importRepo` accepts CAR file upload
+- **Account Status**: `com.atproto.server.getAccountStatus` returns migration state
+- **CAR Parsing**: Uses `readCarWithRoot()` from `@atproto/repo`
+- **Validation**: Verifies root CID and block integrity during import
+
+**Import Flow:**
+
+1. Export CAR from source PDS
+2. POST CAR bytes to `/xrpc/com.atproto.repo.importRepo`
+3. PDS validates and imports all blocks
+4. Repository initialized with imported state
