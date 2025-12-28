@@ -27,7 +27,7 @@ importers:
   demos/pds:
     dependencies:
       '@ascorbic/pds':
-        specifier: ^0.0.0
+        specifier: workspace:*
         version: link:../../packages/pds
     devDependencies:
       '@cloudflare/vite-plugin':
