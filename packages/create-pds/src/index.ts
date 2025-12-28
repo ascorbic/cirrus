@@ -26,18 +26,32 @@ function runCommand(
 	command: string,
 	args: string[],
 	cwd: string,
+	options: { silent?: boolean } = {},
 ): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(command, args, {
 			cwd,
-			stdio: "inherit",
+			stdio: options.silent ? "pipe" : "inherit",
 			shell: process.platform === "win32",
 		});
+
+		let output = "";
+		if (options.silent) {
+			child.stdout?.on("data", (data) => {
+				output += data.toString();
+			});
+			child.stderr?.on("data", (data) => {
+				output += data.toString();
+			});
+		}
 
 		child.on("close", (code) => {
 			if (code === 0) {
 				resolve();
 			} else {
+				if (options.silent && output) {
+					console.error(output);
+				}
 				reject(
 					new Error(`${command} ${args.join(" ")} failed with code ${code}`),
 				);
@@ -226,7 +240,7 @@ const main = defineCommand({
 		if (initGit) {
 			spinner.start("Initializing git...");
 			try {
-				await runCommand("git", ["init"], targetDir);
+				await runCommand("git", ["init"], targetDir, { silent: true });
 				spinner.stop("Git initialized");
 			} catch {
 				spinner.stop("Failed to initialize git");
@@ -237,11 +251,23 @@ const main = defineCommand({
 		if (!args["skip-install"]) {
 			spinner.start(`Installing dependencies with ${pm}...`);
 			try {
-				await runCommand(pm, ["install"], targetDir);
+				await runCommand(pm, ["install"], targetDir, { silent: true });
 				spinner.stop("Dependencies installed");
 			} catch {
 				spinner.stop("Failed to install dependencies");
 				p.log.warning("You can install dependencies manually later");
+			}
+		}
+
+		// Initial commit (after install so lockfile is included)
+		if (initGit) {
+			try {
+				await runCommand("git", ["add", "."], targetDir, { silent: true });
+				await runCommand("git", ["commit", "-m", "Initial commit"], targetDir, {
+					silent: true,
+				});
+			} catch {
+				// Ignore commit errors
 			}
 		}
 
@@ -253,6 +279,17 @@ const main = defineCommand({
 				const pdsArgs = ["run", "pds", "init"];
 
 				await runCommand(pm, pdsArgs, targetDir);
+
+				// Commit the changes from pds init
+				if (initGit) {
+					await runCommand("git", ["add", "."], targetDir, { silent: true });
+					await runCommand(
+						"git",
+						["commit", "-m", "Configure PDS"],
+						targetDir,
+						{ silent: true },
+					);
+				}
 			} catch {
 				p.log.warning("Failed to run pds init. You can run it manually later:");
 				p.log.info(
