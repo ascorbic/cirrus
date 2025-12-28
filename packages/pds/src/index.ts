@@ -181,6 +181,9 @@ app.post("/xrpc/com.atproto.repo.applyWrites", requireAuth, (c) =>
 app.post("/xrpc/com.atproto.repo.putRecord", requireAuth, (c) =>
 	repo.putRecord(c, getAccountDO(c.env)),
 );
+app.post("/xrpc/com.atproto.repo.importRepo", requireAuth, (c) =>
+	repo.importRepo(c, getAccountDO(c.env)),
+);
 
 // Server identity
 app.get("/xrpc/com.atproto.server.describeServer", server.describeServer);
@@ -199,6 +202,11 @@ app.post("/xrpc/com.atproto.server.createSession", server.createSession);
 app.post("/xrpc/com.atproto.server.refreshSession", server.refreshSession);
 app.get("/xrpc/com.atproto.server.getSession", server.getSession);
 app.post("/xrpc/com.atproto.server.deleteSession", server.deleteSession);
+
+// Account migration
+app.get("/xrpc/com.atproto.server.getAccountStatus", requireAuth, (c) =>
+	server.getAccountStatus(c, getAccountDO(c.env)),
+);
 
 // Actor preferences (stub - returns empty preferences)
 app.get("/xrpc/app.bsky.actor.getPreferences", requireAuth, (c) => {

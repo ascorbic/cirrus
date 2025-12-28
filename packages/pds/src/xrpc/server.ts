@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { ensureValidHandle } from "@atproto/syntax";
+import type { AccountDurableObject } from "../account-do";
 import {
 	createAccessToken,
 	createRefreshToken,
@@ -278,4 +279,40 @@ export async function deleteSession(
 	// The client just needs to delete its stored tokens
 	// In a full implementation, we'd revoke the refresh token
 	return c.json({});
+}
+
+/**
+ * Get account status - used for migration checks
+ */
+export async function getAccountStatus(
+	c: Context<{ Bindings: Env }>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
+	try {
+		// Check if repo exists
+		const status = await accountDO.rpcGetRepoStatus();
+
+		return c.json({
+			activated: true,
+			validDid: true,
+			repoRev: status.rev,
+			repoBlocks: null, // Could implement block counting if needed
+			indexedRecords: null, // Could implement record counting if needed
+			privateStateValues: null,
+			expectedBlobs: null,
+			importedBlobs: null,
+		});
+	} catch (err) {
+		// If repo doesn't exist yet, return empty status
+		return c.json({
+			activated: false,
+			validDid: true,
+			repoRev: null,
+			repoBlocks: null,
+			indexedRecords: null,
+			privateStateValues: null,
+			expectedBlobs: null,
+			importedBlobs: null,
+		});
+	}
 }

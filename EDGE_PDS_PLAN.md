@@ -47,12 +47,13 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - `com.atproto.sync.getBlob` endpoint (public read access)
   - Direct R2 access in endpoint (R2ObjectBody cannot be serialized across RPC)
   - Blobs stored with DID prefix for isolation
-- ✅ **Testing** - Migrated to vitest 4, all 73 tests passing
+- ✅ **Testing** - Migrated to vitest 4, all tests passing
   - 16 storage tests
   - 26 XRPC tests (auth, concurrency, error handling, CAR validation)
   - 6 firehose tests (event sequencing, cursor validation, backfill)
   - 10 blob tests (upload, retrieval, size limits, content types)
   - 15 session tests (login, refresh, getSession, JWT validation)
+  - 8 migration tests (account status, import/export, validation)
 - ✅ **TypeScript** - All diagnostic errors resolved, proper type declarations for cloudflare:test
 - ✅ **Protocol Helpers** - All protocol operations use official @atproto utilities
   - Record keys: `TID.nextStr()` from `@atproto/common-web`
@@ -75,6 +76,14 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - bcrypt password hashing with `bcryptjs`
   - Auth middleware accepts both static `AUTH_TOKEN` and JWT access tokens
   - 15 new tests for session endpoints
+- ✅ **Account Migration** (Phase 9) - Import/export for PDS migration
+  - `com.atproto.repo.importRepo` - Import repository from CAR file (authenticated, 100MB limit)
+  - `com.atproto.server.getAccountStatus` - Get account status for migration planning
+  - CAR file parsing using `@ipld/car` library
+  - Validates DID matches during import to prevent incorrect migrations
+  - Prevents importing over existing repository data
+  - Complete export/import workflow tested with CAR file validation
+  - 8 comprehensive migration tests
 
 ### Not Started
 
@@ -2020,11 +2029,10 @@ wrangler secret put PASSWORD_HASH # Generate: npx bcryptjs hash "your-password"
 
 - Account creation / multi-user
 - OAuth / third-party app auth
-- Account migration
 - Labelling
 - Email verification
 - Rate limiting
-- Admin endpoints
+- Advanced admin endpoints
 
 These can all be added later.
 

@@ -15,6 +15,7 @@ import { CID } from "@atproto/lex-data";
 import { TID } from "@atproto/common-web";
 import { AtUri } from "@atproto/syntax";
 import { encode as cborEncode } from "@atproto/lex-cbor";
+import { CarReader } from "@ipld/car";
 import { SqliteRepoStorage } from "./storage";
 import { Sequencer, type SeqEvent, type CommitData } from "./sequencer";
 import { BlobStore, type BlobRef } from "./blobs";
@@ -669,6 +670,79 @@ export class AccountDurableObject extends DurableObject<Env> {
 
 		// Use the official CAR builder
 		return blocksToCarFile(root, blocks);
+	}
+
+	/**
+	 * RPC method: Import repo from CAR file
+	 * This is used for account migration - importing an existing repository
+	 * from another PDS.
+	 */
+	async rpcImportRepo(carBytes: Uint8Array): Promise<{
+		did: string;
+		rev: string;
+		cid: string;
+	}> {
+		await this.ensureStorageInitialized();
+
+		// Check if repo already exists
+		const existingRoot = await this.storage!.getRoot();
+		if (existingRoot) {
+			throw new Error(
+				"Repository already exists. Cannot import over existing repository.",
+			);
+		}
+
+		// Parse CAR file
+		const reader = await CarReader.fromBytes(carBytes);
+
+		// Get the root CID from the CAR file
+		const roots = await reader.getRoots();
+		if (roots.length === 0) {
+			throw new Error("CAR file has no roots");
+		}
+		if (roots.length > 1) {
+			throw new Error("CAR file has multiple roots");
+		}
+
+		const rootCid = roots[0];
+		if (!rootCid) {
+			throw new Error("Invalid root CID");
+		}
+
+		// Import all blocks from CAR into storage
+		// We'll use a temporary revision for the import
+		const importRev = TID.nextStr();
+		let blockCount = 0;
+
+		for await (const { cid, bytes } of reader.blocks()) {
+			await this.storage!.putBlock(cid, bytes, importRev);
+			blockCount++;
+		}
+
+		if (blockCount === 0) {
+			throw new Error("CAR file contains no blocks");
+		}
+
+		// Load the repo to verify it's valid and get the actual revision
+		this.keypair = await Secp256k1Keypair.import(this.env.SIGNING_KEY);
+		this.repo = await Repo.load(this.storage!, rootCid);
+
+		// Verify the DID matches (optional - for safety)
+		if (this.repo.did !== this.env.DID) {
+			// Clean up imported blocks
+			await this.storage!.destroy();
+			throw new Error(
+				`DID mismatch: CAR file contains DID ${this.repo.did}, but expected ${this.env.DID}`,
+			);
+		}
+
+		this.repoInitialized = true;
+
+		return {
+			did: this.repo.did,
+			rev: this.repo.commit.rev,
+			cid: rootCid.toString(),
+		};
 	}
 
 	/**
