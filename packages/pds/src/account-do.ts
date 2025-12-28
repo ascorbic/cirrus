@@ -4,6 +4,7 @@ import {
 	WriteOpAction,
 	BlockMap,
 	blocksToCarFile,
+	readCarWithRoot,
 	type RecordCreateOp,
 	type RecordUpdateOp,
 	type RecordDeleteOp,
@@ -15,7 +16,6 @@ import { CID } from "@atproto/lex-data";
 import { TID } from "@atproto/common-web";
 import { AtUri } from "@atproto/syntax";
 import { encode as cborEncode } from "@atproto/lex-cbor";
-import { CarReader } from "@ipld/car";
 import { SqliteRepoStorage } from "./storage";
 import { Sequencer, type SeqEvent, type CommitData } from "./sequencer";
 import { BlobStore, type BlobRef } from "./blobs";
@@ -692,42 +692,19 @@ export class AccountDurableObject extends DurableObject<Env> {
 			);
 		}
 
-		// Parse CAR file
-		const reader = await CarReader.fromBytes(carBytes);
+		// Use official @atproto/repo utilities to read and validate CAR
+		// readCarWithRoot validates single root requirement and returns BlockMap
+		const { root: rootCid, blocks } = await readCarWithRoot(carBytes);
 
-		// Get the root CID from the CAR file
-		const roots = await reader.getRoots();
-		if (roots.length === 0) {
-			throw new Error("CAR file has no roots");
-		}
-		if (roots.length > 1) {
-			throw new Error("CAR file has multiple roots");
-		}
-
-		const rootCid = roots[0];
-		if (!rootCid) {
-			throw new Error("Invalid root CID");
-		}
-
-		// Import all blocks from CAR into storage
-		// We'll use a temporary revision for the import
+		// Import all blocks into storage using putMany (more efficient than individual putBlock)
 		const importRev = TID.nextStr();
-		let blockCount = 0;
-
-		for await (const { cid, bytes } of reader.blocks()) {
-			await this.storage!.putBlock(cid, bytes, importRev);
-			blockCount++;
-		}
-
-		if (blockCount === 0) {
-			throw new Error("CAR file contains no blocks");
-		}
+		await this.storage!.putMany(blocks, importRev);
 
 		// Load the repo to verify it's valid and get the actual revision
 		this.keypair = await Secp256k1Keypair.import(this.env.SIGNING_KEY);
 		this.repo = await Repo.load(this.storage!, rootCid);
 
-		// Verify the DID matches (optional - for safety)
+		// Verify the DID matches to prevent incorrect migrations
 		if (this.repo.did !== this.env.DID) {
 			// Clean up imported blocks
 			await this.storage!.destroy();
