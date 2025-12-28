@@ -75,26 +75,3 @@ export async function setSecret(
 		child.on("error", reject);
 	});
 }
-
-/**
- * Delete a secret using wrangler secret delete
- */
-export async function deleteSecret(name: SecretName): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const child = spawn("wrangler", ["secret", "delete", name, "--force"], {
-			stdio: "inherit",
-		});
-
-		child.on("close", (code) => {
-			if (code === 0) {
-				resolve();
-			} else {
-				reject(
-					new Error(`wrangler secret delete ${name} failed with code ${code}`),
-				);
-			}
-		});
-
-		child.on("error", reject);
-	});
-}

@@ -7,7 +7,8 @@
 		"check": "pnpm run --filter '@ascorbic/*' --filter 'create-pds' check",
 		"test": "pnpm run --filter '@ascorbic/*' --filter 'create-pds' test",
 		"build": "pnpm run --filter '@ascorbic/*' --filter 'create-pds' build",
-		"format": "prettier --write ."
+		"format": "prettier --write .",
+		"knip": "knip"
 	},
 	"keywords": [],
 	"author": "Matt Kane",
@@ -16,7 +17,9 @@
 		"@changesets/changelog-github": "^0.5.2",
 		"@changesets/cli": "^2.29.8",
 		"@types/node": "^24.10.4",
+		"knip": "^5.78.0",
 		"prettier": "^3.7.4",
+		"typescript": "^5.9.3",
 		"vitest": "^3.2.4"
 	},
 	"packageManager": "pnpm@10.26.2"

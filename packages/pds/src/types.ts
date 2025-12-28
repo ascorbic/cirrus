@@ -1,4 +1,3 @@
-import type { Context } from "hono";
 import type { AuthVariables } from "./middleware/auth";
 import type { AccountDurableObject } from "./account-do";
 
@@ -45,9 +44,3 @@ export type AuthedAppEnv = {
 	Bindings: PDSEnv;
 	Variables: AuthVariables;
 };
-
-/**
- * Context type for handlers that work with or without auth.
- * Uses a generic to accept either authenticated or unauthenticated contexts.
- */
-export type AppContext<E extends AppEnv = AppEnv> = Context<E>;

@@ -1,4 +1,4 @@
-import { SignJWT, jwtVerify, decodeJwt } from "jose";
+import { SignJWT, jwtVerify } from "jose";
 import { compare } from "bcryptjs";
 
 const ACCESS_TOKEN_LIFETIME = "2h";
@@ -121,13 +121,6 @@ export async function verifyRefreshToken(
 	}
 
 	return payload as unknown as JwtPayload;
-}
-
-/**
- * Decode a JWT without verification (for reading claims only)
- */
-export function decodeToken(token: string): JwtPayload {
-	return decodeJwt(token) as unknown as JwtPayload;
 }
 
 /**
