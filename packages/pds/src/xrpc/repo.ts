@@ -3,6 +3,21 @@ import { AtUri, ensureValidDid } from "@atproto/syntax";
 import { AccountDurableObject } from "../account-do";
 import { validator } from "../validation";
 
+function invalidRecordError(
+	c: Context<{ Bindings: Env }>,
+	err: unknown,
+	prefix?: string,
+): Response {
+	const message = err instanceof Error ? err.message : String(err);
+	return c.json(
+		{
+			error: "InvalidRecord",
+			message: prefix ? `${prefix}: ${message}` : message,
+		},
+		400,
+	);
+}
+
 export async function describeRepo(
 	c: Context<{ Bindings: Env }>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
@@ -211,13 +226,7 @@ export async function createRecord(
 	try {
 		validator.validateRecord(collection, record);
 	} catch (err) {
-		return c.json(
-			{
-				error: "InvalidRecord",
-				message: err instanceof Error ? err.message : String(err),
-			},
-			400,
-		);
+		return invalidRecordError(c, err);
 	}
 
 	const result = await accountDO.rpcCreateRecord(collection, rkey, record);
@@ -298,13 +307,7 @@ export async function putRecord(
 	try {
 		validator.validateRecord(collection, record);
 	} catch (err) {
-		return c.json(
-			{
-				error: "InvalidRecord",
-				message: err instanceof Error ? err.message : String(err),
-			},
-			400,
-		);
+		return invalidRecordError(c, err);
 	}
 
 	try {
@@ -368,16 +371,9 @@ export async function applyWrites(
 			try {
 				validator.validateRecord(write.collection, write.value);
 			} catch (err) {
-				return c.json(
-					{
-						error: "InvalidRecord",
-						message: `Write ${i}: ${err instanceof Error ? err.message : String(err)}`,
-					},
-					400,
-				);
+				return invalidRecordError(c, err, `Write ${i}`);
 			}
 		}
-		// Delete operations don't need validation
 	}
 
 	try {
