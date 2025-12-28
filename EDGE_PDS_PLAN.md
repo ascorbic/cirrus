@@ -47,13 +47,15 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - `com.atproto.sync.getBlob` endpoint (public read access)
   - Direct R2 access in endpoint (R2ObjectBody cannot be serialized across RPC)
   - Blobs stored with DID prefix for isolation
-- ✅ **Testing** - Migrated to vitest 4, all tests passing
+- ✅ **Testing** - Migrated to vitest 4, all 101 tests passing
   - 16 storage tests
-  - 26 XRPC tests (auth, concurrency, error handling, CAR validation)
-  - 6 firehose tests (event sequencing, cursor validation, backfill)
+  - 32 XRPC tests (auth, concurrency, error handling, CAR validation)
+  - 8 firehose tests (event sequencing, cursor validation, backfill)
   - 10 blob tests (upload, retrieval, size limits, content types)
   - 15 session tests (login, refresh, getSession, JWT validation)
-  - 8 migration tests (account status, import/export, validation)
+  - 8 validation tests (optimistic mode, strict mode, schema enforcement)
+  - 9 migration tests (account status, import/export, validation)
+  - 3 Bluesky validation tests (post creation, profile updates, schema compliance)
 - ✅ **TypeScript** - All diagnostic errors resolved, proper type declarations for cloudflare:test
 - ✅ **Protocol Helpers** - All protocol operations use official @atproto utilities
   - Record keys: `TID.nextStr()` from `@atproto/common-web`
@@ -76,14 +78,20 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - bcrypt password hashing with `bcryptjs`
   - Auth middleware accepts both static `AUTH_TOKEN` and JWT access tokens
   - 15 new tests for session endpoints
+- ✅ **Lexicon Validation** - Record schema validation for mutation endpoints
+  - `RecordValidator` class using `@atproto/lexicon` package
+  - Optimistic validation strategy (fail-open): validates if schema is loaded, allows unknown collections
+  - Integrated into `createRecord`, `putRecord`, and `applyWrites` endpoints
+  - Schemas can be added dynamically via `validator.addSchema()`
+  - 8 validation tests covering optimistic mode, strict mode, and schema enforcement
 - ✅ **Account Migration** (Phase 9) - Import/export for PDS migration
   - `com.atproto.repo.importRepo` - Import repository from CAR file (authenticated, 100MB limit)
   - `com.atproto.server.getAccountStatus` - Get account status for migration planning
-  - CAR file parsing using `@ipld/car` library
+  - CAR file import using `readCarWithRoot()` from `@atproto/repo`
   - Validates DID matches during import to prevent incorrect migrations
   - Prevents importing over existing repository data
   - Complete export/import workflow tested with CAR file validation
-  - 8 comprehensive migration tests
+  - 9 comprehensive migration tests
 
 ### Not Started
 
@@ -172,13 +180,12 @@ for (const [cidStr, bytes] of internalMap) { ... }
 
 ### Components We Will DEFER
 
-| Component          | Reason                                     |
-| ------------------ | ------------------------------------------ |
-| OAuth Provider     | Complex, not needed for single-user MVP    |
-| Lexicon Validation | Can add later, not required for federation |
-| Rate Limiting      | Single user, not needed for MVP            |
-| Account Migration  | Complex, post-MVP feature                  |
-| Labelling          | AppView concern, not PDS                   |
+| Component         | Reason                                  |
+| ----------------- | --------------------------------------- |
+| OAuth Provider    | Complex, not needed for single-user MVP |
+| Rate Limiting     | Single user, not needed for MVP         |
+| Account Migration | Complex, post-MVP feature               |
+| Labelling         | AppView concern, not PDS                |
 
 ---
 

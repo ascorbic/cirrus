@@ -31,6 +31,7 @@ describe("XRPC Endpoints", () => {
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
 						record: {
+							$type: "app.bsky.feed.post",
 							text: "Should fail",
 							createdAt: new Date().toISOString(),
 						},
@@ -59,6 +60,7 @@ describe("XRPC Endpoints", () => {
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
 						record: {
+							$type: "app.bsky.feed.post",
 							text: "Should fail",
 							createdAt: new Date().toISOString(),
 						},
@@ -87,6 +89,7 @@ describe("XRPC Endpoints", () => {
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
 						record: {
+							$type: "app.bsky.feed.post",
 							text: "Should fail",
 							createdAt: new Date().toISOString(),
 						},
@@ -115,6 +118,7 @@ describe("XRPC Endpoints", () => {
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
 						record: {
+							$type: "app.bsky.feed.post",
 							text: "Should succeed",
 							createdAt: new Date().toISOString(),
 						},
@@ -249,6 +253,7 @@ describe("XRPC Endpoints", () => {
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
 						record: {
+							$type: "app.bsky.feed.post",
 							text: "Hello, World!",
 							createdAt: new Date().toISOString(),
 						},
@@ -283,6 +288,7 @@ describe("XRPC Endpoints", () => {
 						collection: "app.bsky.feed.post",
 						rkey: "test-post-1",
 						record: {
+							$type: "app.bsky.feed.post",
 							text: "Test post",
 							createdAt: new Date().toISOString(),
 						},
@@ -325,6 +331,7 @@ describe("XRPC Endpoints", () => {
 							collection: "app.bsky.feed.post",
 							rkey: `post-${i}`,
 							record: {
+								$type: "app.bsky.feed.post",
 								text: `Post ${i}`,
 								createdAt: new Date().toISOString(),
 							},
@@ -377,6 +384,7 @@ describe("XRPC Endpoints", () => {
 						collection: "app.bsky.feed.post",
 						rkey: "to-delete",
 						record: {
+							$type: "app.bsky.feed.post",
 							text: "Delete me",
 							createdAt: new Date().toISOString(),
 						},
@@ -499,6 +507,7 @@ describe("XRPC Endpoints", () => {
 								repo: env.DID,
 								collection: "app.bsky.feed.post",
 								record: {
+									$type: "app.bsky.feed.post",
 									text: `Concurrent post ${i}`,
 									createdAt: new Date().toISOString(),
 								},
@@ -542,6 +551,7 @@ describe("XRPC Endpoints", () => {
 						collection: "app.bsky.feed.post",
 						rkey: "concurrent-read-test",
 						record: {
+							$type: "app.bsky.feed.post",
 							text: "Read me concurrently",
 							createdAt: new Date().toISOString(),
 						},
@@ -589,6 +599,7 @@ describe("XRPC Endpoints", () => {
 						collection: "app.bsky.feed.post",
 						rkey: "race-test",
 						record: {
+							$type: "app.bsky.feed.post",
 							text: "Race test",
 							createdAt: new Date().toISOString(),
 						},
@@ -979,6 +990,7 @@ describe("XRPC Endpoints", () => {
 						collection: "app.bsky.feed.post",
 						rkey: "car-test",
 						record: {
+							$type: "app.bsky.feed.post",
 							text: "CAR export test",
 							createdAt: new Date().toISOString(),
 						},

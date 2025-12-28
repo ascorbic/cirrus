@@ -28,7 +28,9 @@ describe("Firehose (subscribeRepos)", () => {
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 				// Ensure storage is initialized
 				await instance.getStorage();
-				const sequencer = (instance as any).sequencer;
+				const sequencer: Exclude<AccountDurableObject["sequencer"], null> = (
+					instance as any
+				).sequencer;
 
 				// Get current seq
 				const seqBefore = sequencer.getLatestSeq();
@@ -47,8 +49,10 @@ describe("Firehose (subscribeRepos)", () => {
 				const events = await sequencer.getEventsSince(seqBefore, 10);
 				expect(events.length).toBeGreaterThan(0);
 
-				const newEvent = events.find(e =>
-					e.event.ops.some(op => op.path === "app.bsky.feed.post/test-seq-123")
+				const newEvent = events.find((e) =>
+					e.event.ops.some(
+						(op) => op.path === "app.bsky.feed.post/test-seq-123",
+					),
 				);
 				expect(newEvent).toBeDefined();
 				if (newEvent) {

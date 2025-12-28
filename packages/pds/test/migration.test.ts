@@ -32,6 +32,7 @@ describe("Account Migration", () => {
 							repo: env.DID,
 							collection: "app.bsky.feed.post",
 							record: {
+								$type: "app.bsky.feed.post",
 								text: "Test post for migration",
 								createdAt: new Date().toISOString(),
 							},
@@ -158,6 +159,7 @@ describe("Account Migration", () => {
 							collection: "app.bsky.feed.post",
 							rkey: "test-import-1",
 							record: {
+								$type: "app.bsky.feed.post",
 								text: "Test post for import",
 								createdAt: new Date().toISOString(),
 							},
@@ -240,6 +242,7 @@ describe("Account Migration", () => {
 							collection: "app.bsky.feed.post",
 							rkey: "migration-test",
 							record: {
+								$type: "app.bsky.feed.post",
 								text: "Post to be migrated",
 								createdAt: new Date().toISOString(),
 							},

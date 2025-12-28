@@ -1,7 +1,10 @@
 {
 	"extends": "../../tsconfig.json",
 	"compilerOptions": {
-		"moduleResolution": "bundler"
+		"moduleResolution": "bundler",
+		"types": [
+			"vite/client"
+		]
 	},
 	"include": [
 		"src",

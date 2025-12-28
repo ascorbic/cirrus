@@ -1,0 +1,28 @@
+name: Update Lexicons
+on:
+  schedule:
+    # Run weekly on Mondays at 9am UTC
+    - cron: "0 9 * * 1"
+  workflow_dispatch: # Allow manual trigger
+jobs:
+  update-lexicons:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Update lexicon schemas
+        run: ./packages/pds/scripts/update-lexicons.sh
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          commit-message: "chore(pds): update lexicon schemas"
+          title: "chore(pds): update lexicon schemas"
+          body: |
+            Automated update of Bluesky lexicon schemas from the official atproto repository.
+
+            This PR was created automatically by the weekly lexicon update workflow.
+          branch: chore/update-lexicons
+          delete-branch: true
