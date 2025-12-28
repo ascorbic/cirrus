@@ -1,34 +1,5 @@
 import { Lexicons } from "@atproto/lexicon";
 
-// Import official Bluesky lexicon schemas
-// Core AT Proto schemas
-import strongRefSchema from "./lexicons/com.atproto.repo.strongRef.json" with { type: "json" };
-import labelDefsSchema from "./lexicons/com.atproto.label.defs.json" with { type: "json" };
-
-// Feed schemas
-import postSchema from "./lexicons/app.bsky.feed.post.json" with { type: "json" };
-import likeSchema from "./lexicons/app.bsky.feed.like.json" with { type: "json" };
-import repostSchema from "./lexicons/app.bsky.feed.repost.json" with { type: "json" };
-import threadgateSchema from "./lexicons/app.bsky.feed.threadgate.json" with { type: "json" };
-
-// Actor schemas
-import profileSchema from "./lexicons/app.bsky.actor.profile.json" with { type: "json" };
-
-// Graph schemas
-import followSchema from "./lexicons/app.bsky.graph.follow.json" with { type: "json" };
-import blockSchema from "./lexicons/app.bsky.graph.block.json" with { type: "json" };
-import listSchema from "./lexicons/app.bsky.graph.list.json" with { type: "json" };
-import listitemSchema from "./lexicons/app.bsky.graph.listitem.json" with { type: "json" };
-
-// Richtext schemas
-import facetSchema from "./lexicons/app.bsky.richtext.facet.json" with { type: "json" };
-
-// Embed schemas
-import imagesSchema from "./lexicons/app.bsky.embed.images.json" with { type: "json" };
-import externalSchema from "./lexicons/app.bsky.embed.external.json" with { type: "json" };
-import recordSchema from "./lexicons/app.bsky.embed.record.json" with { type: "json" };
-import recordWithMediaSchema from "./lexicons/app.bsky.embed.recordWithMedia.json" with { type: "json" };
-
 /**
  * Record validator for AT Protocol records.
  *
@@ -54,35 +25,19 @@ export class RecordValidator {
 
 	/**
 	 * Load official Bluesky lexicon schemas from vendored JSON files.
+	 * Uses Vite's glob import to automatically load all schema files.
 	 */
 	private loadBlueskySchemas(): void {
-		// Core AT Proto schemas (must be loaded first - they're referenced by other schemas)
-		this.lex.add(strongRefSchema);
-		this.lex.add(labelDefsSchema);
+		// Import all lexicon JSON files using Vite's glob import
+		const schemas = import.meta.glob<{ default: any }>(
+			"./lexicons/*.json",
+			{ eager: true },
+		);
 
-		// Richtext schemas (referenced by posts)
-		this.lex.add(facetSchema);
-
-		// Embed schemas (referenced by posts)
-		this.lex.add(imagesSchema);
-		this.lex.add(externalSchema);
-		this.lex.add(recordSchema);
-		this.lex.add(recordWithMediaSchema);
-
-		// Feed schemas
-		this.lex.add(postSchema);
-		this.lex.add(likeSchema);
-		this.lex.add(repostSchema);
-		this.lex.add(threadgateSchema);
-
-		// Actor schemas
-		this.lex.add(profileSchema);
-
-		// Graph schemas
-		this.lex.add(followSchema);
-		this.lex.add(blockSchema);
-		this.lex.add(listSchema);
-		this.lex.add(listitemSchema);
+		// Load each schema into the Lexicons instance
+		for (const schema of Object.values(schemas)) {
+			this.lex.add(schema.default);
+		}
 	}
 
 	/**
@@ -170,13 +125,7 @@ export class RecordValidator {
  * Shared validator instance (singleton pattern).
  * Uses optimistic validation by default (strict: false).
  *
- * Pre-loaded with official Bluesky schemas:
- * - Core: com.atproto.repo.strongRef, com.atproto.label.defs
- * - Feed: app.bsky.feed.{post, like, repost, threadgate}
- * - Actor: app.bsky.actor.profile
- * - Graph: app.bsky.graph.{follow, block, list, listitem}
- * - Richtext: app.bsky.richtext.facet
- * - Embed: app.bsky.embed.{images, external, record, recordWithMedia}
+ * Automatically loads all schemas from ./lexicons/*.json
  *
  * Additional schemas can be added:
  * ```ts
