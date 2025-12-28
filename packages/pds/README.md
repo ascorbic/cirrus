@@ -8,12 +8,7 @@ A single-user [AT Protocol](https://atproto.com) Personal Data Server (PDS) that
 
 ## What is this?
 
-A PDS is where your Bluesky data lives - your posts, follows, profile, and media. This package lets you run your own PDS on Cloudflare's edge network, giving you:
-
-- **Your own identity** - Use your own domain as your Bluesky handle
-- **Data ownership** - Your content lives in your Cloudflare account
-- **Federation** - Works with the Bluesky network via relay sync
-- **Low cost** - Runs on Cloudflare's generous free tier
+A PDS is where your Bluesky data lives – your posts, follows, profile, and media. This package lets you run your own PDS on Cloudflare Workers, giving you control over your data and identity.
 
 ## Quick Start
 
