@@ -19,6 +19,7 @@ import { encode as cborEncode } from "@atproto/lex-cbor";
 import { SqliteRepoStorage } from "./storage";
 import { Sequencer, type SeqEvent, type CommitData } from "./sequencer";
 import { BlobStore, type BlobRef } from "./blobs";
+import type { PDSEnv } from "./types";
 
 /**
  * Account Durable Object - manages a single user's AT Protocol repository.
@@ -29,7 +30,7 @@ import { BlobStore, type BlobRef } from "./blobs";
  * - Firehose WebSocket connections
  * - Sequence number management
  */
-export class AccountDurableObject extends DurableObject<Env> {
+export class AccountDurableObject extends DurableObject<PDSEnv> {
 	private storage: SqliteRepoStorage | null = null;
 	private repo: Repo | null = null;
 	private keypair: Secp256k1Keypair | null = null;
@@ -38,7 +39,7 @@ export class AccountDurableObject extends DurableObject<Env> {
 	private storageInitialized = false;
 	private repoInitialized = false;
 
-	constructor(ctx: DurableObjectState, env: Env) {
+	constructor(ctx: DurableObjectState, env: PDSEnv) {
 		super(ctx, env);
 
 		// Validate required environment variables at startup

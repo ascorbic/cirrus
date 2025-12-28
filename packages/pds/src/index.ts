@@ -1,13 +1,10 @@
-// Core exports for advanced users
-export { SqliteRepoStorage } from "./storage";
+// Public API
 export { AccountDurableObject } from "./account-do";
-export { BlobStore, type BlobRef } from "./blobs";
-export { Sequencer } from "./sequencer";
-export { createServiceJwt } from "./service-auth";
+export type { PDSEnv } from "./types";
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { env } from "cloudflare:workers";
+import { env as _env } from "cloudflare:workers";
 import { Secp256k1Keypair } from "@atproto/crypto";
 import { ensureValidDid, ensureValidHandle } from "@atproto/syntax";
 import { requireAuth } from "./middleware/auth";
@@ -16,7 +13,12 @@ import { verifyAccessToken } from "./session";
 import * as sync from "./xrpc/sync";
 import * as repo from "./xrpc/repo";
 import * as server from "./xrpc/server";
+import type { PDSEnv } from "./types";
+
 import { version } from "../package.json" with { type: "json" };
+
+// Cast env to PDSEnv for type safety
+const env = _env as PDSEnv;
 
 // Validate required environment variables at module load
 const required = [
@@ -58,7 +60,7 @@ function getKeypair(): Promise<Secp256k1Keypair> {
 	return keypairPromise;
 }
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: PDSEnv }>();
 
 // CORS middleware for all routes
 app.use(
@@ -73,7 +75,7 @@ app.use(
 );
 
 // Helper to get Account DO stub
-function getAccountDO(env: Env) {
+function getAccountDO(env: PDSEnv) {
 	const id = env.ACCOUNT.idFromName("account");
 	return env.ACCOUNT.get(id);
 }

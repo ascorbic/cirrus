@@ -3,11 +3,11 @@
 	"compilerOptions": {
 		"moduleResolution": "bundler",
 		"types": [
-			"vite/client"
+			"tsdown/client",
+			"@cloudflare/workers-types"
 		]
 	},
 	"include": [
-		"src",
-		"worker-configuration.d.ts"
+		"src"
 	]
 }

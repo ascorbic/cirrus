@@ -4,7 +4,7 @@ import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 export default defineConfig({
 	plugins: [
 		cloudflareTest({
-			wrangler: { configPath: "./wrangler.jsonc" },
+			wrangler: { configPath: "./test/fixtures/pds-worker/wrangler.jsonc" },
 			miniflare: {
 				bindings: {
 					DID: "did:web:pds.test",

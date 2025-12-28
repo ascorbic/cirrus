@@ -8,9 +8,10 @@ import {
 	verifyAccessToken,
 	verifyRefreshToken,
 } from "../session";
+import type { AppEnv, AuthedAppEnv } from "../types";
 
 export async function describeServer(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 ): Promise<Response> {
 	return c.json({
 		did: c.env.DID,
@@ -20,7 +21,7 @@ export async function describeServer(
 }
 
 export async function resolveHandle(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 ): Promise<Response> {
 	const handle = c.req.query("handle");
 
@@ -66,7 +67,7 @@ export async function resolveHandle(
  * Create a new session (login)
  */
 export async function createSession(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 ): Promise<Response> {
 	const body = await c.req.json<{
 		identifier: string;
@@ -144,7 +145,7 @@ export async function createSession(
  * Refresh a session
  */
 export async function refreshSession(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 ): Promise<Response> {
 	const authHeader = c.req.header("Authorization");
 
@@ -213,7 +214,7 @@ export async function refreshSession(
  * Get current session info
  */
 export async function getSession(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 ): Promise<Response> {
 	const authHeader = c.req.header("Authorization");
 
@@ -273,7 +274,7 @@ export async function getSession(
  * Delete current session (logout)
  */
 export async function deleteSession(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 ): Promise<Response> {
 	// For a single-user PDS with stateless JWTs, we don't need to do anything
 	// The client just needs to delete its stored tokens
@@ -285,7 +286,7 @@ export async function deleteSession(
  * Get account status - used for migration checks
  */
 export async function getAccountStatus(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AuthedAppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	try {

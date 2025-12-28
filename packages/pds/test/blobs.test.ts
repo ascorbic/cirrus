@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { env } from "cloudflare:workers";
-import worker from "../src/index";
+import { env, worker } from "./helpers";
 
 describe("Blob Storage", () => {
 	describe("uploadBlob", () => {
@@ -92,7 +91,7 @@ describe("Blob Storage", () => {
 
 			expect(response.status).toBe(200);
 
-			const data = await response.json();
+			const data = (await response.json()) as { blob: { mimeType: string } };
 			expect(data.blob.mimeType).toBe("application/octet-stream");
 		});
 	});
@@ -115,7 +114,9 @@ describe("Blob Storage", () => {
 
 			expect(uploadResponse.status).toBe(200);
 
-			const uploadData = await uploadResponse.json();
+			const uploadData = (await uploadResponse.json()) as {
+				blob: { ref: { $link: string } };
+			};
 			const cid = uploadData.blob.ref.$link;
 
 			// Then retrieve it
@@ -204,7 +205,9 @@ describe("Blob Storage", () => {
 				env,
 			);
 
-			const uploadData = await uploadResponse.json();
+			const uploadData = (await uploadResponse.json()) as {
+				blob: { ref: { $link: string } };
+			};
 			const cid = uploadData.blob.ref.$link;
 
 			// Retrieve and check content type
@@ -242,7 +245,9 @@ describe("Blob Storage", () => {
 
 			expect(uploadResponse.status).toBe(200);
 
-			const { blob } = await uploadResponse.json();
+			const { blob } = (await uploadResponse.json()) as {
+				blob: { $type: string; ref: { $link: string }; mimeType: string; size: number };
+			};
 			expect(blob.$type).toBe("blob");
 			expect(blob.ref.$link).toBeTruthy();
 			expect(blob.mimeType).toBe("image/jpeg");

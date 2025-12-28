@@ -8,11 +8,15 @@
 		"@ascorbic/pds-worker": "^0.0.0"
 	},
 	"devDependencies": {
+		"@cloudflare/vite-plugin": "^1.17.0",
+		"vite": "^6.4.1",
 		"wrangler": "^4.54.0"
 	},
 	"scripts": {
-		"dev": "wrangler dev",
-		"deploy": "wrangler deploy",
+		"dev": "vite dev",
+		"build": "vite build",
+		"deploy": "vite build && wrangler deploy",
+		"preview": "vite preview",
 		"setup": "pds init --local",
 		"setup:prod": "pds init --production",
 		"secret:jwt": "pds secret jwt",

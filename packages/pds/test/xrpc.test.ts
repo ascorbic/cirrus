@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { env } from "cloudflare:workers";
-import worker from "../src/index";
+import { env, worker } from "./helpers";
 
 describe("XRPC Endpoints", () => {
 	describe("Health Check", () => {

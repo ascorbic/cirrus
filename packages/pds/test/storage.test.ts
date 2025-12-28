@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runInDurableObject } from "cloudflare:test";
-import { env } from "cloudflare:workers";
+import { env, runInDurableObject } from "./helpers";
 import { CID } from "@atproto/lex-data";
 import { encode, cidForCbor, type LexValue } from "@atproto/lex-cbor";
 import { BlockMap, CidSet } from "@atproto/repo";

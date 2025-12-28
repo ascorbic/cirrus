@@ -1,8 +1,18 @@
 import type { Context, Next } from "hono";
 import { verifyAccessToken } from "../session";
+import type { PDSEnv } from "../types";
+
+export interface AuthInfo {
+	did: string;
+	scope: string;
+}
+
+export type AuthVariables = {
+	auth: AuthInfo;
+};
 
 export async function requireAuth(
-	c: Context<{ Bindings: Env }>,
+	c: Context<{ Bindings: PDSEnv; Variables: AuthVariables }>,
 	next: Next,
 ): Promise<Response | void> {
 	const auth = c.req.header("Authorization");
