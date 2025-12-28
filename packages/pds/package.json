@@ -1,6 +1,6 @@
 {
 	"name": "@ascorbic/pds",
-	"version": "0.0.0",
+	"version": "0.0.1",
 	"description": "AT Protocol PDS on Cloudflare Workers",
 	"type": "module",
 	"main": "dist/index.js",
