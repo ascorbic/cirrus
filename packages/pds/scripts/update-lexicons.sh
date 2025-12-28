@@ -60,4 +60,3 @@ done
 echo ""
 echo "✓ Successfully fetched ${#schemas[@]} lexicon schemas!"
 echo ""
-echo "To use in code, import from './lexicons/*.json'"

@@ -1,4 +1,4 @@
-import { Lexicons } from "@atproto/lexicon";
+import { Lexicons, type LexiconDoc } from "@atproto/lexicon";
 
 /**
  * Record validator for AT Protocol records.
@@ -29,7 +29,7 @@ export class RecordValidator {
 	 */
 	private loadBlueskySchemas(): void {
 		// Import all lexicon JSON files using Vite's glob import
-		const schemas = import.meta.glob<{ default: any }>(
+		const schemas = import.meta.glob<{ default: LexiconDoc }>(
 			"./lexicons/*.json",
 			{ eager: true },
 		);
@@ -66,8 +66,7 @@ export class RecordValidator {
 		try {
 			this.lex.assertValidRecord(collection, record);
 		} catch (error) {
-			const message =
-				error instanceof Error ? error.message : String(error);
+			const message = error instanceof Error ? error.message : String(error);
 			throw new Error(
 				`Lexicon validation failed for ${collection}: ${message}`,
 			);
