@@ -1,45 +1,47 @@
 {
 	// Demo PDS Deployment
 	// Run `pnpm pds init` to configure, or `pnpm pds init --local` for local dev
-	"name": "demo-pds",
+	"name": "atproto-pds",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-12-02",
-	"compatibility_flags": ["nodejs_compat"],
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
 	// Durable Object bindings
 	"durable_objects": {
 		"bindings": [
 			{
 				"name": "ACCOUNT",
-				"class_name": "AccountDurableObject",
-			},
-		],
+				"class_name": "AccountDurableObject"
+			}
+		]
 	},
 	// Enable SQLite for the Durable Object
 	"migrations": [
 		{
 			"tag": "v1",
-			"new_sqlite_classes": ["AccountDurableObject"],
-		},
+			"new_sqlite_classes": [
+				"AccountDurableObject"
+			]
+		}
 	],
 	// R2 bucket for blob storage
 	"r2_buckets": [
 		{
 			"binding": "BLOBS",
-			"bucket_name": "demo-pds-blobs",
+			"bucket_name": "pds-blobs"
 		},
 	],
 	// Environment variables (public config)
 	// These are set by `pds init` or can be edited manually
 	"vars": {
 		// Public hostname of the PDS (e.g., "pds.example.com")
-		"PDS_HOSTNAME": "demo-pds.example.com",
+		"PDS_HOSTNAME": "pds.mk.gg",
 		// Account DID - usually did:web:<hostname>
-		"DID": "did:web:demo-pds.example.com",
+		"DID": "did:web:pds.mk.gg",
 		// Account handle (e.g., "alice.example.com")
-		"HANDLE": "alice.demo-pds.example.com",
-		// Public signing key in multibase format (set by `pds init` or `pds secret key`)
-		"SIGNING_KEY_PUBLIC": "",
-	},
+		"HANDLE": "pds.mk.gg"
+	}
 	// Secrets (set via `pds init` or `pds secret <name>`):
 	// - AUTH_TOKEN: Bearer token for API write operations
 	// - SIGNING_KEY: Private signing key (secp256k1 JWK)

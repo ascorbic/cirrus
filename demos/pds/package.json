@@ -1,5 +1,5 @@
 {
-	"name": "@demo/pds",
+	"name": "pds",
 	"version": "1.0.0",
 	"description": "Demo PDS deployment",
 	"type": "module",

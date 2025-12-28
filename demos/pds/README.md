@@ -12,7 +12,7 @@ pnpm install
 
 ### 2. Configure environment
 
-Use the PDS CLI to generate keys and configure your environment:
+Use the PDS CLI to generate keys and configure your local dev environment:
 
 ```bash
 pnpm pds init --local
