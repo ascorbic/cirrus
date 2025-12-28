@@ -1,44 +1,38 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { SELF, env } from "cloudflare:test";
-import worker from "../src/index";
+import { describe, it, expect } from "vitest";
+import { env, worker } from "./helpers";
 
 describe("Account Migration", () => {
 	describe("com.atproto.server.getAccountStatus", () => {
 		it("requires authentication", async () => {
-			const response = await SELF.fetch(
-				new Request(
-					`http://pds.test/xrpc/com.atproto.server.getAccountStatus`,
-				),
+			const response = await worker.fetch(
+				new Request(`http://pds.test/xrpc/com.atproto.server.getAccountStatus`),
 				env,
 			);
 
 			expect(response.status).toBe(401);
-			const body = await response.json();
+			const body = (await response.json()) as Record<string, unknown>;
 			expect(body.error).toBe("AuthMissing");
 		});
 
 		it("returns activated status when repo exists", async () => {
 			// Create a record to initialize the repo
 			await worker.fetch(
-				new Request(
-					`http://pds.test/xrpc/com.atproto.repo.createRecord`,
-					{
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-							Authorization: `Bearer ${env.AUTH_TOKEN}`,
-						},
-						body: JSON.stringify({
-							repo: env.DID,
-							collection: "app.bsky.feed.post",
-							record: {
-								$type: "app.bsky.feed.post",
-								text: "Test post for migration",
-								createdAt: new Date().toISOString(),
-							},
-						}),
+				new Request(`http://pds.test/xrpc/com.atproto.repo.createRecord`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
 					},
-				),
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Test post for migration",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
 				env,
 			);
 
@@ -55,7 +49,7 @@ describe("Account Migration", () => {
 			);
 
 			expect(response.status).toBe(200);
-			const body = await response.json();
+			const body = (await response.json()) as Record<string, unknown>;
 			expect(body.activated).toBe(true);
 			expect(body.validDid).toBe(true);
 			expect(body.repoRev).toBeDefined();
@@ -79,7 +73,7 @@ describe("Account Migration", () => {
 			);
 
 			expect(response.status).toBe(200);
-			const body = await response.json();
+			const body = (await response.json()) as Record<string, unknown>;
 			expect(body.validDid).toBe(true);
 			// activated can be true or false depending on test execution order
 			expect(typeof body.activated).toBe("boolean");
@@ -88,7 +82,7 @@ describe("Account Migration", () => {
 
 	describe("com.atproto.repo.importRepo", () => {
 		it("requires authentication", async () => {
-			const response = await SELF.fetch(
+			const response = await worker.fetch(
 				new Request(`http://pds.test/xrpc/com.atproto.repo.importRepo`, {
 					method: "POST",
 					headers: {
@@ -100,7 +94,7 @@ describe("Account Migration", () => {
 			);
 
 			expect(response.status).toBe(401);
-			const body = await response.json();
+			const body = (await response.json()) as Record<string, unknown>;
 			expect(body.error).toBe("AuthMissing");
 		});
 
@@ -118,7 +112,7 @@ describe("Account Migration", () => {
 			);
 
 			expect(response.status).toBe(400);
-			const body = await response.json();
+			const body = (await response.json()) as Record<string, unknown>;
 			expect(body.error).toBe("InvalidRequest");
 			expect(body.message).toContain("application/vnd.ipld.car");
 		});
@@ -137,7 +131,7 @@ describe("Account Migration", () => {
 			);
 
 			expect(response.status).toBe(400);
-			const body = await response.json();
+			const body = (await response.json()) as Record<string, unknown>;
 			expect(body.error).toBe("InvalidRequest");
 			expect(body.message).toContain("Empty");
 		});
@@ -146,26 +140,23 @@ describe("Account Migration", () => {
 			// First, export a repository to get a valid CAR file
 			// Create a repo with some data
 			await worker.fetch(
-				new Request(
-					`http://pds.test/xrpc/com.atproto.repo.createRecord`,
-					{
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-							Authorization: `Bearer ${env.AUTH_TOKEN}`,
-						},
-						body: JSON.stringify({
-							repo: env.DID,
-							collection: "app.bsky.feed.post",
-							rkey: "test-import-1",
-							record: {
-								$type: "app.bsky.feed.post",
-								text: "Test post for import",
-								createdAt: new Date().toISOString(),
-							},
-						}),
+				new Request(`http://pds.test/xrpc/com.atproto.repo.createRecord`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
 					},
-				),
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						rkey: "test-import-1",
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Test post for import",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
 				env,
 			);
 
@@ -197,7 +188,7 @@ describe("Account Migration", () => {
 
 			// Should fail because repo already exists
 			expect(importResponse.status).toBe(409);
-			const body = await importResponse.json();
+			const body = (await importResponse.json()) as Record<string, unknown>;
 			expect(body.error).toBe("RepoAlreadyExists");
 		});
 
@@ -220,7 +211,7 @@ describe("Account Migration", () => {
 			);
 
 			expect(response.status).toBe(400);
-			const body = await response.json();
+			const body = (await response.json()) as Record<string, unknown>;
 			expect(body.error).toBe("RepoTooLarge");
 		});
 	});
@@ -229,26 +220,23 @@ describe("Account Migration", () => {
 		it("complete migration workflow: export from source, import to target", async () => {
 			// Step 1: Create source repo with data
 			const createResponse = await worker.fetch(
-				new Request(
-					`http://pds.test/xrpc/com.atproto.repo.createRecord`,
-					{
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-							Authorization: `Bearer ${env.AUTH_TOKEN}`,
-						},
-						body: JSON.stringify({
-							repo: env.DID,
-							collection: "app.bsky.feed.post",
-							rkey: "migration-test",
-							record: {
-								$type: "app.bsky.feed.post",
-								text: "Post to be migrated",
-								createdAt: new Date().toISOString(),
-							},
-						}),
+				new Request(`http://pds.test/xrpc/com.atproto.repo.createRecord`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
 					},
-				),
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						rkey: "migration-test",
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Post to be migrated",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
 				env,
 			);
 
@@ -268,7 +256,10 @@ describe("Account Migration", () => {
 			);
 
 			expect(statusBeforeResponse.status).toBe(200);
-			const statusBefore = await statusBeforeResponse.json();
+			const statusBefore = (await statusBeforeResponse.json()) as Record<
+				string,
+				unknown
+			>;
 			expect(statusBefore.activated).toBe(true);
 			expect(statusBefore.repoRev).toBeDefined();
 

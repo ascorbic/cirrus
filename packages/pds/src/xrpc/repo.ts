@@ -1,10 +1,11 @@
 import type { Context } from "hono";
 import { AtUri, ensureValidDid } from "@atproto/syntax";
 import { AccountDurableObject } from "../account-do";
+import type { AppEnv, AuthedAppEnv } from "../types";
 import { validator } from "../validation";
 
 function invalidRecordError(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AuthedAppEnv>,
 	err: unknown,
 	prefix?: string,
 ): Response {
@@ -19,7 +20,7 @@ function invalidRecordError(
 }
 
 export async function describeRepo(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const repo = c.req.query("repo");
@@ -81,7 +82,7 @@ export async function describeRepo(
 }
 
 export async function getRecord(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const repo = c.req.query("repo");
@@ -141,7 +142,7 @@ export async function getRecord(
 }
 
 export async function listRecords(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const repo = c.req.query("repo");
@@ -196,7 +197,7 @@ export async function listRecords(
 }
 
 export async function createRecord(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AuthedAppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const body = await c.req.json();
@@ -235,7 +236,7 @@ export async function createRecord(
 }
 
 export async function deleteRecord(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AuthedAppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const body = await c.req.json();
@@ -277,7 +278,7 @@ export async function deleteRecord(
 }
 
 export async function putRecord(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AuthedAppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const body = await c.req.json();
@@ -325,7 +326,7 @@ export async function putRecord(
 }
 
 export async function applyWrites(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AuthedAppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const body = await c.req.json();
@@ -391,7 +392,7 @@ export async function applyWrites(
 }
 
 export async function uploadBlob(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AuthedAppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const contentType =
@@ -431,7 +432,7 @@ export async function uploadBlob(
 }
 
 export async function importRepo(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AuthedAppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const contentType = c.req.header("Content-Type");
@@ -482,7 +483,8 @@ export async function importRepo(
 				return c.json(
 					{
 						error: "RepoAlreadyExists",
-						message: "Repository already exists. Cannot import over existing data.",
+						message:
+							"Repository already exists. Cannot import over existing data.",
 					},
 					409,
 				);

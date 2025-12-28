@@ -47,7 +47,7 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - `com.atproto.sync.getBlob` endpoint (public read access)
   - Direct R2 access in endpoint (R2ObjectBody cannot be serialized across RPC)
   - Blobs stored with DID prefix for isolation
-- ✅ **Testing** - Migrated to vitest 4, all 101 tests passing
+- ✅ **Testing** - Migrated to vitest 4, all 140 tests passing
   - 16 storage tests
   - 32 XRPC tests (auth, concurrency, error handling, CAR validation)
   - 8 firehose tests (event sequencing, cursor validation, backfill)
@@ -55,7 +55,9 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - 15 session tests (login, refresh, getSession, JWT validation)
   - 8 validation tests (optimistic mode, strict mode, schema enforcement)
   - 9 migration tests (account status, import/export, validation)
-  - 3 Bluesky validation tests (post creation, profile updates, schema compliance)
+  - 11 Bluesky validation tests (post creation, profile updates, schema compliance)
+  - 3 service-auth tests
+  - 28 CLI tests (19 dotenv, 9 wrangler config utilities)
 - ✅ **TypeScript** - All diagnostic errors resolved, proper type declarations for cloudflare:test
 - ✅ **Protocol Helpers** - All protocol operations use official @atproto utilities
   - Record keys: `TID.nextStr()` from `@atproto/common-web`
@@ -92,6 +94,15 @@ Build a single-user AT Protocol Personal Data Server (PDS) on Cloudflare Workers
   - Prevents importing over existing repository data
   - Complete export/import workflow tested with CAR file validation
   - 9 comprehensive migration tests
+- ✅ **CLI Setup Wizard** - Interactive PDS configuration
+  - `pds init` - Full interactive setup wizard (hostname, handle, DID, password, keys)
+  - `pds secret jwt` - Generate and set JWT signing secret
+  - `pds secret password` - Set account password (bcrypt hash)
+  - `pds secret key` - Generate secp256k1 signing keypair
+  - Uses wrangler's `experimental_patchConfig` for vars, `wrangler secret put` for secrets
+  - `--local` flag writes to `.dev.vars` instead for local development
+  - Built with Citty + @clack/prompts for interactive CLI experience
+  - 28 CLI tests (19 dotenv, 9 wrangler config)
 
 ### Not Started
 
@@ -203,7 +214,11 @@ All verified to work on Cloudflare Workers with `nodejs_compat`:
 		"@atproto/lexicon": "^0.6.0",
 		"@atproto/repo": "^0.8.12",
 		"@atproto/syntax": "^0.4.2",
-		"hono": "^4.11.3"
+		"@clack/prompts": "^0.11.0",
+		"bcryptjs": "^3.0.3",
+		"citty": "^0.1.6",
+		"hono": "^4.11.3",
+		"jose": "^6.1.3"
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
@@ -1610,6 +1625,7 @@ describe("Authentication", () => {
 #### Overview
 
 For single-user PDS, we simplify session auth:
+
 - Password stored as bcrypt hash in environment variable (`PASSWORD_HASH`)
 - JWTs signed with existing signing key (secp256k1)
 - Access tokens short-lived (2 hours), refresh tokens longer (90 days)
@@ -1677,56 +1693,56 @@ Per AT Protocol spec, use RFC 9068 token types:
 // src/session.ts
 import { Secp256k1Keypair } from "@atproto/crypto";
 
-const ACCESS_TOKEN_LIFETIME = 2 * 60 * 60;  // 2 hours
-const REFRESH_TOKEN_LIFETIME = 90 * 24 * 60 * 60;  // 90 days
+const ACCESS_TOKEN_LIFETIME = 2 * 60 * 60; // 2 hours
+const REFRESH_TOKEN_LIFETIME = 90 * 24 * 60 * 60; // 90 days
 
 export async function createAccessToken(
-  keypair: Secp256k1Keypair,
-  did: string,
-  pdsDid: string,
+	keypair: Secp256k1Keypair,
+	did: string,
+	pdsDid: string,
 ): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: pdsDid,
-    aud: pdsDid,
-    sub: did,
-    iat: now,
-    exp: now + ACCESS_TOKEN_LIFETIME,
-    scope: "atproto",
-  };
-  return signJwt(keypair, payload, "at+jwt");
+	const now = Math.floor(Date.now() / 1000);
+	const payload = {
+		iss: pdsDid,
+		aud: pdsDid,
+		sub: did,
+		iat: now,
+		exp: now + ACCESS_TOKEN_LIFETIME,
+		scope: "atproto",
+	};
+	return signJwt(keypair, payload, "at+jwt");
 }
 
 export async function createRefreshToken(
-  keypair: Secp256k1Keypair,
-  did: string,
-  pdsDid: string,
+	keypair: Secp256k1Keypair,
+	did: string,
+	pdsDid: string,
 ): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const jti = crypto.randomUUID();
-  const payload = {
-    iss: pdsDid,
-    aud: pdsDid,
-    sub: did,
-    iat: now,
-    exp: now + REFRESH_TOKEN_LIFETIME,
-    jti,
-    scope: "com.atproto.refresh",
-  };
-  return signJwt(keypair, payload, "refresh+jwt");
+	const now = Math.floor(Date.now() / 1000);
+	const jti = crypto.randomUUID();
+	const payload = {
+		iss: pdsDid,
+		aud: pdsDid,
+		sub: did,
+		iat: now,
+		exp: now + REFRESH_TOKEN_LIFETIME,
+		jti,
+		scope: "com.atproto.refresh",
+	};
+	return signJwt(keypair, payload, "refresh+jwt");
 }
 
 async function signJwt(
-  keypair: Secp256k1Keypair,
-  payload: Record<string, unknown>,
-  typ: string,
+	keypair: Secp256k1Keypair,
+	payload: Record<string, unknown>,
+	typ: string,
 ): Promise<string> {
-  const header = { alg: "ES256K", typ };
-  const headerB64 = base64url(JSON.stringify(header));
-  const payloadB64 = base64url(JSON.stringify(payload));
-  const signingInput = `${headerB64}.${payloadB64}`;
-  const signature = await keypair.sign(new TextEncoder().encode(signingInput));
-  return `${signingInput}.${base64url(signature)}`;
+	const header = { alg: "ES256K", typ };
+	const headerB64 = base64url(JSON.stringify(header));
+	const payloadB64 = base64url(JSON.stringify(payload));
+	const signingInput = `${headerB64}.${payloadB64}`;
+	const signature = await keypair.sign(new TextEncoder().encode(signingInput));
+	return `${signingInput}.${base64url(signature)}`;
 }
 ```
 
@@ -1734,13 +1750,13 @@ async function signJwt(
 
 ```typescript
 // Use bcrypt for password hashing (via Web Crypto compatible library)
-import { compare } from "bcryptjs";  // Works in Workers
+import { compare } from "bcryptjs"; // Works in Workers
 
 export async function verifyPassword(
-  password: string,
-  hash: string,
+	password: string,
+	hash: string,
 ): Promise<boolean> {
-  return compare(password, hash);
+	return compare(password, hash);
 }
 ```
 
@@ -1749,33 +1765,34 @@ export async function verifyPassword(
 ```typescript
 // src/middleware/auth.ts
 export async function requireAuth(c: Context, next: Next) {
-  const authHeader = c.req.header("Authorization");
+	const authHeader = c.req.header("Authorization");
 
-  if (!authHeader?.startsWith("Bearer ")) {
-    return c.json({ error: "AuthRequired" }, 401);
-  }
+	if (!authHeader?.startsWith("Bearer ")) {
+		return c.json({ error: "AuthRequired" }, 401);
+	}
 
-  const token = authHeader.slice(7);
+	const token = authHeader.slice(7);
 
-  // Try static token first (backwards compat)
-  if (token === c.env.AUTH_TOKEN) {
-    return next();
-  }
+	// Try static token first (backwards compat)
+	if (token === c.env.AUTH_TOKEN) {
+		return next();
+	}
 
-  // Try JWT verification
-  try {
-    const payload = await verifyAccessToken(token, c.env);
-    c.set("auth", { did: payload.sub, scope: payload.scope });
-    return next();
-  } catch {
-    return c.json({ error: "InvalidToken" }, 401);
-  }
+	// Try JWT verification
+	try {
+		const payload = await verifyAccessToken(token, c.env);
+		c.set("auth", { did: payload.sub, scope: payload.scope });
+		return next();
+	} catch {
+		return c.json({ error: "InvalidToken" }, 401);
+	}
 }
 ```
 
 #### Configuration
 
 New environment variable:
+
 - `PASSWORD_HASH` - bcrypt hash of user password (generate with `npx bcryptjs hash "password"`)
 
 #### Testing Strategy
@@ -1783,107 +1800,107 @@ New environment variable:
 ```typescript
 // test/session.test.ts
 describe("Session Authentication", () => {
-  it("creates session with valid credentials", async () => {
-    const response = await SELF.fetch(
-      "https://pds.test/xrpc/com.atproto.server.createSession",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          identifier: "alice.test",
-          password: "test-password",
-        }),
-      }
-    );
+	it("creates session with valid credentials", async () => {
+		const response = await SELF.fetch(
+			"https://pds.test/xrpc/com.atproto.server.createSession",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					identifier: "alice.test",
+					password: "test-password",
+				}),
+			},
+		);
 
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.accessJwt).toBeDefined();
-    expect(body.refreshJwt).toBeDefined();
-    expect(body.did).toBe("did:web:pds.test");
-    expect(body.handle).toBe("alice.test");
-  });
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.accessJwt).toBeDefined();
+		expect(body.refreshJwt).toBeDefined();
+		expect(body.did).toBe("did:web:pds.test");
+		expect(body.handle).toBe("alice.test");
+	});
 
-  it("rejects invalid password", async () => {
-    const response = await SELF.fetch(
-      "https://pds.test/xrpc/com.atproto.server.createSession",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          identifier: "alice.test",
-          password: "wrong-password",
-        }),
-      }
-    );
+	it("rejects invalid password", async () => {
+		const response = await SELF.fetch(
+			"https://pds.test/xrpc/com.atproto.server.createSession",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					identifier: "alice.test",
+					password: "wrong-password",
+				}),
+			},
+		);
 
-    expect(response.status).toBe(401);
-  });
+		expect(response.status).toBe(401);
+	});
 
-  it("uses access token for authenticated requests", async () => {
-    // Login
-    const loginRes = await SELF.fetch(
-      "https://pds.test/xrpc/com.atproto.server.createSession",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          identifier: "alice.test",
-          password: "test-password",
-        }),
-      }
-    );
-    const { accessJwt } = await loginRes.json();
+	it("uses access token for authenticated requests", async () => {
+		// Login
+		const loginRes = await SELF.fetch(
+			"https://pds.test/xrpc/com.atproto.server.createSession",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					identifier: "alice.test",
+					password: "test-password",
+				}),
+			},
+		);
+		const { accessJwt } = await loginRes.json();
 
-    // Use token
-    const response = await SELF.fetch(
-      "https://pds.test/xrpc/com.atproto.repo.createRecord",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessJwt}`,
-        },
-        body: JSON.stringify({
-          repo: "did:web:pds.test",
-          collection: "app.bsky.feed.post",
-          record: { text: "Hello!", createdAt: new Date().toISOString() },
-        }),
-      }
-    );
+		// Use token
+		const response = await SELF.fetch(
+			"https://pds.test/xrpc/com.atproto.repo.createRecord",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${accessJwt}`,
+				},
+				body: JSON.stringify({
+					repo: "did:web:pds.test",
+					collection: "app.bsky.feed.post",
+					record: { text: "Hello!", createdAt: new Date().toISOString() },
+				}),
+			},
+		);
 
-    expect(response.status).toBe(200);
-  });
+		expect(response.status).toBe(200);
+	});
 
-  it("refreshes session with refresh token", async () => {
-    // Login
-    const loginRes = await SELF.fetch(
-      "https://pds.test/xrpc/com.atproto.server.createSession",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          identifier: "alice.test",
-          password: "test-password",
-        }),
-      }
-    );
-    const { refreshJwt } = await loginRes.json();
+	it("refreshes session with refresh token", async () => {
+		// Login
+		const loginRes = await SELF.fetch(
+			"https://pds.test/xrpc/com.atproto.server.createSession",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					identifier: "alice.test",
+					password: "test-password",
+				}),
+			},
+		);
+		const { refreshJwt } = await loginRes.json();
 
-    // Refresh
-    const response = await SELF.fetch(
-      "https://pds.test/xrpc/com.atproto.server.refreshSession",
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${refreshJwt}` },
-      }
-    );
+		// Refresh
+		const response = await SELF.fetch(
+			"https://pds.test/xrpc/com.atproto.server.refreshSession",
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${refreshJwt}` },
+			},
+		);
 
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.accessJwt).toBeDefined();
-    expect(body.refreshJwt).toBeDefined();
-  });
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.accessJwt).toBeDefined();
+		expect(body.refreshJwt).toBeDefined();
+	});
 });
 ```
 
@@ -2001,10 +2018,17 @@ describe("Federation Integration", () => {
 | `HANDLE`             | Variable | The account's handle                               |
 | `AUTH_TOKEN`         | Secret   | Bearer token for write auth (API access)           |
 | `JWT_SECRET`         | Secret   | HS256 secret for session tokens (min 32 chars)     |
-| `PASSWORD_HASH`      | Secret   | Bcrypt hash for app login (optional)               |
+| `PASSWORD_HASH`      | Secret   | Bcrypt hash for app login (required)               |
 | `PDS_HOSTNAME`       | Variable | Public hostname of the PDS                         |
 
-Set secrets via:
+**Recommended: Use the CLI for setup:**
+
+```bash
+pds init           # Interactive setup wizard (production)
+pds init --local   # Write to .dev.vars for local development
+```
+
+Or set secrets manually:
 
 ```bash
 wrangler secret put DID
@@ -2055,7 +2079,7 @@ For maximum simplicity, users deploying a PDS should not need to write any code.
 
 ```typescript
 // src/index.ts
-export { default, AccountDurableObject } from '@ascorbic/pds-worker'
+export { default, AccountDurableObject } from "@ascorbic/pds-worker";
 ```
 
 That's it. No additional code required.
@@ -2066,13 +2090,13 @@ The `@ascorbic/pds-worker` package exports:
 
 ```typescript
 // Core exports for advanced users
-export { SqliteRepoStorage } from "./storage"
-export { AccountDurableObject } from "./account-do"
-export { BlobStore, type BlobRef } from "./blobs"
-export { Sequencer } from "./sequencer"
+export { SqliteRepoStorage } from "./storage";
+export { AccountDurableObject } from "./account-do";
+export { BlobStore, type BlobRef } from "./blobs";
+export { Sequencer } from "./sequencer";
 
 // Default export: configured Hono app
-export default app
+export default app;
 ```
 
 #### Configuration
@@ -2080,9 +2104,11 @@ export default app
 All configuration is via environment variables and secrets:
 
 **Required environment variables:**
+
 - `PDS_HOSTNAME` - Public hostname (set in wrangler.jsonc)
 
 **Required secrets:**
+
 - `DID` - Account's DID (e.g., "did:web:pds.example.com")
 - `HANDLE` - Account's handle (e.g., "alice.pds.example.com")
 - `AUTH_TOKEN` - Bearer token for write operations
@@ -2090,6 +2116,7 @@ All configuration is via environment variables and secrets:
 - `SIGNING_KEY_PUBLIC` - Public key for DID document (multibase)
 
 **Resource bindings:**
+
 - `ACCOUNT` - DurableObjectNamespace binding
 - `BLOBS` - R2Bucket binding
 
@@ -2098,31 +2125,29 @@ All configuration is via environment variables and secrets:
 1. **Scaffold** (future: via `npm create @ascorbic/pds`)
    - Creates project directory with re-export pattern
    - Generates wrangler.jsonc with bindings
-   - Provides setup script for key generation
 
-2. **Setup** (via setup script)
-   - Interactive prompts for hostname and handle
-   - Generates secp256k1 keypair
-   - Creates DID (did:web based on hostname)
-   - Generates random AUTH_TOKEN
-   - Writes to `.dev.vars` for local dev
+2. **Setup** (via `pds init` CLI)
+   - Interactive prompts for hostname, handle, DID, and password
+   - Generates secp256k1 keypair and JWT secret
+   - Sets vars in wrangler.jsonc (`PDS_HOSTNAME`, `DID`, `HANDLE`, `SIGNING_KEY_PUBLIC`)
+   - Sets secrets via wrangler (`AUTH_TOKEN`, `SIGNING_KEY`, `JWT_SECRET`, `PASSWORD_HASH`)
+   - Use `pds init --local` for local development (writes to `.dev.vars`)
 
 3. **Local Development**
+
    ```bash
+   pds init --local  # Configure for local dev
    wrangler dev
    ```
 
 4. **Production Deployment**
+
    ```bash
    # Create R2 bucket
    wrangler r2 bucket create pds-blobs
 
-   # Set secrets
-   wrangler secret put DID
-   wrangler secret put HANDLE
-   wrangler secret put AUTH_TOKEN
-   wrangler secret put SIGNING_KEY
-   wrangler secret put SIGNING_KEY_PUBLIC
+   # Run interactive setup (sets all vars and secrets)
+   pds init
 
    # Deploy
    wrangler deploy
@@ -2150,6 +2175,7 @@ npm run dev
 ```
 
 This will scaffold a complete deployment with:
+
 - Project structure
 - Generated keys and configuration
 - Pre-configured wrangler.jsonc

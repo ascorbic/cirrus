@@ -4,7 +4,7 @@ import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 export default defineConfig({
 	plugins: [
 		cloudflareTest({
-			wrangler: { configPath: "./wrangler.jsonc" },
+			wrangler: { configPath: "./test/fixtures/pds-worker/wrangler.jsonc" },
 			miniflare: {
 				bindings: {
 					DID: "did:web:pds.test",
@@ -33,5 +33,6 @@ export default defineConfig({
 		// Vitest 4: singleWorker is now maxWorkers: 1, isolate: false
 		maxWorkers: 1,
 		isolate: false,
+		exclude: ["test/cli/**", "node_modules/**"],
 	},
 });

@@ -2,12 +2,7 @@
 	"extends": "../../tsconfig.json",
 	"compilerOptions": {
 		"moduleResolution": "bundler",
-		"types": [
-			"vite/client"
-		]
+		"types": ["tsdown/client", "@cloudflare/workers-types"]
 	},
-	"include": [
-		"src",
-		"worker-configuration.d.ts"
-	]
+	"include": ["src"]
 }

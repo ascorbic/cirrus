@@ -1,14 +1,25 @@
 {
-	"name": "@demo/pds",
+	"name": "pds",
 	"version": "1.0.0",
 	"description": "Demo PDS deployment",
-	"main": "index.js",
+	"type": "module",
 	"private": true,
 	"dependencies": {
-		"@ascorbic/pds-worker": "workspace:^"
+		"@ascorbic/pds-worker": "^0.0.0"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "^1.17.0",
+		"vite": "^6.4.1",
+		"wrangler": "^4.54.0"
 	},
 	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1"
+		"dev": "vite dev",
+		"build": "vite build",
+		"deploy": "vite build && wrangler deploy",
+		"preview": "vite preview",
+		"pds": "pds",
+		"wrangler": "wrangler",
+		"types": "wrangler types"
 	},
 	"keywords": [],
 	"author": "Matt Kane",

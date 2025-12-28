@@ -1,9 +1,10 @@
 import type { Context } from "hono";
 import { ensureValidDid } from "@atproto/syntax";
 import type { AccountDurableObject } from "../account-do.js";
+import type { AppEnv } from "../types";
 
 export async function getRepo(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const did = c.req.query("did");
@@ -53,7 +54,7 @@ export async function getRepo(
 }
 
 export async function getRepoStatus(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const did = c.req.query("did");
@@ -102,7 +103,7 @@ export async function getRepoStatus(
 }
 
 export async function listRepos(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	// Single-user PDS - just return our one repo
@@ -121,7 +122,7 @@ export async function listRepos(
 }
 
 export async function listBlobs(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 	_accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const did = c.req.query("did");
@@ -188,7 +189,7 @@ export async function listBlobs(
 }
 
 export async function getBlob(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AppEnv>,
 	_accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const did = c.req.query("did");

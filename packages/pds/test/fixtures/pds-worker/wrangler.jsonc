@@ -1,0 +1,27 @@
+{
+	// Test configuration for the PDS worker fixture
+	"name": "pds-test",
+	"main": "index.ts",
+	"compatibility_date": "2025-12-02",
+	"compatibility_flags": ["nodejs_compat"],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "ACCOUNT",
+				"class_name": "AccountDurableObject",
+			},
+		],
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["AccountDurableObject"],
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "BLOBS",
+			"bucket_name": "test-blobs",
+		},
+	],
+}

@@ -3,6 +3,7 @@
 	"compilerOptions": {
 		"moduleResolution": "bundler",
 		"types": [
+			"@cloudflare/workers-types",
 			"@cloudflare/vitest-pool-workers",
 			"@cloudflare/vitest-pool-workers/types"
 		]
@@ -10,6 +11,6 @@
 	"include": [
 		"./**/*.ts",
 		"../src/**/*.ts",
-		"../worker-configuration.d.ts"
+		"./fixtures/pds-worker/worker-configuration.d.ts"
 	]
 }

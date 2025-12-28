@@ -7,6 +7,7 @@ The firehose test script creates posts and subscribes to the event stream to ver
 ### Prerequisites
 
 Make sure you have your `.dev.vars` file set up with:
+
 ```bash
 DID=did:web:pds.mk.gg
 HANDLE=your-handle.bsky.social
@@ -24,6 +25,7 @@ node scripts/test-firehose.js
 ```
 
 This will:
+
 1. Create 3 initial test posts
 2. Subscribe to the firehose from cursor 0 (should backfill those posts)
 3. Create 2 more posts while subscribed (should see in real-time)
@@ -145,12 +147,14 @@ atproto subscribe wss://pds.mk.gg/xrpc/com.atproto.sync.subscribeRepos
 Each WebSocket frame contains two concatenated CBOR objects:
 
 **Header:**
+
 ```javascript
 { op: 1, t: "#commit" }  // Normal commit
 { op: -1 }               // Error
 ```
 
 **Body (commit event):**
+
 ```javascript
 {
   seq: 123,              // Sequence number

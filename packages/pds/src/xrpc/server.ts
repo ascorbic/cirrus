@@ -8,10 +8,9 @@ import {
 	verifyAccessToken,
 	verifyRefreshToken,
 } from "../session";
+import type { AppEnv, AuthedAppEnv } from "../types";
 
-export async function describeServer(
-	c: Context<{ Bindings: Env }>,
-): Promise<Response> {
+export async function describeServer(c: Context<AppEnv>): Promise<Response> {
 	return c.json({
 		did: c.env.DID,
 		availableUserDomains: [],
@@ -19,9 +18,7 @@ export async function describeServer(
 	});
 }
 
-export async function resolveHandle(
-	c: Context<{ Bindings: Env }>,
-): Promise<Response> {
+export async function resolveHandle(c: Context<AppEnv>): Promise<Response> {
 	const handle = c.req.query("handle");
 
 	if (!handle) {
@@ -65,9 +62,7 @@ export async function resolveHandle(
 /**
  * Create a new session (login)
  */
-export async function createSession(
-	c: Context<{ Bindings: Env }>,
-): Promise<Response> {
+export async function createSession(c: Context<AppEnv>): Promise<Response> {
 	const body = await c.req.json<{
 		identifier: string;
 		password: string;
@@ -97,16 +92,6 @@ export async function createSession(
 	}
 
 	// Verify password
-	if (!c.env.PASSWORD_HASH) {
-		return c.json(
-			{
-				error: "InvalidRequest",
-				message: "Password authentication not configured",
-			},
-			500,
-		);
-	}
-
 	const passwordValid = await verifyPassword(password, c.env.PASSWORD_HASH);
 	if (!passwordValid) {
 		return c.json(
@@ -143,9 +128,7 @@ export async function createSession(
 /**
  * Refresh a session
  */
-export async function refreshSession(
-	c: Context<{ Bindings: Env }>,
-): Promise<Response> {
+export async function refreshSession(c: Context<AppEnv>): Promise<Response> {
 	const authHeader = c.req.header("Authorization");
 
 	if (!authHeader?.startsWith("Bearer ")) {
@@ -212,9 +195,7 @@ export async function refreshSession(
 /**
  * Get current session info
  */
-export async function getSession(
-	c: Context<{ Bindings: Env }>,
-): Promise<Response> {
+export async function getSession(c: Context<AppEnv>): Promise<Response> {
 	const authHeader = c.req.header("Authorization");
 
 	if (!authHeader?.startsWith("Bearer ")) {
@@ -241,7 +222,11 @@ export async function getSession(
 
 	// Try JWT
 	try {
-		const payload = await verifyAccessToken(token, c.env.JWT_SECRET, serviceDid);
+		const payload = await verifyAccessToken(
+			token,
+			c.env.JWT_SECRET,
+			serviceDid,
+		);
 
 		if (payload.sub !== c.env.DID) {
 			return c.json(
@@ -272,9 +257,7 @@ export async function getSession(
 /**
  * Delete current session (logout)
  */
-export async function deleteSession(
-	c: Context<{ Bindings: Env }>,
-): Promise<Response> {
+export async function deleteSession(c: Context<AppEnv>): Promise<Response> {
 	// For a single-user PDS with stateless JWTs, we don't need to do anything
 	// The client just needs to delete its stored tokens
 	// In a full implementation, we'd revoke the refresh token
@@ -285,7 +268,7 @@ export async function deleteSession(
  * Get account status - used for migration checks
  */
 export async function getAccountStatus(
-	c: Context<{ Bindings: Env }>,
+	c: Context<AuthedAppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	try {
