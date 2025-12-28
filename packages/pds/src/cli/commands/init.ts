@@ -2,18 +2,19 @@
  * Interactive PDS setup wizard
  */
 import { defineCommand } from "citty";
-import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import * as p from "@clack/prompts";
-import { Secp256k1Keypair } from "@atproto/crypto";
-import bcrypt from "bcryptjs";
+import { setVars, getVars, type SecretName } from "../utils/wrangler.js";
+import { readDevVars } from "../utils/dotenv.js";
 import {
-	setSecret,
-	setVars,
-	getVars,
-	type SecretName,
-} from "../utils/wrangler.js";
-import { readDevVars, writeDevVars } from "../utils/dotenv.js";
+	generateSigningKeypair,
+	derivePublicKey,
+	generateAuthToken,
+	generateJwtSecret,
+	hashPassword,
+	promptPassword,
+	setSecretValue,
+} from "../utils/secrets.js";
 
 /**
  * Run wrangler types to regenerate TypeScript types
@@ -21,13 +22,24 @@ import { readDevVars, writeDevVars } from "../utils/dotenv.js";
 function runWranglerTypes(): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const child = spawn("wrangler", ["types"], {
-			stdio: "inherit",
+			stdio: "pipe",
+		});
+
+		let output = "";
+		child.stdout?.on("data", (data) => {
+			output += data.toString();
+		});
+		child.stderr?.on("data", (data) => {
+			output += data.toString();
 		});
 
 		child.on("close", (code) => {
 			if (code === 0) {
 				resolve();
 			} else {
+				if (output) {
+					console.error(output);
+				}
 				reject(new Error(`wrangler types failed with code ${code}`));
 			}
 		});
@@ -119,33 +131,28 @@ export const initCommand = defineCommand({
 			// For each secret, ask if we should reuse from .dev.vars
 			authToken = await getOrGenerateSecret("AUTH_TOKEN", devVars, async () => {
 				spinner.start("Generating auth token...");
-				const token = randomBytes(32).toString("base64url");
+				const token = generateAuthToken();
 				spinner.stop("Auth token generated");
 				return token;
 			});
 
-			const signingResult = await getOrGenerateSecret(
+			signingKey = await getOrGenerateSecret(
 				"SIGNING_KEY",
 				devVars,
 				async () => {
 					spinner.start("Generating signing keypair...");
-					const keypair = await Secp256k1Keypair.create({ exportable: true });
-					const key = JSON.stringify(await keypair.export());
+					const { privateKey } = await generateSigningKeypair();
 					spinner.stop("Signing keypair generated");
-					return key;
+					return privateKey;
 				},
 			);
-			signingKey = signingResult;
 
-			// For public key, derive from the signing key we're using
-			const keypairForPublic = await Secp256k1Keypair.import(
-				JSON.parse(signingKey),
-			);
-			signingKeyPublic = keypairForPublic.did().replace("did:key:", "");
+			// Derive public key from the signing key we're using
+			signingKeyPublic = await derivePublicKey(signingKey);
 
 			jwtSecret = await getOrGenerateSecret("JWT_SECRET", devVars, async () => {
 				spinner.start("Generating JWT secret...");
-				const secret = randomBytes(32).toString("base64");
+				const secret = generateJwtSecret();
 				spinner.stop("JWT secret generated");
 				return secret;
 			});
@@ -154,73 +161,33 @@ export const initCommand = defineCommand({
 				"PASSWORD_HASH",
 				devVars,
 				async () => {
-					// Need to prompt for password
-					const password = await p.password({
-						message: "Account password:",
-					});
-					if (p.isCancel(password)) {
-						p.cancel("Cancelled");
-						process.exit(0);
-					}
-
-					const confirm = await p.password({
-						message: "Confirm password:",
-					});
-					if (p.isCancel(confirm)) {
-						p.cancel("Cancelled");
-						process.exit(0);
-					}
-
-					if (password !== confirm) {
-						p.log.error("Passwords do not match");
-						process.exit(1);
-					}
-
+					const password = await promptPassword();
 					spinner.start("Hashing password...");
-					const hash = await bcrypt.hash(password, 10);
+					const hash = await hashPassword(password);
 					spinner.stop("Password hashed");
 					return hash;
 				},
 			);
 		} else {
 			// Local mode: always prompt for password and generate fresh secrets
-			const password = await p.password({
-				message: "Account password:",
-			});
-			if (p.isCancel(password)) {
-				p.cancel("Cancelled");
-				process.exit(0);
-			}
-
-			const confirm = await p.password({
-				message: "Confirm password:",
-			});
-			if (p.isCancel(confirm)) {
-				p.cancel("Cancelled");
-				process.exit(0);
-			}
-
-			if (password !== confirm) {
-				p.log.error("Passwords do not match");
-				process.exit(1);
-			}
+			const password = await promptPassword();
 
 			spinner.start("Hashing password...");
-			passwordHash = await bcrypt.hash(password, 10);
+			passwordHash = await hashPassword(password);
 			spinner.stop("Password hashed");
 
 			spinner.start("Generating JWT secret...");
-			jwtSecret = randomBytes(32).toString("base64");
+			jwtSecret = generateJwtSecret();
 			spinner.stop("JWT secret generated");
 
 			spinner.start("Generating auth token...");
-			authToken = randomBytes(32).toString("base64url");
+			authToken = generateAuthToken();
 			spinner.stop("Auth token generated");
 
 			spinner.start("Generating signing keypair...");
-			const keypair = await Secp256k1Keypair.create({ exportable: true });
-			signingKey = JSON.stringify(await keypair.export());
-			signingKeyPublic = keypair.did().replace("did:key:", "");
+			const keypair = await generateSigningKeypair();
+			signingKey = keypair.privateKey;
+			signingKeyPublic = keypair.publicKey;
 			spinner.stop("Signing keypair generated");
 		}
 
@@ -234,35 +201,22 @@ export const initCommand = defineCommand({
 		});
 		spinner.stop("wrangler.jsonc updated");
 
-		// Set secrets based on mode
+		// Set secrets
+		const local = !isProduction;
 		if (isProduction) {
-			// Deploy secrets via wrangler
-			spinner.start("Setting AUTH_TOKEN...");
-			await setSecret("AUTH_TOKEN", authToken);
-			spinner.stop("AUTH_TOKEN set");
-
-			spinner.start("Setting SIGNING_KEY...");
-			await setSecret("SIGNING_KEY", signingKey);
-			spinner.stop("SIGNING_KEY set");
-
-			spinner.start("Setting JWT_SECRET...");
-			await setSecret("JWT_SECRET", jwtSecret);
-			spinner.stop("JWT_SECRET set");
-
-			spinner.start("Setting PASSWORD_HASH...");
-			await setSecret("PASSWORD_HASH", passwordHash);
-			spinner.stop("PASSWORD_HASH set");
+			spinner.start("Deploying secrets to Cloudflare...");
 		} else {
-			// Write secrets to .dev.vars for local development
 			spinner.start("Writing secrets to .dev.vars...");
-			writeDevVars({
-				AUTH_TOKEN: authToken,
-				SIGNING_KEY: signingKey,
-				JWT_SECRET: jwtSecret,
-				PASSWORD_HASH: passwordHash,
-			});
-			spinner.stop("Secrets written to .dev.vars");
 		}
+
+		await setSecretValue("AUTH_TOKEN", authToken, local);
+		await setSecretValue("SIGNING_KEY", signingKey, local);
+		await setSecretValue("JWT_SECRET", jwtSecret, local);
+		await setSecretValue("PASSWORD_HASH", passwordHash, local);
+
+		spinner.stop(
+			isProduction ? "Secrets deployed" : "Secrets written to .dev.vars",
+		);
 
 		// Generate TypeScript types
 		spinner.start("Generating TypeScript types...");

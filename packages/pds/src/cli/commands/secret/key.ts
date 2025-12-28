@@ -3,9 +3,11 @@
  */
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import { Secp256k1Keypair } from "@atproto/crypto";
-import { setSecret, setVar } from "../../utils/wrangler.js";
-import { setDevVar } from "../../utils/dotenv.js";
+import {
+	generateSigningKeypair,
+	setSecretValue,
+	setPublicVar,
+} from "../../utils/secrets.js";
 
 export const keyCommand = defineCommand({
 	meta: {
@@ -25,36 +27,23 @@ export const keyCommand = defineCommand({
 		const spinner = p.spinner();
 		spinner.start("Generating secp256k1 keypair...");
 
-		const keypair = await Secp256k1Keypair.create({ exportable: true });
-		const privateKeyJwk = await keypair.export();
-		const publicKeyMultibase = keypair.did().replace("did:key:", "");
+		const { privateKey, publicKey } = await generateSigningKeypair();
 
 		spinner.stop("Keypair generated");
 
-		const privateKeyJson = JSON.stringify(privateKeyJwk);
+		try {
+			await setSecretValue("SIGNING_KEY", privateKey, args.local);
+			setPublicVar("SIGNING_KEY_PUBLIC", publicKey, args.local);
 
-		if (args.local) {
-			setDevVar("SIGNING_KEY", privateKeyJson);
-			setDevVar("SIGNING_KEY_PUBLIC", publicKeyMultibase);
-			p.outro("SIGNING_KEY and SIGNING_KEY_PUBLIC written to .dev.vars");
-		} else {
-			spinner.start("Setting SIGNING_KEY via wrangler secret...");
-			try {
-				await setSecret("SIGNING_KEY", privateKeyJson);
-				spinner.stop("SIGNING_KEY set");
-
-				spinner.start("Setting SIGNING_KEY_PUBLIC in wrangler.jsonc...");
-				setVar("SIGNING_KEY_PUBLIC", publicKeyMultibase);
-				spinner.stop("SIGNING_KEY_PUBLIC set");
-
-				p.outro("Done!");
-			} catch (error) {
-				spinner.stop("Failed");
-				p.log.error(String(error));
-				process.exit(1);
-			}
+			p.log.info("Public key (for DID document): " + publicKey);
+			p.outro(
+				args.local
+					? "SIGNING_KEY and SIGNING_KEY_PUBLIC written to .dev.vars"
+					: "Done!",
+			);
+		} catch (error) {
+			p.log.error(String(error));
+			process.exit(1);
 		}
-
-		p.log.info("Public key (for DID document): " + publicKeyMultibase);
 	},
 });

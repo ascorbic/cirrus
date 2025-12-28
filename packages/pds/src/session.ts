@@ -1,18 +1,8 @@
-import { SignJWT, jwtVerify } from "jose";
+import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { compare } from "bcryptjs";
 
 const ACCESS_TOKEN_LIFETIME = "2h";
 const REFRESH_TOKEN_LIFETIME = "90d";
-
-export interface JwtPayload {
-	iss: string;
-	aud: string;
-	sub: string;
-	iat?: number;
-	exp?: number;
-	scope: string;
-	jti?: string;
-}
 
 /**
  * Create a secret key from string for HS256 signing
@@ -69,7 +59,7 @@ export async function verifyAccessToken(
 	token: string,
 	jwtSecret: string,
 	serviceDid: string,
-): Promise<JwtPayload> {
+): Promise<JWTPayload> {
 	const secret = createSecretKey(jwtSecret);
 
 	const { payload, protectedHeader } = await jwtVerify(token, secret, {
@@ -87,7 +77,7 @@ export async function verifyAccessToken(
 		throw new Error("Invalid scope");
 	}
 
-	return payload as unknown as JwtPayload;
+	return payload;
 }
 
 /**
@@ -97,7 +87,7 @@ export async function verifyRefreshToken(
 	token: string,
 	jwtSecret: string,
 	serviceDid: string,
-): Promise<JwtPayload> {
+): Promise<JWTPayload> {
 	const secret = createSecretKey(jwtSecret);
 
 	const { payload, protectedHeader } = await jwtVerify(token, secret, {
@@ -120,15 +110,10 @@ export async function verifyRefreshToken(
 		throw new Error("Missing token ID");
 	}
 
-	return payload as unknown as JwtPayload;
+	return payload;
 }
 
 /**
  * Verify a password against a bcrypt hash
  */
-export async function verifyPassword(
-	password: string,
-	hash: string,
-): Promise<boolean> {
-	return compare(password, hash);
-}
+export { compare as verifyPassword };

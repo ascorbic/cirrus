@@ -1,36 +1,21 @@
 {
-  "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignoreExportsUsedInFile": {
-    "interface": true,
-    "type": true
-  },
-  "tags": [
-    "-lintignore"
-  ],
-  "ignoreDependencies": [
-    "cloudflare"
-  ],
-  "workspaces": {
-    ".": {
-      "ignoreDependencies": [
-        "@changesets/cli"
-      ]
-    },
-    "packages/pds": {
-      "ignore": [
-        "scripts/**",
-        "test/fixtures/**"
-      ],
-      "ignoreDependencies": [
-        "tsx",
-        "ws",
-        "@types/ws"
-      ]
-    },
-    "packages/create-pds": {
-      "ignore": [
-        "templates/**"
-      ]
-    }
-  }
+	"$schema": "https://unpkg.com/knip@5/schema.json",
+	"ignoreExportsUsedInFile": {
+		"interface": true,
+		"type": true
+	},
+	"tags": ["-lintignore"],
+	"ignoreDependencies": ["cloudflare"],
+	"workspaces": {
+		".": {
+			"ignoreDependencies": ["@changesets/cli"]
+		},
+		"packages/pds": {
+			"ignore": ["scripts/**", "test/fixtures/**"],
+			"ignoreDependencies": ["tsx", "ws", "@types/ws"]
+		},
+		"packages/create-pds": {
+			"ignore": ["templates/**"]
+		}
+	}
 }
