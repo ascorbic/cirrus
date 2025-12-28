@@ -1,6 +1,6 @@
 {
 	"name": "create-pds",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"description": "Create a new AT Protocol PDS on Cloudflare Workers",
 	"type": "module",
 	"bin": {
