@@ -10,26 +10,19 @@ This is an example deployment of `@ascorbic/pds-worker` - a single-user AT Proto
 pnpm install
 ```
 
-### 2. Generate keys and configuration
+### 2. Configure environment
+
+Use the PDS CLI to generate keys and configure your environment:
 
 ```bash
-pnpm run setup
+npx @ascorbic/pds-worker init --local
 ```
 
-This will:
-- Prompt for your hostname and handle
-- Generate a secp256k1 keypair
-- Create your DID (did:web based on hostname)
-- Generate a random auth token
-- Write configuration to `.dev.vars`
+This will prompt for your hostname, handle, and password, then write all secrets to `.dev.vars`.
 
-### 3. Create R2 bucket
+Alternatively, copy `.env.example` to `.dev.vars` and fill in values manually.
 
-```bash
-wrangler r2 bucket create demo-pds-blobs
-```
-
-### 4. Run locally
+### 3. Run locally
 
 ```bash
 pnpm run dev
@@ -37,16 +30,20 @@ pnpm run dev
 
 This starts a local development server using Miniflare with your `.dev.vars` configuration.
 
-### 5. Deploy to production
+### 4. Deploy to production
 
-First, set your secrets:
+Use the PDS CLI to set secrets via wrangler:
 
 ```bash
-wrangler secret put DID
-wrangler secret put HANDLE
-wrangler secret put AUTH_TOKEN
-wrangler secret put SIGNING_KEY
-wrangler secret put SIGNING_KEY_PUBLIC
+npx @ascorbic/pds-worker init --production
+```
+
+Or set secrets individually:
+
+```bash
+npx @ascorbic/pds-worker secret key      # Generate signing keypair
+npx @ascorbic/pds-worker secret jwt      # Generate JWT secret
+npx @ascorbic/pds-worker secret password # Set login password
 ```
 
 Then deploy:
@@ -66,8 +63,12 @@ All configuration is via environment variables:
 - `DID` - Your account's DID
 - `HANDLE` - Your account's handle
 - `AUTH_TOKEN` - Bearer token for write operations
-- `SIGNING_KEY` - Private key for signing commits
-- `SIGNING_KEY_PUBLIC` - Public key for DID document
+- `SIGNING_KEY` - Private key for signing commits (secp256k1 JWK)
+- `SIGNING_KEY_PUBLIC` - Public key for DID document (multibase)
+- `JWT_SECRET` - Secret for signing session JWTs
+
+**Optional (secrets):**
+- `PASSWORD_HASH` - Bcrypt hash of account password (enables app login)
 
 ## Architecture
 

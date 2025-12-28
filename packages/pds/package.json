@@ -4,6 +4,9 @@
 	"description": "AT Protocol PDS on Cloudflare Workers",
 	"type": "module",
 	"main": "dist/index.js",
+	"bin": {
+		"pds": "./dist/cli.js"
+	},
 	"files": [
 		"dist"
 	],
@@ -12,7 +15,9 @@
 	},
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build",
+		"build": "pnpm build:worker && pnpm build:cli",
+		"build:worker": "vite build",
+		"build:cli": "vite build --config vite.config.cli.ts",
 		"preview": "vite preview",
 		"deploy": "wrangler deploy",
 		"test": "vitest run",
@@ -20,8 +25,8 @@
 		"test:firehose": "node scripts/load-env.js node scripts/test-firehose.js",
 		"test:firehose:prod": "PDS_URL=https://pds.mk.gg node scripts/load-env.js node scripts/test-firehose.js",
 		"create-post": "node scripts/load-env.js node scripts/create-post.js",
-		"setup:password": "node scripts/set-password.mjs",
-		"setup:jwt-secret": "node scripts/set-jwt-secret.mjs"
+		"setup:password": "node dist/cli.js secret password",
+		"setup:jwt-secret": "node dist/cli.js secret jwt"
 	},
 	"dependencies": {
 		"@atproto/common-web": "^0.4.7",
@@ -31,13 +36,15 @@
 		"@atproto/lexicon": "^0.6.0",
 		"@atproto/repo": "^0.8.12",
 		"@atproto/syntax": "^0.4.2",
+		"@clack/prompts": "^0.11.0",
 		"bcryptjs": "^3.0.3",
+		"citty": "^0.1.6",
 		"hono": "^4.11.3",
 		"jose": "^6.1.3"
 	},
 	"devDependencies": {
+		"tsx": "^4.21.0",
 		"@arethetypeswrong/cli": "^0.18.2",
-		"@clack/prompts": "^0.11.0",
 		"@cloudflare/vite-plugin": "^1.17.0",
 		"@cloudflare/vitest-pool-workers": "https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632",
 		"@cloudflare/workers-types": "^4.20251225.0",
@@ -45,7 +52,6 @@
 		"@types/ws": "^8.18.1",
 		"cborg": "^4.3.2",
 		"publint": "^0.3.16",
-		"tsx": "^4.21.0",
 		"typescript": "^5.9.3",
 		"vite": "^6.0.0",
 		"vitest": "^4.0.0",

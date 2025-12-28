@@ -27,8 +27,12 @@ importers:
   demos/pds:
     dependencies:
       '@ascorbic/pds-worker':
-        specifier: workspace:^
+        specifier: ^0.0.0
         version: link:../../packages/pds
+    devDependencies:
+      wrangler:
+        specifier: ^4.54.0
+        version: 4.54.0(@cloudflare/workers-types@4.20251225.0)
 
   packages/pds:
     dependencies:
@@ -53,9 +57,15 @@ importers:
       '@atproto/syntax':
         specifier: ^0.4.2
         version: 0.4.2
+      '@clack/prompts':
+        specifier: ^0.11.0
+        version: 0.11.0
       bcryptjs:
         specifier: ^3.0.3
         version: 3.0.3
+      citty:
+        specifier: ^0.1.6
+        version: 0.1.6
       hono:
         specifier: ^4.11.3
         version: 4.11.3
@@ -66,12 +76,9 @@ importers:
       '@arethetypeswrong/cli':
         specifier: ^0.18.2
         version: 0.18.2
-      '@clack/prompts':
-        specifier: ^0.11.0
-        version: 0.11.0
       '@cloudflare/vite-plugin':
         specifier: ^1.17.0
-        version: 1.17.0(vite@6.4.1(@types/node@24.10.4)(tsx@4.21.0))(workerd@1.20251210.0)(wrangler@4.54.0(@cloudflare/workers-types@4.20251225.0))
+        version: 1.17.0(vite@6.4.1(@types/node@24.10.4)(tsx@4.21.0))(workerd@1.20251219.0)(wrangler@4.54.0(@cloudflare/workers-types@4.20251225.0))
       '@cloudflare/vitest-pool-workers':
         specifier: https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632
         version: https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632(@cloudflare/workers-types@4.20251225.0)(@vitest/runner@4.0.16)(@vitest/snapshot@4.0.16)(vitest@4.0.16(@types/node@24.10.4)(tsx@4.21.0))
@@ -1305,6 +1312,9 @@ packages:
     resolution: {integrity: sha512-NIxF55hv4nSqQswkAeiOi1r83xy8JldOFDTWiug55KBu9Jnblncd2U6ViHmYgHf01TPZS77NJBhBMKdWj9HQMQ==}
     engines: {node: '>=8'}
 
+  citty@0.1.6:
+    resolution: {integrity: sha512-tskPPKEs8D2KPafUypv2gxwJP8h/OaJmC82QQGGDQcHvXX43xF2VDACcJVmZ0EuSxkpO9Kc4MlrA3q0+FG58AQ==}
+
   cjs-module-lexer@1.4.0:
     resolution: {integrity: sha512-N1NGmowPlGBLsOZLPvm48StN04V4YvQRL0i6b7ctrVY3epjP/ct7hFLOItz6pDIvRjwpfPxi52a2UWV2ziir8g==}
 
@@ -1340,6 +1350,10 @@ packages:
   commander@10.0.1:
     resolution: {integrity: sha512-y4Mg2tXshplEbSGzx7amzPwKKOCGuoSRP/CjEdwwk0FOGlUbq6lKuoyDZTNZkmxHdJtp54hdfY/JUrdL7Xfdug==}
     engines: {node: '>=14'}
+
+  consola@3.4.2:
+    resolution: {integrity: sha512-5IKcdX0nnYavi6G7TtOhwkYzyjfJlatbjMjuLSfE2kYT5pMDOilZ4OvMhi637CcDICTmz3wARPoyhqyX1Y+XvA==}
+    engines: {node: ^14.18.0 || >=16.10.0}
 
   cookie@1.1.1:
     resolution: {integrity: sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ==}
@@ -2627,15 +2641,21 @@ snapshots:
     optionalDependencies:
       workerd: 1.20251210.0
 
+  '@cloudflare/unenv-preset@2.7.13(unenv@2.0.0-rc.24)(workerd@1.20251219.0)':
+    dependencies:
+      unenv: 2.0.0-rc.24
+    optionalDependencies:
+      workerd: 1.20251219.0
+
   '@cloudflare/unenv-preset@https://pkg.pr.new/cloudflare/workers-sdk/@cloudflare/unenv-preset@64982d4(unenv@2.0.0-rc.24)(workerd@1.20251219.0)':
     dependencies:
       unenv: 2.0.0-rc.24
     optionalDependencies:
       workerd: 1.20251219.0
 
-  '@cloudflare/vite-plugin@1.17.0(vite@6.4.1(@types/node@24.10.4)(tsx@4.21.0))(workerd@1.20251210.0)(wrangler@4.54.0(@cloudflare/workers-types@4.20251225.0))':
+  '@cloudflare/vite-plugin@1.17.0(vite@6.4.1(@types/node@24.10.4)(tsx@4.21.0))(workerd@1.20251219.0)(wrangler@4.54.0(@cloudflare/workers-types@4.20251225.0))':
     dependencies:
-      '@cloudflare/unenv-preset': 2.7.13(unenv@2.0.0-rc.24)(workerd@1.20251210.0)
+      '@cloudflare/unenv-preset': 2.7.13(unenv@2.0.0-rc.24)(workerd@1.20251219.0)
       '@remix-run/node-fetch-server': 0.8.1
       defu: 6.1.4
       get-port: 7.1.0
@@ -3365,6 +3385,10 @@ snapshots:
 
   ci-info@3.9.0: {}
 
+  citty@0.1.6:
+    dependencies:
+      consola: 3.4.2
+
   cjs-module-lexer@1.4.0: {}
 
   cjs-module-lexer@1.4.3: {}
@@ -3407,6 +3431,8 @@ snapshots:
       color-string: 1.9.1
 
   commander@10.0.1: {}
+
+  consola@3.4.2: {}
 
   cookie@1.1.1: {}
 

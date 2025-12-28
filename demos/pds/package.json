@@ -5,7 +5,7 @@
 	"type": "module",
 	"private": true,
 	"dependencies": {
-		"@ascorbic/pds-worker": "workspace:^"
+		"@ascorbic/pds-worker": "^0.0.0"
 	},
 	"devDependencies": {
 		"wrangler": "^4.54.0"
@@ -13,7 +13,12 @@
 	"scripts": {
 		"dev": "wrangler dev",
 		"deploy": "wrangler deploy",
-		"setup": "node ../../scripts/setup-pds.js"
+		"setup": "pds init --local",
+		"setup:prod": "pds init --production",
+		"secret:jwt": "pds secret jwt",
+		"secret:password": "pds secret password",
+		"secret:key": "pds secret key",
+		"types": "wrangler types"
 	},
 	"keywords": [],
 	"author": "Matt Kane",
