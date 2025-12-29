@@ -22,6 +22,7 @@
 	"dependencies": {
 		"@atproto/common-web": "^0.4.7",
 		"@atproto/crypto": "^0.4.5",
+		"@atproto/identity": "^0.4.10",
 		"@atproto/lex-cbor": "^0.0.3",
 		"@atproto/lex-data": "^0.0.3",
 		"@atproto/lexicon": "^0.6.0",

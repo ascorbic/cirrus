@@ -10,8 +10,10 @@ import { ensureValidDid, ensureValidHandle } from "@atproto/syntax";
 import { requireAuth } from "./middleware/auth";
 import { createServiceJwt } from "./service-auth";
 import { verifyAccessToken } from "./session";
-import { parseProxyHeader, resolveDidDocument } from "./did-resolver";
+import { parseProxyHeader } from "./did-resolver";
+import { DidResolver } from "@atproto/identity";
 import { getServiceEndpoint } from "@atproto/common-web";
+import { WorkersDidCache } from "./did-cache";
 import * as sync from "./xrpc/sync";
 import * as repo from "./xrpc/repo";
 import * as server from "./xrpc/server";
@@ -56,41 +58,12 @@ const APPVIEW_ENDPOINT = "https://api.bsky.app";
 const CHAT_DID = "did:web:api.bsky.chat";
 const CHAT_ENDPOINT = "https://api.bsky.chat";
 
-// Cache for DID document lookups (1 hour TTL)
-const DID_CACHE_TTL = 60 * 60 * 1000;
-const didCache = new Map<
-	string,
-	{ doc: any; timestamp: number }
->();
-
-/**
- * Resolve DID with caching
- */
-async function resolveDidWithCache(did: string): Promise<any> {
-	// Check cache first
-	const cached = didCache.get(did);
-	if (cached && Date.now() - cached.timestamp < DID_CACHE_TTL) {
-		return cached.doc;
-	}
-
-	// Fetch from network
-	const doc = await resolveDidDocument(did);
-
-	// Update cache
-	didCache.set(did, { doc, timestamp: Date.now() });
-
-	// Limit cache size to prevent memory issues
-	if (didCache.size > 1000) {
-		// Remove oldest entries
-		const entries = Array.from(didCache.entries());
-		entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
-		for (let i = 0; i < 100; i++) {
-			didCache.delete(entries[i][0]);
-		}
-	}
-
-	return doc;
-}
+// DID resolver with caching using official @atproto/identity package
+const didResolver = new DidResolver({
+	didCache: new WorkersDidCache(),
+	timeout: 3000, // 3 second timeout for DID resolution
+	plcUrl: "https://plc.directory",
+});
 
 // Lazy-loaded keypair for service auth
 let keypairPromise: Promise<Secp256k1Keypair> | null = null;
@@ -346,7 +319,16 @@ app.all("/xrpc/*", async (c) => {
 					],
 				};
 			} else {
-				didDoc = await resolveDidWithCache(parsed.did);
+				didDoc = await didResolver.resolve(parsed.did);
+				if (!didDoc) {
+					return c.json(
+						{
+							error: "InvalidRequest",
+							message: `DID not found: ${parsed.did}`,
+						},
+						400,
+					);
+				}
 			}
 
 			// getServiceEndpoint expects the ID to start with #

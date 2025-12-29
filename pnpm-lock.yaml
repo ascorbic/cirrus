@@ -75,6 +75,9 @@ importers:
       '@atproto/crypto':
         specifier: ^0.4.5
         version: 0.4.5
+      '@atproto/identity':
+        specifier: ^0.4.10
+        version: 0.4.10
       '@atproto/lex-cbor':
         specifier: ^0.0.3
         version: 0.0.3
@@ -166,6 +169,10 @@ packages:
 
   '@atproto/crypto@0.4.5':
     resolution: {integrity: sha512-n40aKkMoCatP0u9Yvhrdk6fXyOHFDDbkdm4h4HCyWW+KlKl8iXfD5iV+ECq+w5BM+QH25aIpt3/j6EUNerhLxw==}
+    engines: {node: '>=18.7.0'}
+
+  '@atproto/identity@0.4.10':
+    resolution: {integrity: sha512-nQbzDLXOhM8p/wo0cTh5DfMSOSHzj6jizpodX37LJ4S1TZzumSxAjHEZa5Rev3JaoD5uSWMVE0MmKEGWkPPvfQ==}
     engines: {node: '>=18.7.0'}
 
   '@atproto/lex-cbor@0.0.3':
@@ -2627,6 +2634,11 @@ snapshots:
       '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       uint8arrays: 3.0.0
+
+  '@atproto/identity@0.4.10':
+    dependencies:
+      '@atproto/common-web': 0.4.7
+      '@atproto/crypto': 0.4.5
 
   '@atproto/lex-cbor@0.0.3':
     dependencies:

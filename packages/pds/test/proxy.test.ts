@@ -166,8 +166,9 @@ describe("XRPC Service Proxying", () => {
 			// Mock fetch for both DID resolution and the proxied request
 			vi.stubGlobal(
 				"fetch",
-				vi.fn((url: string, init?: RequestInit) => {
-					if (url === "https://labeler.example.com/.well-known/did.json") {
+				vi.fn((url: string | URL, init?: RequestInit) => {
+					const urlStr = url.toString();
+					if (urlStr === "https://labeler.example.com/.well-known/did.json") {
 						return Promise.resolve(
 							new Response(
 								JSON.stringify(mockDidDocuments["did:web:labeler.example.com"]),
@@ -178,7 +179,7 @@ describe("XRPC Service Proxying", () => {
 							),
 						);
 					}
-					if (url.startsWith("https://labeler.example.com/xrpc/")) {
+					if (urlStr.startsWith("https://labeler.example.com/xrpc/")) {
 						// Verify the service JWT was added
 						const authHeader = (init?.headers as Record<string, string>)?.[
 							"Authorization"

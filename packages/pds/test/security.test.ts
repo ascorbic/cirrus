@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parseProxyHeader, type DidDocument } from "../src/did-resolver";
-import { getServiceEndpoint } from "@atproto/common-web";
+import { parseProxyHeader } from "../src/did-resolver";
+import { getServiceEndpoint, type DidDocument } from "@atproto/common-web";
 
 describe("DID Resolver URL Validation", () => {
 	describe("Protocol validation", () => {
