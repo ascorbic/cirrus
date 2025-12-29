@@ -204,8 +204,8 @@ app.get("/xrpc/com.atproto.server.getSession", server.getSession);
 app.post("/xrpc/com.atproto.server.deleteSession", server.deleteSession);
 
 // Account migration
-app.get("/xrpc/com.atproto.server.getAccountStatus", requireAuth, (c) =>
-	server.getAccountStatus(c, getAccountDO(c.env)),
+app.get("/xrpc/com.atproto.server.checkAccountStatus", requireAuth, (c) =>
+	server.checkAccountStatus(c, getAccountDO(c.env)),
 );
 
 // Actor preferences (stub - returns empty preferences)

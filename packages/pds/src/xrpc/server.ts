@@ -282,9 +282,10 @@ export async function deleteSession(
 }
 
 /**
- * Get account status - used for migration checks
+ * Check account status - used for migration checks
+ * Official endpoint: com.atproto.server.checkAccountStatus
  */
-export async function getAccountStatus(
+export async function checkAccountStatus(
 	c: Context<{ Bindings: Env }>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
@@ -295,24 +296,26 @@ export async function getAccountStatus(
 		return c.json({
 			activated: true,
 			validDid: true,
+			repoCommit: status.head,
 			repoRev: status.rev,
-			repoBlocks: null, // Could implement block counting if needed
-			indexedRecords: null, // Could implement record counting if needed
-			privateStateValues: null,
-			expectedBlobs: null,
-			importedBlobs: null,
+			repoBlocks: 0, // TODO: Implement block counting
+			indexedRecords: 0, // TODO: Implement record counting
+			privateStateValues: 0,
+			expectedBlobs: 0,
+			importedBlobs: 0,
 		});
 	} catch (err) {
-		// If repo doesn't exist yet, return empty status
+		// If repo doesn't exist yet, return deactivated status
 		return c.json({
 			activated: false,
 			validDid: true,
-			repoRev: null,
-			repoBlocks: null,
-			indexedRecords: null,
-			privateStateValues: null,
-			expectedBlobs: null,
-			importedBlobs: null,
+			repoCommit: "",
+			repoRev: "",
+			repoBlocks: 0,
+			indexedRecords: 0,
+			privateStateValues: 0,
+			expectedBlobs: 0,
+			importedBlobs: 0,
 		});
 	}
 }

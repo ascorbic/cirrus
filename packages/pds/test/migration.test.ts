@@ -3,11 +3,11 @@ import { SELF, env } from "cloudflare:test";
 import worker from "../src/index";
 
 describe("Account Migration", () => {
-	describe("com.atproto.server.getAccountStatus", () => {
+	describe("com.atproto.server.checkAccountStatus", () => {
 		it("requires authentication", async () => {
 			const response = await SELF.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.server.getAccountStatus`,
+					`http://pds.test/xrpc/com.atproto.server.checkAccountStatus`,
 				),
 				env,
 			);
@@ -44,7 +44,7 @@ describe("Account Migration", () => {
 
 			const response = await worker.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.server.getAccountStatus`,
+					`http://pds.test/xrpc/com.atproto.server.checkAccountStatus`,
 					{
 						headers: {
 							Authorization: `Bearer ${env.AUTH_TOKEN}`,
@@ -58,8 +58,9 @@ describe("Account Migration", () => {
 			const body = await response.json();
 			expect(body.activated).toBe(true);
 			expect(body.validDid).toBe(true);
+			expect(body.repoCommit).toBeDefined();
 			expect(body.repoRev).toBeDefined();
-			expect(body.repoRev).not.toBeNull();
+			expect(body.repoRev).not.toBe("");
 		});
 
 		it("returns account status info", async () => {
@@ -68,7 +69,7 @@ describe("Account Migration", () => {
 			// This test just verifies the endpoint returns valid data.
 			const response = await worker.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.server.getAccountStatus`,
+					`http://pds.test/xrpc/com.atproto.server.checkAccountStatus`,
 					{
 						headers: {
 							Authorization: `Bearer ${env.AUTH_TOKEN}`,
@@ -81,6 +82,10 @@ describe("Account Migration", () => {
 			expect(response.status).toBe(200);
 			const body = await response.json();
 			expect(body.validDid).toBe(true);
+			expect(typeof body.repoCommit).toBe("string");
+			expect(typeof body.repoRev).toBe("string");
+			expect(typeof body.repoBlocks).toBe("number");
+			expect(typeof body.indexedRecords).toBe("number");
 			// activated can be true or false depending on test execution order
 			expect(typeof body.activated).toBe("boolean");
 		});
@@ -257,7 +262,7 @@ describe("Account Migration", () => {
 			// Step 2: Check account status before export
 			const statusBeforeResponse = await worker.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.server.getAccountStatus`,
+					`http://pds.test/xrpc/com.atproto.server.checkAccountStatus`,
 					{
 						headers: {
 							Authorization: `Bearer ${env.AUTH_TOKEN}`,
@@ -270,6 +275,7 @@ describe("Account Migration", () => {
 			expect(statusBeforeResponse.status).toBe(200);
 			const statusBefore = await statusBeforeResponse.json();
 			expect(statusBefore.activated).toBe(true);
+			expect(statusBefore.repoCommit).toBeDefined();
 			expect(statusBefore.repoRev).toBeDefined();
 
 			// Step 3: Export the repo
