@@ -15,6 +15,8 @@ jobs:
         uses: actions/checkout@v5
       - name: Update lexicon schemas
         run: ./packages/pds/scripts/update-lexicons.sh
+      - name: Check for missing references
+        run: ./packages/pds/scripts/check-lexicon-refs.sh
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v8
         with:
