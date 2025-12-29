@@ -10,6 +10,11 @@ import { ensureValidDid, ensureValidHandle } from "@atproto/syntax";
 import { requireAuth } from "./middleware/auth";
 import { createServiceJwt } from "./service-auth";
 import { verifyAccessToken } from "./session";
+import {
+	parseProxyHeader,
+	resolveDidDocument,
+	extractServiceEndpoint,
+} from "./did-resolver";
 import * as sync from "./xrpc/sync";
 import * as repo from "./xrpc/repo";
 import * as server from "./xrpc/server";
@@ -252,7 +257,8 @@ app.post("/admin/emit-identity", requireAuth, async (c) => {
 	return c.json(result);
 });
 
-// Proxy unhandled XRPC requests to Bluesky services
+// Proxy unhandled XRPC requests to services specified via atproto-proxy header
+// or fall back to Bluesky services for backward compatibility
 app.all("/xrpc/*", async (c) => {
 	const url = new URL(c.req.url);
 	url.protocol = "https:";
@@ -260,10 +266,58 @@ app.all("/xrpc/*", async (c) => {
 	// Extract XRPC method name from path (e.g., "app.bsky.feed.getTimeline")
 	const lxm = url.pathname.replace("/xrpc/", "");
 
-	// Route to appropriate service based on lexicon namespace
-	const isChat = lxm.startsWith("chat.bsky.");
-	url.host = isChat ? "api.bsky.chat" : "api.bsky.app";
-	const audienceDid = isChat ? CHAT_DID : APPVIEW_DID;
+	// Check for atproto-proxy header for explicit service routing
+	const proxyHeader = c.req.header("atproto-proxy");
+	let audienceDid: string;
+	let targetUrl: URL;
+
+	if (proxyHeader) {
+		// Parse proxy header: "did:web:example.com#service_id"
+		const parsed = parseProxyHeader(proxyHeader);
+		if (!parsed) {
+			return c.json(
+				{
+					error: "InvalidRequest",
+					message: `Invalid atproto-proxy header format: ${proxyHeader}`,
+				},
+				400,
+			);
+		}
+
+		try {
+			// Resolve DID document to get service endpoint
+			const didDoc = await resolveDidDocument(parsed.did);
+			const endpoint = extractServiceEndpoint(didDoc, parsed.serviceId);
+
+			if (!endpoint) {
+				return c.json(
+					{
+						error: "InvalidRequest",
+						message: `Service not found in DID document: ${parsed.serviceId}`,
+					},
+					400,
+				);
+			}
+
+			// Use the resolved service endpoint
+			audienceDid = parsed.did;
+			targetUrl = new URL(url.pathname + url.search, endpoint);
+		} catch (err) {
+			return c.json(
+				{
+					error: "InvalidRequest",
+					message: `Failed to resolve service: ${err instanceof Error ? err.message : String(err)}`,
+				},
+				400,
+			);
+		}
+	} else {
+		// Fallback: Route to Bluesky services based on lexicon namespace
+		const isChat = lxm.startsWith("chat.bsky.");
+		url.host = isChat ? "api.bsky.chat" : "api.bsky.app";
+		audienceDid = isChat ? CHAT_DID : APPVIEW_DID;
+		targetUrl = url;
+	}
 
 	// Check for authorization header
 	const auth = c.req.header("Authorization");
@@ -305,9 +359,10 @@ app.all("/xrpc/*", async (c) => {
 	}
 
 	// Forward request with potentially replaced auth header
-	// Remove original authorization header to prevent conflicts
+	// Remove original headers that shouldn't be forwarded
 	const originalHeaders = Object.fromEntries(c.req.raw.headers);
 	delete originalHeaders["authorization"];
+	delete originalHeaders["atproto-proxy"]; // Don't forward the proxy header
 
 	const reqInit: RequestInit = {
 		method: c.req.method,
@@ -322,7 +377,7 @@ app.all("/xrpc/*", async (c) => {
 		reqInit.body = c.req.raw.body;
 	}
 
-	return fetch(url.toString(), reqInit);
+	return fetch(targetUrl.toString(), reqInit);
 });
 
 export default app;
