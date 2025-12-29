@@ -1,6 +1,6 @@
 import type { Context } from "hono";
 import type { AccountDurableObject } from "../account-do";
-import { getSigningKeypair } from "../keypair";
+import { createServiceJwt, getSigningKeypair } from "../service-auth";
 import {
 	createAccessToken,
 	createRefreshToken,
@@ -8,7 +8,6 @@ import {
 	verifyAccessToken,
 	verifyRefreshToken,
 } from "../session";
-import { createServiceJwt } from "../service-auth";
 import type { AppEnv, AuthedAppEnv } from "../types";
 
 export async function describeServer(c: Context<AppEnv>): Promise<Response> {

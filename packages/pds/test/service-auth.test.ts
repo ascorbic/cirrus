@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Secp256k1Keypair } from "@atproto/crypto";
-import { createServiceJwt } from "../src/service-auth";
-import { verifyServiceJwt } from "../src/session";
+import { createServiceJwt, verifyServiceJwt } from "../src/service-auth";
 import { env, worker } from "./helpers";
 
 describe("Service Auth", () => {

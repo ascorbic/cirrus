@@ -1,5 +1,6 @@
 import type { Context, Next } from "hono";
-import { verifyAccessToken, verifyServiceJwt } from "../session";
+import { verifyServiceJwt } from "../service-auth";
+import { verifyAccessToken } from "../session";
 import type { PDSEnv } from "../types";
 
 export interface AuthInfo {

@@ -1,7 +1,5 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { compare } from "bcryptjs";
-import { verifySignature } from "@atproto/crypto";
-import { getSigningKeypair } from "./keypair";
 
 const ACCESS_TOKEN_LIFETIME = "2h";
 const REFRESH_TOKEN_LIFETIME = "90d";
@@ -119,79 +117,3 @@ export async function verifyRefreshToken(
  * Verify a password against a bcrypt hash
  */
 export { compare as verifyPassword };
-
-/**
- * Service JWT payload structure
- */
-export interface ServiceJwtPayload {
-	iss: string; // Issuer (user's DID)
-	aud: string; // Audience (PDS DID)
-	exp: number; // Expiration timestamp
-	iat?: number; // Issued at timestamp
-	lxm?: string; // Lexicon method (optional)
-	jti?: string; // Token ID (optional)
-}
-
-/**
- * Verify a service JWT signed with our signing key.
- * These are issued by getServiceAuth and used by external services
- * (like video.bsky.app) to call back to our PDS.
- */
-export async function verifyServiceJwt(
-	token: string,
-	signingKey: string,
-	expectedAudience: string,
-	expectedIssuer: string,
-): Promise<ServiceJwtPayload> {
-	const parts = token.split(".");
-	if (parts.length !== 3) {
-		throw new Error("Invalid JWT format");
-	}
-
-	const [headerB64, payloadB64, signatureB64] = parts;
-
-	// Decode header
-	const header = JSON.parse(Buffer.from(headerB64, "base64url").toString());
-	if (header.alg !== "ES256K") {
-		throw new Error(`Unsupported algorithm: ${header.alg}`);
-	}
-
-	// Decode payload
-	const payload: ServiceJwtPayload = JSON.parse(
-		Buffer.from(payloadB64, "base64url").toString(),
-	);
-
-	// Check expiration
-	const now = Math.floor(Date.now() / 1000);
-	if (payload.exp && payload.exp < now) {
-		throw new Error("Token expired");
-	}
-
-	// Check audience (should be our PDS)
-	if (payload.aud !== expectedAudience) {
-		throw new Error(`Invalid audience: expected ${expectedAudience}`);
-	}
-
-	// Check issuer (should be the user's DID)
-	if (payload.iss !== expectedIssuer) {
-		throw new Error(`Invalid issuer: expected ${expectedIssuer}`);
-	}
-
-	// Verify signature using shared keypair
-	const keypair = await getSigningKeypair(signingKey);
-	// Uint8Array wrapper is required - Buffer polyfill doesn't work with @atproto/crypto
-	const msgBytes = new Uint8Array(
-		Buffer.from(`${headerB64}.${payloadB64}`, "utf8"),
-	);
-	const sigBytes = new Uint8Array(Buffer.from(signatureB64, "base64url"));
-
-	const isValid = await verifySignature(keypair.did(), msgBytes, sigBytes, {
-		allowMalleableSig: true,
-	});
-
-	if (!isValid) {
-		throw new Error("Invalid signature");
-	}
-
-	return payload;
-}
