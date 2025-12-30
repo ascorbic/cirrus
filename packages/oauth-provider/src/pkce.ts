@@ -4,15 +4,12 @@
  */
 
 import { base64url } from "jose";
-import { randomString } from "./encoding.js";
 
 /**
  * Generate the S256 code challenge from a verifier
  * challenge = BASE64URL(SHA256(verifier))
- * @param verifier The code verifier
- * @returns The code challenge
  */
-export async function generateCodeChallenge(verifier: string): Promise<string> {
+async function generateCodeChallenge(verifier: string): Promise<string> {
 	const encoder = new TextEncoder();
 	const data = encoder.encode(verifier);
 	const hash = await crypto.subtle.digest("SHA-256", data);
@@ -46,13 +43,4 @@ export async function verifyPkceChallenge(
 
 	const expectedChallenge = await generateCodeChallenge(verifier);
 	return expectedChallenge === challenge;
-}
-
-/**
- * Generate a cryptographically random code verifier
- * @returns A random code verifier (64 characters)
- */
-export function generateCodeVerifier(): string {
-	// 48 bytes = 64 base64url characters
-	return randomString(48);
 }
