@@ -8,6 +8,7 @@ import { DidResolver } from "./did-resolver";
 import { getServiceEndpoint } from "@atproto/common-web";
 import { createServiceJwt } from "./service-auth";
 import { verifyAccessToken } from "./session";
+import { getProvider } from "./oauth";
 import type { PDSEnv } from "./types";
 import type { Secp256k1Keypair } from "@atproto/crypto";
 
@@ -137,18 +138,28 @@ export async function handleXrpcProxy(
 		targetUrl = new URL(`/xrpc/${lxm}${url.search}`, endpoint);
 	}
 
-	// Check for authorization header
-	const auth = c.req.header("Authorization");
+	// Verify auth and create service JWT for target service
 	let headers: Record<string, string> = {};
+	const auth = c.req.header("Authorization");
+	let userDid: string | undefined;
 
-	if (auth?.startsWith("Bearer ")) {
+	if (auth?.startsWith("DPoP ")) {
+		// Verify DPoP-bound OAuth access token
+		try {
+			const provider = getProvider(c.env);
+			const tokenData = await provider.verifyAccessToken(c.req.raw);
+			if (tokenData) {
+				userDid = tokenData.sub;
+			}
+		} catch {
+			// DPoP verification failed - continue without auth
+		}
+	} else if (auth?.startsWith("Bearer ")) {
 		const token = auth.slice(7);
 		const serviceDid = `did:web:${c.env.PDS_HOSTNAME}`;
 
-		// Try to verify the token - if valid, create a service JWT
 		try {
 			// Check static token first
-			let userDid: string;
 			if (token === c.env.AUTH_TOKEN) {
 				userDid = c.env.DID;
 			} else {
@@ -158,13 +169,18 @@ export async function handleXrpcProxy(
 					c.env.JWT_SECRET,
 					serviceDid,
 				);
-				if (!payload.sub) {
-					throw new Error("Missing sub claim in token");
+				if (payload.sub) {
+					userDid = payload.sub;
 				}
-				userDid = payload.sub;
 			}
+		} catch {
+			// Token verification failed - continue without auth
+		}
+	}
 
-			// Create service JWT for target service
+	// Create service JWT if user is authenticated
+	if (userDid) {
+		try {
 			const keypair = await getKeypair();
 			const serviceJwt = await createServiceJwt({
 				iss: userDid,
@@ -174,8 +190,7 @@ export async function handleXrpcProxy(
 			});
 			headers["Authorization"] = `Bearer ${serviceJwt}`;
 		} catch {
-			// Token verification failed - forward without auth
-			// Target service will return appropriate error
+			// Service JWT creation failed - forward without auth
 		}
 	}
 

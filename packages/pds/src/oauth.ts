@@ -87,6 +87,35 @@ class DOProxyOAuthStorage implements OAuthStorage {
 }
 
 /**
+ * Get the OAuth provider for the given environment
+ * Exported for use in auth middleware for token verification
+ */
+export function getProvider(env: PDSEnv): ATProtoOAuthProvider {
+	const accountDO = getAccountDO(env);
+	const storage = new DOProxyOAuthStorage(accountDO);
+	const issuer = `https://${env.PDS_HOSTNAME}`;
+
+	return new ATProtoOAuthProvider({
+		storage,
+		issuer,
+		dpopRequired: true,
+		enablePAR: true,
+		// Password verification for authorization
+		verifyUser: async (password: string) => {
+			const valid = await compare(password, env.PASSWORD_HASH);
+			if (!valid) return null;
+			return {
+				sub: env.DID,
+				handle: env.HANDLE,
+			};
+		},
+	});
+}
+
+// Module-level reference to getAccountDO for the exported getProvider function
+let getAccountDO: (env: PDSEnv) => DurableObjectStub<AccountDurableObject>;
+
+/**
  * Create OAuth routes for the PDS
  *
  * This creates a Hono sub-app with all OAuth endpoints:
@@ -96,35 +125,15 @@ class DOProxyOAuthStorage implements OAuthStorage {
  * - POST /oauth/token - Token endpoint
  * - POST /oauth/par - Pushed Authorization Request
  *
- * @param getAccountDO Function to get the account DO stub
+ * @param accountDOGetter Function to get the account DO stub
  */
 export function createOAuthApp(
-	getAccountDO: (env: PDSEnv) => DurableObjectStub<AccountDurableObject>,
+	accountDOGetter: (env: PDSEnv) => DurableObjectStub<AccountDurableObject>,
 ) {
+	// Store reference for the exported getProvider function
+	getAccountDO = accountDOGetter;
+
 	const oauth = new Hono<{ Bindings: PDSEnv }>();
-
-	// Create provider lazily per request (storage is per-DO)
-	function getProvider(env: PDSEnv): ATProtoOAuthProvider {
-		const accountDO = getAccountDO(env);
-		const storage = new DOProxyOAuthStorage(accountDO);
-		const issuer = `https://${env.PDS_HOSTNAME}`;
-
-		return new ATProtoOAuthProvider({
-			storage,
-			issuer,
-			dpopRequired: true,
-			enablePAR: true,
-			// Password verification for authorization
-			verifyUser: async (password: string) => {
-				const valid = await compare(password, env.PASSWORD_HASH);
-				if (!valid) return null;
-				return {
-					sub: env.DID,
-					handle: env.HANDLE,
-				};
-			},
-		});
-	}
 
 	// OAuth server metadata
 	oauth.get("/.well-known/oauth-authorization-server", (c) => {

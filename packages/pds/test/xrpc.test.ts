@@ -72,7 +72,7 @@ describe("XRPC Endpoints", () => {
 			const data = await response.json();
 			expect(data).toMatchObject({
 				error: "AuthMissing",
-				message: "Authorization header required",
+				message: "Invalid authorization scheme",
 			});
 		});
 

@@ -1,6 +1,7 @@
 import type { Context, Next } from "hono";
 import { verifyServiceJwt } from "../service-auth";
 import { verifyAccessToken } from "../session";
+import { getProvider } from "../oauth";
 import type { PDSEnv } from "../types";
 
 export interface AuthInfo {
@@ -18,11 +19,42 @@ export async function requireAuth(
 ): Promise<Response | void> {
 	const auth = c.req.header("Authorization");
 
-	if (!auth?.startsWith("Bearer ")) {
+	if (!auth) {
 		return c.json(
 			{
 				error: "AuthMissing",
 				message: "Authorization header required",
+			},
+			401,
+		);
+	}
+
+	// Handle DPoP-bound OAuth tokens
+	if (auth.startsWith("DPoP ")) {
+		const provider = getProvider(c.env);
+
+		// Verify OAuth access token with DPoP proof
+		const tokenData = await provider.verifyAccessToken(c.req.raw);
+		if (!tokenData) {
+			return c.json(
+				{
+					error: "AuthenticationRequired",
+					message: "Invalid OAuth access token",
+				},
+				401,
+			);
+		}
+
+		c.set("auth", { did: tokenData.sub, scope: tokenData.scope });
+		return next();
+	}
+
+	// Handle Bearer tokens (session JWTs, static token, service JWTs)
+	if (!auth.startsWith("Bearer ")) {
+		return c.json(
+			{
+				error: "AuthMissing",
+				message: "Invalid authorization scheme",
 			},
 			401,
 		);
