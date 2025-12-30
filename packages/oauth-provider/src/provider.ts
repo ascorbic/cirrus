@@ -3,6 +3,7 @@
  * Orchestrates authorization code flow with PKCE, DPoP, and PAR
  */
 
+import type { OAuthAuthorizationServerMetadata } from "@atproto/oauth-types";
 import type { OAuthStorage, AuthCodeData, TokenData, ClientMetadata } from "./storage.js";
 import { verifyPkceChallenge } from "./pkce.js";
 import { verifyDpopProof, DpopError, generateDpopNonce } from "./dpop.js";
@@ -482,7 +483,8 @@ export class ATProtoOAuthProvider {
 	 * Handle metadata request (GET /.well-known/oauth-authorization-server)
 	 */
 	handleMetadata(): Response {
-		const metadata: Record<string, unknown> = {
+		// URLs are built dynamically so we cast to the schema type
+		const metadata: OAuthAuthorizationServerMetadata = {
 			issuer: this.issuer,
 			authorization_endpoint: `${this.issuer}/oauth/authorize`,
 			token_endpoint: `${this.issuer}/oauth/token`,
@@ -491,17 +493,15 @@ export class ATProtoOAuthProvider {
 			code_challenge_methods_supported: ["S256"],
 			token_endpoint_auth_methods_supported: ["none"],
 			scopes_supported: ["atproto", "transition:generic", "transition:chat.bsky"],
-		};
-
-		if (this.enablePAR) {
-			metadata.pushed_authorization_request_endpoint = `${this.issuer}/oauth/par`;
-			metadata.require_pushed_authorization_requests = false;
-		}
-
-		if (this.dpopRequired) {
-			metadata.dpop_signing_alg_values_supported = ["ES256"];
-			metadata.token_endpoint_auth_signing_alg_values_supported = ["ES256"];
-		}
+			...(this.enablePAR && {
+				pushed_authorization_request_endpoint: `${this.issuer}/oauth/par`,
+				require_pushed_authorization_requests: false,
+			}),
+			...(this.dpopRequired && {
+				dpop_signing_alg_values_supported: ["ES256"],
+				token_endpoint_auth_signing_alg_values_supported: ["ES256"],
+			}),
+		} as OAuthAuthorizationServerMetadata;
 
 		return new Response(JSON.stringify(metadata), {
 			status: 200,

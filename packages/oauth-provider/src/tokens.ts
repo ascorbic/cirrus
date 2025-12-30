@@ -3,6 +3,7 @@
  * Generates opaque tokens (not JWTs) that are stored in the database
  */
 
+import type { OAuthTokenResponse } from "@atproto/oauth-types";
 import type { TokenData } from "./storage.js";
 import { randomString } from "./encoding.js";
 
@@ -155,7 +156,7 @@ export function refreshTokens(
  * @param tokens The generated tokens
  * @returns JSON-serializable token response
  */
-export function buildTokenResponse(tokens: GeneratedTokens): Record<string, unknown> {
+export function buildTokenResponse(tokens: GeneratedTokens): OAuthTokenResponse {
 	return {
 		access_token: tokens.accessToken,
 		token_type: tokens.tokenType,
