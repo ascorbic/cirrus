@@ -74,6 +74,8 @@ export interface ConsentUIOptions {
 	authorizeUrl: string;
 	/** State parameter to include in the form */
 	state: string;
+	/** OAuth parameters to include as hidden fields */
+	oauthParams: Record<string, string>;
 	/** User's handle (for display) */
 	userHandle?: string;
 	/** Whether to show a login form instead of consent */
@@ -88,7 +90,7 @@ export interface ConsentUIOptions {
  * @returns HTML string
  */
 export function renderConsentUI(options: ConsentUIOptions): string {
-	const { client, scope, authorizeUrl, state, userHandle, showLogin, error } = options;
+	const { client, scope, authorizeUrl, state, oauthParams, userHandle, showLogin, error } = options;
 
 	const clientName = escapeHtml(client.clientName);
 	const scopeDescriptions = getScopeDescriptions(scope);
@@ -108,6 +110,11 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 			</div>
 		`
 		: "";
+
+	// Render OAuth params as hidden form fields
+	const hiddenFieldsHtml = Object.entries(oauthParams)
+		.map(([key, value]) => `<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(value)}" />`)
+		.join("\n\t\t\t");
 
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -328,7 +335,7 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 		${errorHtml}
 
 		<form method="POST" action="${escapeHtml(authorizeUrl)}">
-			<input type="hidden" name="state" value="${escapeHtml(state)}" />
+			${hiddenFieldsHtml}
 
 			${loginFormHtml}
 

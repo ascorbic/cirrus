@@ -84,28 +84,41 @@ export class ATProtoOAuthProvider {
 	}
 
 	/**
-	 * Handle authorization request (GET /oauth/authorize)
+	 * Handle authorization request (GET/POST /oauth/authorize)
 	 */
 	async handleAuthorize(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 
-		// Check if this is a PAR request
+		// Parse OAuth params from query string (GET) or form data (POST)
 		let params: Record<string, string>;
-		const requestUri = url.searchParams.get("request_uri");
-		const clientId = url.searchParams.get("client_id");
 
-		if (requestUri && this.enablePAR) {
-			if (!clientId) {
-				return this.renderError("invalid_request", "client_id required with request_uri");
+		if (request.method === "POST") {
+			// POST: parse from form data (includes hidden fields with OAuth params)
+			const formData = await request.formData();
+			params = {};
+			for (const [key, value] of formData.entries()) {
+				if (typeof value === "string") {
+					params[key] = value;
+				}
 			}
-			const parParams = await this.parHandler.retrieveParams(requestUri, clientId);
-			if (!parParams) {
-				return this.renderError("invalid_request", "Invalid or expired request_uri");
-			}
-			params = parParams;
 		} else {
-			// Parse query parameters
-			params = Object.fromEntries(url.searchParams.entries());
+			// GET: check for PAR or query params
+			const requestUri = url.searchParams.get("request_uri");
+			const clientId = url.searchParams.get("client_id");
+
+			if (requestUri && this.enablePAR) {
+				if (!clientId) {
+					return this.renderError("invalid_request", "client_id required with request_uri");
+				}
+				const parParams = await this.parHandler.retrieveParams(requestUri, clientId);
+				if (!parParams) {
+					return this.renderError("invalid_request", "Invalid or expired request_uri");
+				}
+				params = parParams;
+			} else {
+				// Parse query parameters
+				params = Object.fromEntries(url.searchParams.entries());
+			}
 		}
 
 		// Validate required parameters
@@ -157,6 +170,7 @@ export class ATProtoOAuthProvider {
 			scope,
 			authorizeUrl: url.pathname,
 			state: params.state!,
+			oauthParams: params,
 			userHandle: user?.handle,
 			showLogin: !user && !!this.verifyUser,
 		});
@@ -179,10 +193,9 @@ export class ATProtoOAuthProvider {
 		params: Record<string, string>,
 		client: ClientMetadata
 	): Promise<Response> {
-		// Parse form data
-		const formData = await request.formData();
-		const action = formData.get("action") as string;
-		const password = formData.get("password") as string | null;
+		// Form data was already parsed in handleAuthorize - extract action and password
+		const action = params.action;
+		const password = params.password ?? null;
 
 		const redirectUri = params.redirect_uri!;
 		const state = params.state!;
@@ -216,6 +229,7 @@ export class ATProtoOAuthProvider {
 				scope,
 				authorizeUrl: url.pathname,
 				state,
+				oauthParams: params,
 				showLogin: true,
 				error: "Invalid password",
 			});

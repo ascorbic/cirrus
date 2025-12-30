@@ -82,16 +82,16 @@ describe("OAuth Flow", () => {
 			const challenge = await generateCodeChallenge(verifier);
 
 			const url = new URL("https://pds.example.com/oauth/authorize");
-			url.searchParams.set("client_id", testClient.clientId);
-			url.searchParams.set("redirect_uri", testClient.redirectUris[0]!);
-			url.searchParams.set("response_type", "code");
-			url.searchParams.set("code_challenge", challenge);
-			url.searchParams.set("code_challenge_method", "S256");
-			url.searchParams.set("state", "test-state");
 
+			// Form data includes all OAuth params (like hidden form fields in the UI)
 			const formData = new FormData();
-			formData.set("action", "allow");
+			formData.set("client_id", testClient.clientId);
+			formData.set("redirect_uri", testClient.redirectUris[0]!);
+			formData.set("response_type", "code");
+			formData.set("code_challenge", challenge);
+			formData.set("code_challenge_method", "S256");
 			formData.set("state", "test-state");
+			formData.set("action", "allow");
 
 			const request = new Request(url.toString(), {
 				method: "POST",
@@ -113,16 +113,16 @@ describe("OAuth Flow", () => {
 			const challenge = await generateCodeChallenge(verifier);
 
 			const url = new URL("https://pds.example.com/oauth/authorize");
-			url.searchParams.set("client_id", testClient.clientId);
-			url.searchParams.set("redirect_uri", testClient.redirectUris[0]!);
-			url.searchParams.set("response_type", "code");
-			url.searchParams.set("code_challenge", challenge);
-			url.searchParams.set("code_challenge_method", "S256");
-			url.searchParams.set("state", "test-state");
 
+			// Form data includes all OAuth params (like hidden form fields in the UI)
 			const formData = new FormData();
-			formData.set("action", "deny");
+			formData.set("client_id", testClient.clientId);
+			formData.set("redirect_uri", testClient.redirectUris[0]!);
+			formData.set("response_type", "code");
+			formData.set("code_challenge", challenge);
+			formData.set("code_challenge_method", "S256");
 			formData.set("state", "test-state");
+			formData.set("action", "deny");
 
 			const request = new Request(url.toString(), {
 				method: "POST",
@@ -144,16 +144,16 @@ describe("OAuth Flow", () => {
 			const challenge = await generateCodeChallenge(verifier);
 
 			const url = new URL("https://pds.example.com/oauth/authorize");
-			url.searchParams.set("client_id", testClient.clientId);
-			url.searchParams.set("redirect_uri", testClient.redirectUris[0]!);
-			url.searchParams.set("response_type", "code");
-			url.searchParams.set("code_challenge", challenge);
-			url.searchParams.set("code_challenge_method", "S256");
-			url.searchParams.set("state", "test-state");
 
+			// Form data includes all OAuth params (like hidden form fields in the UI)
 			const formData = new FormData();
-			formData.set("action", "allow");
+			formData.set("client_id", testClient.clientId);
+			formData.set("redirect_uri", testClient.redirectUris[0]!);
+			formData.set("response_type", "code");
+			formData.set("code_challenge", challenge);
+			formData.set("code_challenge_method", "S256");
 			formData.set("state", "test-state");
+			formData.set("action", "allow");
 
 			const request = new Request(url.toString(), {
 				method: "POST",
@@ -393,16 +393,16 @@ describe("OAuth Flow", () => {
 			const keyPair = await generateDpopKeyPair("ES256");
 
 			const url = new URL("https://pds.example.com/oauth/authorize");
-			url.searchParams.set("client_id", testClient.clientId);
-			url.searchParams.set("redirect_uri", testClient.redirectUris[0]!);
-			url.searchParams.set("response_type", "code");
-			url.searchParams.set("code_challenge", challenge);
-			url.searchParams.set("code_challenge_method", "S256");
-			url.searchParams.set("state", "test-state");
 
+			// Form data includes all OAuth params (like hidden form fields in the UI)
 			const formData = new FormData();
-			formData.set("action", "allow");
+			formData.set("client_id", testClient.clientId);
+			formData.set("redirect_uri", testClient.redirectUris[0]!);
+			formData.set("response_type", "code");
+			formData.set("code_challenge", challenge);
+			formData.set("code_challenge_method", "S256");
 			formData.set("state", "test-state");
+			formData.set("action", "allow");
 
 			const authRequest = new Request(url.toString(), {
 				method: "POST",
@@ -478,16 +478,16 @@ describe("OAuth Flow", () => {
 			const keyPair1 = await generateDpopKeyPair("ES256");
 
 			const url = new URL("https://pds.example.com/oauth/authorize");
-			url.searchParams.set("client_id", testClient.clientId);
-			url.searchParams.set("redirect_uri", testClient.redirectUris[0]!);
-			url.searchParams.set("response_type", "code");
-			url.searchParams.set("code_challenge", challenge);
-			url.searchParams.set("code_challenge_method", "S256");
-			url.searchParams.set("state", "test-state");
 
+			// Form data includes all OAuth params (like hidden form fields in the UI)
 			const formData = new FormData();
-			formData.set("action", "allow");
+			formData.set("client_id", testClient.clientId);
+			formData.set("redirect_uri", testClient.redirectUris[0]!);
+			formData.set("response_type", "code");
+			formData.set("code_challenge", challenge);
+			formData.set("code_challenge_method", "S256");
 			formData.set("state", "test-state");
+			formData.set("action", "allow");
 
 			const authRequest = new Request(url.toString(), {
 				method: "POST",
