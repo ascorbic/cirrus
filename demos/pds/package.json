@@ -15,7 +15,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
-		"deploy": "vite build && wrangler deploy",
+		"deploy": "pnpm --filter @demo/pds... build && wrangler deploy",
 		"preview": "vite preview",
 		"pds": "pds",
 		"wrangler": "wrangler",

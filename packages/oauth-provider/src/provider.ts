@@ -493,6 +493,9 @@ export class ATProtoOAuthProvider {
 			code_challenge_methods_supported: ["S256"],
 			token_endpoint_auth_methods_supported: ["none"],
 			scopes_supported: ["atproto", "transition:generic", "transition:chat.bsky"],
+			subject_types_supported: ["public"],
+			authorization_response_iss_parameter_supported: true,
+			client_id_metadata_document_supported: true,
 			...(this.enablePAR && {
 				pushed_authorization_request_endpoint: `${this.issuer}/oauth/par`,
 				require_pushed_authorization_requests: false,
