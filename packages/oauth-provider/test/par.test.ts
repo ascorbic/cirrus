@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { PARHandler } from "../src/par.js";
 import { InMemoryOAuthStorage } from "../src/storage.js";
-import { generateCodeChallenge, generateCodeVerifier } from "../src/pkce.js";
+import { generateCodeChallenge, generateCodeVerifier } from "./helpers.js";
 
 describe("PAR Handler", () => {
 	let storage: InMemoryOAuthStorage;

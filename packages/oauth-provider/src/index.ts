@@ -18,17 +18,10 @@ export type {
 } from "./storage.js";
 
 // PKCE
-export { verifyPkceChallenge, generateCodeChallenge, generateCodeVerifier } from "./pkce.js";
+export { verifyPkceChallenge } from "./pkce.js";
 
 // DPoP
-export {
-	verifyDpopProof,
-	calculateKeyThumbprint,
-	generateDpopNonce,
-	createDpopProof,
-	generateDpopKeyPair,
-	DpopError,
-} from "./dpop.js";
+export { verifyDpopProof, generateDpopNonce, DpopError } from "./dpop.js";
 export type { DpopProof, DpopVerifyOptions } from "./dpop.js";
 
 // PAR

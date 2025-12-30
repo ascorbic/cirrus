@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { ATProtoOAuthProvider } from "../src/provider.js";
 import { InMemoryOAuthStorage, type ClientMetadata } from "../src/storage.js";
-import { generateCodeChallenge, generateCodeVerifier } from "../src/pkce.js";
-import { createDpopProof, generateDpopKeyPair } from "../src/dpop.js";
 import { ClientResolver } from "../src/client-resolver.js";
+import {
+	generateCodeChallenge,
+	generateCodeVerifier,
+	createDpopProof,
+	generateDpopKeyPair,
+} from "./helpers.js";
 
 // Mock client resolver that returns test metadata
 class MockClientResolver extends ClientResolver {

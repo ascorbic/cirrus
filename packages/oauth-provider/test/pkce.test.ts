@@ -1,9 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-	verifyPkceChallenge,
-	generateCodeChallenge,
-	generateCodeVerifier,
-} from "../src/pkce.js";
+import { verifyPkceChallenge } from "../src/pkce.js";
+import { generateCodeChallenge, generateCodeVerifier } from "./helpers.js";
 
 describe("PKCE", () => {
 	describe("generateCodeVerifier", () => {

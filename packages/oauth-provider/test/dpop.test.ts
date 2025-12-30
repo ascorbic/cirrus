@@ -1,12 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import {
-	verifyDpopProof,
-	calculateKeyThumbprint,
-	createDpopProof,
-	generateDpopKeyPair,
-	generateDpopNonce,
-	DpopError,
-} from "../src/dpop.js";
+import { calculateJwkThumbprint } from "jose";
+import { verifyDpopProof, generateDpopNonce, DpopError } from "../src/dpop.js";
+import { createDpopProof, generateDpopKeyPair } from "./helpers.js";
 
 describe("DPoP", () => {
 	let keyPair: { privateKey: CryptoKey; publicKey: CryptoKey; publicJwk: JsonWebKey };
@@ -29,17 +24,17 @@ describe("DPoP", () => {
 		});
 	});
 
-	describe("calculateKeyThumbprint", () => {
+	describe("calculateJwkThumbprint", () => {
 		it("calculates consistent thumbprint for EC key", async () => {
-			const thumbprint1 = await calculateKeyThumbprint(keyPair.publicJwk);
-			const thumbprint2 = await calculateKeyThumbprint(keyPair.publicJwk);
+			const thumbprint1 = await calculateJwkThumbprint(keyPair.publicJwk);
+			const thumbprint2 = await calculateJwkThumbprint(keyPair.publicJwk);
 			expect(thumbprint1).toBe(thumbprint2);
 		});
 
 		it("calculates different thumbprints for different keys", async () => {
 			const keyPair2 = await generateDpopKeyPair("ES256");
-			const thumbprint1 = await calculateKeyThumbprint(keyPair.publicJwk);
-			const thumbprint2 = await calculateKeyThumbprint(keyPair2.publicJwk);
+			const thumbprint1 = await calculateJwkThumbprint(keyPair.publicJwk);
+			const thumbprint2 = await calculateJwkThumbprint(keyPair2.publicJwk);
 			expect(thumbprint1).not.toBe(thumbprint2);
 		});
 	});
