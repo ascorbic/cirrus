@@ -51,6 +51,15 @@ export class SqliteRepoStorage
 			);
 
 			CREATE INDEX IF NOT EXISTS idx_firehose_created_at ON firehose_events(created_at);
+
+			-- User preferences (single row, stores JSON array)
+			CREATE TABLE IF NOT EXISTS preferences (
+				id INTEGER PRIMARY KEY CHECK (id = 1),
+				data TEXT NOT NULL DEFAULT '[]'
+			);
+
+			-- Initialize with empty preferences array if not exists
+			INSERT OR IGNORE INTO preferences (id, data) VALUES (1, '[]');
 		`);
 	}
 
@@ -244,5 +253,31 @@ export class SqliteRepoStorage
 			.exec("SELECT COUNT(*) as count FROM blocks")
 			.toArray();
 		return rows.length > 0 ? ((rows[0]!.count as number) ?? 0) : 0;
+	}
+
+	/**
+	 * Get user preferences.
+	 */
+	async getPreferences(): Promise<unknown[]> {
+		const rows = this.sql
+			.exec("SELECT data FROM preferences WHERE id = 1")
+			.toArray();
+		if (rows.length === 0 || !rows[0]?.data) {
+			return [];
+		}
+		const data = rows[0]!.data as string;
+		try {
+			return JSON.parse(data);
+		} catch {
+			return [];
+		}
+	}
+
+	/**
+	 * Update user preferences.
+	 */
+	async putPreferences(preferences: unknown[]): Promise<void> {
+		const data = JSON.stringify(preferences);
+		this.sql.exec("UPDATE preferences SET data = ? WHERE id = 1", data);
 	}
 }

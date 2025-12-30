@@ -225,12 +225,16 @@ app.get(
 	server.getServiceAuth,
 );
 
-// Actor preferences (stub - returns empty preferences)
-app.get("/xrpc/app.bsky.actor.getPreferences", requireAuth, (c) => {
-	return c.json({ preferences: [] });
+// Actor preferences
+app.get("/xrpc/app.bsky.actor.getPreferences", requireAuth, async (c) => {
+	const accountDO = getAccountDO(c.env);
+	const result = await accountDO.rpcGetPreferences();
+	return c.json(result);
 });
 app.post("/xrpc/app.bsky.actor.putPreferences", requireAuth, async (c) => {
-	// TODO: persist preferences in DO
+	const body = await c.req.json<{ preferences: unknown[] }>();
+	const accountDO = getAccountDO(c.env);
+	await accountDO.rpcPutPreferences(body.preferences);
 	return c.json({});
 });
 

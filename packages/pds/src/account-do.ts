@@ -915,6 +915,23 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
+	 * RPC method: Get user preferences
+	 */
+	async rpcGetPreferences(): Promise<{ preferences: unknown[] }> {
+		const storage = await this.getStorage();
+		const preferences = await storage.getPreferences();
+		return { preferences };
+	}
+
+	/**
+	 * RPC method: Put user preferences
+	 */
+	async rpcPutPreferences(preferences: unknown[]): Promise<void> {
+		const storage = await this.getStorage();
+		await storage.putPreferences(preferences);
+	}
+
+	/**
 	 * Emit an identity event to notify downstream services to refresh identity cache.
 	 */
 	async rpcEmitIdentityEvent(handle: string): Promise<{ seq: number }> {
