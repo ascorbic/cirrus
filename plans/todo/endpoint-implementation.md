@@ -70,79 +70,100 @@ This document tracks the implementation status of all AT Protocol XRPC endpoints
 
 ## TODO Endpoints (Grouped by Priority)
 
-### Migration Support (P1 - Critical)
+### Account Lifecycle (P1 - Critical for Migration)
 
-**Account Lifecycle:**
-- `com.atproto.server.createAccount` - Create deactivated account for migration
-- `com.atproto.server.activateAccount` - Activate account after migration
-- `com.atproto.server.deactivateAccount` - Deactivate old account post-migration
-- `com.atproto.server.checkAccountStatus` - Verify migration progress
+For the deactivated account pattern (see `migration-wizard.md`):
 
-**Identity Management (PLC Operations):**
-- `com.atproto.identity.getRecommendedDidCredentials` - Get DID credentials from new PDS
-- `com.atproto.identity.requestPlcOperationSignature` - Request email challenge
-- `com.atproto.identity.signPlcOperation` - Sign PLC operation with email token
-- `com.atproto.identity.submitPlcOperation` - Submit to PLC directory
+| Endpoint | Purpose | Notes |
+|----------|---------|-------|
+| `activateAccount` | Transition deactivated → active | Enables writes, firehose |
+| `deactivateAccount` | Transition active → deactivated | Disables writes |
+| Enhanced `getAccountStatus` | Return activation state | Add `activated`, `imported` fields |
 
-**Data Migration:**
-- `com.atproto.repo.listMissingBlobs` - Identify failed blob imports
+**Deactivation guards needed:**
+- Block writes (`createRecord`, `putRecord`, `deleteRecord`, `applyWrites`) when deactivated
+- Allow reads, `importRepo`, `uploadBlob`, `activateAccount`
 
-**Total: 9 endpoints**
+**Total: 2 new endpoints + 1 enhancement**
 
 ### App Passwords (P2 - Important)
 
-- `com.atproto.server.createAppPassword` - Create app-specific revocable passwords
-- `com.atproto.server.listAppPasswords` - List all app passwords
-- `com.atproto.server.revokeAppPassword` - Revoke specific app password
+| Endpoint | Purpose |
+|----------|---------|
+| `createAppPassword` | Create app-specific revocable passwords |
+| `listAppPasswords` | List all app passwords |
+| `revokeAppPassword` | Revoke specific app password |
 
 **Total: 3 endpoints**
 
 ### Advanced Sync (P3 - Nice to Have)
 
-- `com.atproto.sync.getBlocks` - Get specific blocks by CID
-- `com.atproto.sync.getLatestCommit` - Get latest commit without full repo
-- `com.atproto.sync.getRecord` - Get record with merkle proof
+| Endpoint | Purpose |
+|----------|---------|
+| `getBlocks` | Get specific blocks by CID |
+| `getLatestCommit` | Get latest commit without full repo |
+| `getRecord` (sync) | Get record with merkle proof |
 
 **Total: 3 endpoints**
 
-## Will NOT Support
+## Not Implementing
+
+### createAccount
+
+**Reason:** Account creation happens at deploy time, not via API.
+
+For migration: DID set in env vars, data imported via `importRepo`.
+For new accounts: Deploy script generates DID, publishes to PLC.
+
+May revisit if tools like Goat require it.
+
+### PLC Operation Endpoints
+
+| Endpoint | Reason |
+|----------|--------|
+| `getRecommendedDidCredentials` | Not needed - keys generated at deploy |
+| `requestPlcOperationSignature` | Handled by old PDS during migration |
+| `signPlcOperation` | Handled by old PDS during migration |
+| `submitPlcOperation` | Handled by old PDS during migration |
+
+PLC operations for migration are performed against the **old** PDS, not the new one.
 
 ### Multi-User Administration (14 endpoints)
+
 **Reason:** Single-user PDS has no admin/user separation
 
 All `com.atproto.admin.*` endpoints
 
 ### Moderation (1 endpoint)
+
 **Reason:** Single-user PDS doesn't need moderation infrastructure
 
 - `com.atproto.moderation.createReport`
 
 ### Account Creation & Invites (5 endpoints)
+
 **Reason:** Single-user PDS is pre-configured
 
-- `com.atproto.server.createInviteCode`
-- `com.atproto.server.createInviteCodes`
-- `com.atproto.server.getAccountInviteCodes`
-- `com.atproto.temp.checkSignupQueue`
-
-*Exception:* `createAccount` will be implemented for migration only
+- `createInviteCode`
+- `createInviteCodes`
+- `getAccountInviteCodes`
+- `checkSignupQueue`
 
 ### Email Verification & Recovery (6 endpoints)
+
 **Reason:** Single-user PDS has no email system
 
-- `com.atproto.server.confirmEmail`
-- `com.atproto.server.requestEmailConfirmation`
-- `com.atproto.server.requestEmailUpdate`
-- `com.atproto.server.updateEmail`
-- `com.atproto.server.requestPasswordReset`
-- `com.atproto.server.resetPassword`
+- `confirmEmail`
+- `requestEmailConfirmation`
+- `requestEmailUpdate`
+- `updateEmail`
+- `requestPasswordReset`
+- `resetPassword`
 
 ### Deprecated (2 endpoints)
 
 - `com.atproto.sync.deprecated.getCheckout`
 - `com.atproto.sync.deprecated.getHead`
-
-**Will Not Support Total: 28 endpoints**
 
 ## Proxy Strategy
 
@@ -157,19 +178,25 @@ This is intentional - the edge PDS focuses on repository operations and federate
 
 ## Implementation Phases
 
-### Phase 1: Migration Support (13 endpoints)
-Enable full account migration to/from this PDS
-- See `migration-wizard.md` for detailed specification
+### Phase 1: Account Lifecycle (2 endpoints)
+
+Enable deactivated account pattern for migration:
+- `activateAccount`
+- `deactivateAccount`
+- Deactivation guards on write operations
 
 ### Phase 2: OAuth Provider
-Enable ecosystem compatibility with "Login with Bluesky" apps
-- See `oauth-provider.md` for detailed specification
 
-### Phase 3: Enhanced Features (3 endpoints)
-Multi-device auth with app passwords
+Enable ecosystem compatibility with "Login with Bluesky" apps.
+See `oauth-provider.md` for detailed specification.
+
+### Phase 3: App Passwords (3 endpoints)
+
+Multi-device auth with revocable app passwords.
 
 ### Phase 4: Advanced Sync (3 endpoints)
-Efficient partial sync and merkle proofs
+
+Efficient partial sync and merkle proofs.
 
 ## Endpoint Coverage by Namespace
 
