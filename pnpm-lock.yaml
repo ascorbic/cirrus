@@ -38,7 +38,7 @@ importers:
     devDependencies:
       '@cloudflare/vite-plugin':
         specifier: ^1.17.0
-        version: 1.17.0(vite@6.4.1(@types/node@24.10.4)(jiti@2.6.1)(tsx@4.21.0))(workerd@1.20251219.0)(wrangler@4.54.0(@cloudflare/workers-types@4.20251225.0))
+        version: 1.17.0(vite@6.4.1(@types/node@24.10.4)(jiti@2.6.1)(tsx@4.21.0))(workerd@1.20251210.0)(wrangler@4.54.0(@cloudflare/workers-types@4.20251225.0))
       vite:
         specifier: ^6.4.1
         version: 6.4.1(@types/node@24.10.4)(jiti@2.6.1)(tsx@4.21.0)
@@ -66,6 +66,34 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+
+  packages/oauth-provider:
+    dependencies:
+      '@atproto/crypto':
+        specifier: ^0.4.5
+        version: 0.4.5
+      '@atproto/syntax':
+        specifier: ^0.4.2
+        version: 0.4.2
+      jose:
+        specifier: ^6.1.3
+        version: 6.1.3
+    devDependencies:
+      '@arethetypeswrong/cli':
+        specifier: ^0.18.2
+        version: 0.18.2
+      publint:
+        specifier: ^0.3.16
+        version: 0.3.16
+      tsdown:
+        specifier: ^0.18.3
+        version: 0.18.3(@arethetypeswrong/core@0.18.2)(oxc-resolver@11.16.2)(publint@0.3.16)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.0
+        version: 4.0.16(@types/node@24.10.4)(jiti@2.6.1)(tsx@4.21.0)
 
   packages/pds:
     dependencies:
@@ -324,7 +352,7 @@ packages:
       wrangler: ^4.53.0
 
   '@cloudflare/vitest-pool-workers@https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632':
-    resolution: {tarball: https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632}
+    resolution: {integrity: sha512-bUcBi9IflGaKQGFyxjyluNfZ4Wi+0jJzz2SMwWpHGqTPtfLJqfGv3VhfpecEE2Dir6Vohtn7Frs8uiIVThM9JA==, tarball: https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632}
     version: 0.11.1
     peerDependencies:
       '@vitest/runner': 4.0.16
@@ -1446,9 +1474,6 @@ packages:
 
   citty@0.1.6:
     resolution: {integrity: sha512-tskPPKEs8D2KPafUypv2gxwJP8h/OaJmC82QQGGDQcHvXX43xF2VDACcJVmZ0EuSxkpO9Kc4MlrA3q0+FG58AQ==}
-
-  cjs-module-lexer@1.4.0:
-    resolution: {integrity: sha512-N1NGmowPlGBLsOZLPvm48StN04V4YvQRL0i6b7ctrVY3epjP/ct7hFLOItz6pDIvRjwpfPxi52a2UWV2ziir8g==}
 
   cjs-module-lexer@1.4.3:
     resolution: {integrity: sha512-9z8TZaGM1pfswYeXrUpzPrkx8UnWYdhJclsiYMm6x/w5+nN+8Tf/LnAgfLGQCm59qAOxU8WwHEq2vNwF6i4j+Q==}
@@ -2607,7 +2632,7 @@ snapshots:
     dependencies:
       '@andrewbranch/untar.js': 1.0.3
       '@loaderkit/resolve': 1.0.2
-      cjs-module-lexer: 1.4.0
+      cjs-module-lexer: 1.4.3
       fflate: 0.8.2
       lru-cache: 11.1.0
       semver: 7.7.3
@@ -2892,21 +2917,15 @@ snapshots:
     optionalDependencies:
       workerd: 1.20251210.0
 
-  '@cloudflare/unenv-preset@2.7.13(unenv@2.0.0-rc.24)(workerd@1.20251219.0)':
-    dependencies:
-      unenv: 2.0.0-rc.24
-    optionalDependencies:
-      workerd: 1.20251219.0
-
   '@cloudflare/unenv-preset@https://pkg.pr.new/cloudflare/workers-sdk/@cloudflare/unenv-preset@64982d4(unenv@2.0.0-rc.24)(workerd@1.20251219.0)':
     dependencies:
       unenv: 2.0.0-rc.24
     optionalDependencies:
       workerd: 1.20251219.0
 
-  '@cloudflare/vite-plugin@1.17.0(vite@6.4.1(@types/node@24.10.4)(jiti@2.6.1)(tsx@4.21.0))(workerd@1.20251219.0)(wrangler@4.54.0(@cloudflare/workers-types@4.20251225.0))':
+  '@cloudflare/vite-plugin@1.17.0(vite@6.4.1(@types/node@24.10.4)(jiti@2.6.1)(tsx@4.21.0))(workerd@1.20251210.0)(wrangler@4.54.0(@cloudflare/workers-types@4.20251225.0))':
     dependencies:
-      '@cloudflare/unenv-preset': 2.7.13(unenv@2.0.0-rc.24)(workerd@1.20251219.0)
+      '@cloudflare/unenv-preset': 2.7.13(unenv@2.0.0-rc.24)(workerd@1.20251210.0)
       '@remix-run/node-fetch-server': 0.8.1
       defu: 6.1.4
       get-port: 7.1.0
@@ -3723,8 +3742,6 @@ snapshots:
   citty@0.1.6:
     dependencies:
       consola: 3.4.2
-
-  cjs-module-lexer@1.4.0: {}
 
   cjs-module-lexer@1.4.3: {}
 
