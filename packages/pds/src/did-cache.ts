@@ -3,6 +3,8 @@
  */
 
 import type { DidCache, CacheResult, DidDocument } from "@atproto/identity";
+import { check, didDocument } from "@atproto/common-web";
+import { waitUntil } from "cloudflare:workers";
 
 const STALE_TTL = 60 * 60 * 1000; // 1 hour - serve from cache but refresh in background
 const MAX_TTL = 24 * 60 * 60 * 1000; // 24 hours - must refresh
@@ -48,7 +50,13 @@ export class WorkersDidCache implements DidCache {
 		const now = Date.now();
 		const age = now - cachedAt;
 
-		const doc = (await response.json()) as DidDocument;
+		const doc = await response.json();
+
+		// Validate cached document schema
+		if (!check.is(doc, didDocument) || doc.id !== did) {
+			await this.clearEntry(did);
+			return null;
+		}
 
 		return {
 			did,
@@ -64,16 +72,14 @@ export class WorkersDidCache implements DidCache {
 		getDoc: () => Promise<DidDocument | null>,
 		_prevResult?: CacheResult,
 	): Promise<void> {
-		// Background refresh - don't block on this
-		getDoc()
-			.then((doc) => {
+		// Background refresh using waitUntil to ensure it completes after response
+		waitUntil(
+			getDoc().then((doc) => {
 				if (doc) {
 					return this.cacheDid(did, doc);
 				}
-			})
-			.catch(() => {
-				// Ignore errors in background refresh
-			});
+			}),
+		);
 	}
 
 	async clearEntry(did: string): Promise<void> {
