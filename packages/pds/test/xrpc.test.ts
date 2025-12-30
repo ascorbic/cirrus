@@ -1031,14 +1031,11 @@ describe("XRPC Endpoints", () => {
 
 		it("should require aud parameter", async () => {
 			const response = await worker.fetch(
-				new Request(
-					"http://pds.test/xrpc/com.atproto.server.getServiceAuth",
-					{
-						headers: {
-							Authorization: `Bearer ${env.AUTH_TOKEN}`,
-						},
+				new Request("http://pds.test/xrpc/com.atproto.server.getServiceAuth", {
+					headers: {
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
 					},
-				),
+				}),
 				env,
 			);
 			expect(response.status).toBe(400);

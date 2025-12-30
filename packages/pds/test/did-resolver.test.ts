@@ -13,9 +13,7 @@ describe("DID Resolver", () => {
 		});
 
 		it("should parse did:plc header", () => {
-			const result = parseProxyHeader(
-				"did:plc:abc123xyz#atproto_labeler",
-			);
+			const result = parseProxyHeader("did:plc:abc123xyz#atproto_labeler");
 			expect(result).toEqual({
 				did: "did:plc:abc123xyz",
 				serviceId: "atproto_labeler",

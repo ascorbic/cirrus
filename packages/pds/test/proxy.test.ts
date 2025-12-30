@@ -264,11 +264,14 @@ describe("XRPC Service Proxying", () => {
 			);
 
 			const response = await worker.fetch(
-				new Request("http://pds.test/xrpc/chat.bsky.convo.getConvo?convoId=123", {
-					headers: {
-						Authorization: `Bearer ${authToken}`,
+				new Request(
+					"http://pds.test/xrpc/chat.bsky.convo.getConvo?convoId=123",
+					{
+						headers: {
+							Authorization: `Bearer ${authToken}`,
+						},
 					},
-				}),
+				),
 				env,
 			);
 
