@@ -47,6 +47,8 @@ export interface GeneratedTokens {
 	expiresIn: number;
 	/** Scope granted */
 	scope: string;
+	/** Subject (user DID) */
+	sub: string;
 }
 
 /**
@@ -108,6 +110,7 @@ export function generateTokens(options: GenerateTokensOptions): {
 		tokenType: dpopJkt ? "DPoP" : "Bearer",
 		expiresIn: Math.floor(accessTokenTtl / 1000),
 		scope,
+		sub,
 	};
 
 	return { tokens, tokenData };
@@ -146,6 +149,7 @@ export function refreshTokens(
 		tokenType: existingData.dpopJkt ? "DPoP" : "Bearer",
 		expiresIn: Math.floor(accessTokenTtl / 1000),
 		scope: existingData.scope,
+		sub: existingData.sub,
 	};
 
 	return { tokens, tokenData };
@@ -163,6 +167,7 @@ export function buildTokenResponse(tokens: GeneratedTokens): OAuthTokenResponse 
 		expires_in: tokens.expiresIn,
 		refresh_token: tokens.refreshToken,
 		scope: tokens.scope,
+		sub: tokens.sub,
 	};
 }
 
