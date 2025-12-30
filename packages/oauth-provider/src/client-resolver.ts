@@ -3,6 +3,7 @@
  * Resolves OAuth client metadata from DIDs for AT Protocol
  */
 
+import { ensureValidDid } from "@atproto/syntax";
 import type { ClientMetadata, OAuthStorage } from "./storage.js";
 
 /**
@@ -58,12 +59,15 @@ export interface OAuthClientMetadataDocument {
 }
 
 /**
- * Validate that a string is a valid DID
+ * Validate that a string is a valid DID using @atproto/syntax
  */
 function isValidDid(value: string): boolean {
-	// Basic DID format validation
-	// did:method:method-specific-id
-	return /^did:[a-z]+:[a-zA-Z0-9._%-]+$/.test(value);
+	try {
+		ensureValidDid(value);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**

@@ -4,6 +4,7 @@
  */
 
 import type { OAuthStorage, PARData } from "./storage.js";
+import { randomString } from "./encoding.js";
 
 /** PAR request URI prefix per RFC 9126 */
 const REQUEST_URI_PREFIX = "urn:ietf:params:oauth:request_uri:";
@@ -28,24 +29,10 @@ export interface PARResponse {
 }
 
 /**
- * Base64URL encode without padding
- */
-function base64UrlEncode(buffer: ArrayBuffer): string {
-	const bytes = new Uint8Array(buffer);
-	let binary = "";
-	for (const byte of bytes) {
-		binary += String.fromCharCode(byte);
-	}
-	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-/**
  * Generate a unique request URI
  */
 function generateRequestUri(): string {
-	const bytes = new Uint8Array(32);
-	crypto.getRandomValues(bytes);
-	return REQUEST_URI_PREFIX + base64UrlEncode(bytes.buffer);
+	return REQUEST_URI_PREFIX + randomString(32);
 }
 
 /**

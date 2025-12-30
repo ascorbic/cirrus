@@ -3,17 +3,7 @@
  * Implements RFC 7636 with S256 challenge method
  */
 
-/**
- * Base64URL encode without padding
- */
-function base64UrlEncode(buffer: ArrayBuffer): string {
-	const bytes = new Uint8Array(buffer);
-	let binary = "";
-	for (const byte of bytes) {
-		binary += String.fromCharCode(byte);
-	}
-	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
+import { base64UrlEncode, randomString } from "./encoding.js";
 
 /**
  * Generate the S256 code challenge from a verifier
@@ -62,7 +52,6 @@ export async function verifyPkceChallenge(
  * @returns A random code verifier (64 characters)
  */
 export function generateCodeVerifier(): string {
-	const bytes = new Uint8Array(48); // 48 bytes = 64 base64url characters
-	crypto.getRandomValues(bytes);
-	return base64UrlEncode(bytes.buffer);
+	// 48 bytes = 64 base64url characters
+	return randomString(48);
 }

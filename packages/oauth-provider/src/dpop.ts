@@ -5,6 +5,7 @@
 
 import { jwtVerify, EmbeddedJWK, calculateJwkThumbprint, errors } from "jose";
 import type { JWK } from "jose";
+import { base64UrlEncode, randomString } from "./encoding.js";
 
 const { JOSEError } = errors;
 
@@ -52,18 +53,6 @@ export class DpopError extends Error {
 		super(message);
 		this.name = "DpopError";
 	}
-}
-
-/**
- * Base64URL encode without padding
- */
-function base64UrlEncode(buffer: ArrayBuffer): string {
-	const bytes = new Uint8Array(buffer);
-	let binary = "";
-	for (const byte of bytes) {
-		binary += String.fromCharCode(byte);
-	}
-	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 /**
@@ -211,9 +200,7 @@ export async function verifyDpopProof(
  * @returns A base64url-encoded random nonce (16 bytes)
  */
 export function generateDpopNonce(): string {
-	const bytes = new Uint8Array(16);
-	crypto.getRandomValues(bytes);
-	return base64UrlEncode(bytes.buffer);
+	return randomString(16);
 }
 
 // ============================================

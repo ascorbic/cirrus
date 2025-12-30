@@ -4,6 +4,7 @@
  */
 
 import type { TokenData } from "./storage.js";
+import { randomString } from "./encoding.js";
 
 /** Default access token TTL: 1 hour */
 export const ACCESS_TOKEN_TTL = 60 * 60 * 1000;
@@ -15,26 +16,12 @@ export const REFRESH_TOKEN_TTL = 90 * 24 * 60 * 60 * 1000;
 export const AUTH_CODE_TTL = 5 * 60 * 1000;
 
 /**
- * Base64URL encode without padding
- */
-function base64UrlEncode(buffer: ArrayBuffer): string {
-	const bytes = new Uint8Array(buffer);
-	let binary = "";
-	for (const byte of bytes) {
-		binary += String.fromCharCode(byte);
-	}
-	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-/**
  * Generate a cryptographically random token
  * @param bytes Number of random bytes (default: 32)
  * @returns Base64URL-encoded token
  */
 export function generateRandomToken(bytes: number = 32): string {
-	const buffer = new Uint8Array(bytes);
-	crypto.getRandomValues(buffer);
-	return base64UrlEncode(buffer.buffer);
+	return randomString(bytes);
 }
 
 /**
