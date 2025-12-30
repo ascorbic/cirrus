@@ -162,6 +162,55 @@ describe("XRPC Service Proxying", () => {
 			});
 		});
 
+		it("should reject non-HTTPS service endpoints", async () => {
+			// Mock DID document with HTTP endpoint
+			vi.stubGlobal(
+				"fetch",
+				vi.fn((url: string) => {
+					if (url === "https://insecure.example.com/.well-known/did.json") {
+						return Promise.resolve(
+							new Response(
+								JSON.stringify({
+									id: "did:web:insecure.example.com",
+									service: [
+										{
+											id: "#atproto_pds",
+											type: "AtprotoPersonalDataServer",
+											serviceEndpoint: "http://insecure.example.com", // HTTP, not HTTPS
+										},
+									],
+								}),
+								{
+									status: 200,
+									headers: { "Content-Type": "application/json" },
+								},
+							),
+						);
+					}
+					return originalFetch(url);
+				}),
+			);
+
+			const response = await worker.fetch(
+				new Request(
+					"http://pds.test/xrpc/app.bsky.feed.getAuthorFeed?actor=test",
+					{
+						headers: {
+							"atproto-proxy": "did:web:insecure.example.com#atproto_pds",
+						},
+					},
+				),
+				env,
+			);
+
+			expect(response.status).toBe(400);
+			const data = await response.json();
+			expect(data).toMatchObject({
+				error: "InvalidRequest",
+				message: "Proxy target must use HTTPS",
+			});
+		});
+
 		it("should successfully proxy with valid atproto-proxy header", async () => {
 			// Mock fetch for both DID resolution and the proxied request
 			vi.stubGlobal(
@@ -181,9 +230,8 @@ describe("XRPC Service Proxying", () => {
 					}
 					if (urlStr.startsWith("https://labeler.example.com/xrpc/")) {
 						// Verify the service JWT was added
-						const authHeader = (init?.headers as Record<string, string>)?.[
-							"Authorization"
-						];
+						const headers = new Headers(init?.headers);
+						const authHeader = headers.get("Authorization");
 						expect(authHeader).toMatch(/^Bearer /);
 
 						return Promise.resolve(
@@ -281,16 +329,16 @@ describe("XRPC Service Proxying", () => {
 		});
 
 		it("should forward Authorization header as service JWT", async () => {
-			let capturedAuthHeader: string | undefined;
+			let capturedAuthHeader: string | null = null;
 
 			// Mock fetch to capture the Authorization header
 			vi.stubGlobal(
 				"fetch",
 				vi.fn((url: string, init?: RequestInit) => {
 					if (url.includes("api.bsky.app")) {
-						capturedAuthHeader = (init?.headers as Record<string, string>)?.[
-							"Authorization"
-						];
+						// Headers can be a Headers object, array, or plain object
+						const headers = new Headers(init?.headers);
+						capturedAuthHeader = headers.get("Authorization");
 						return Promise.resolve(
 							new Response(JSON.stringify({ ok: true }), {
 								status: 200,

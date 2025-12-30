@@ -105,8 +105,16 @@ export async function handleXrpcProxy(
 
 			// Use the resolved service endpoint
 			audienceDid = parsed.did;
-			// Construct URL safely using URL constructor
 			targetUrl = new URL(endpoint);
+			if (targetUrl.protocol !== "https:") {
+				return c.json(
+					{
+						error: "InvalidRequest",
+						message: "Proxy target must use HTTPS",
+					},
+					400,
+				);
+			}
 			targetUrl.pathname = url.pathname;
 			targetUrl.search = url.search;
 		} catch (err) {
@@ -172,8 +180,10 @@ export async function handleXrpcProxy(
 	}
 
 	// Forward request with potentially replaced auth header
+	// Use Headers object for case-insensitive handling
+	const forwardHeaders = new Headers(c.req.raw.headers);
+
 	// Remove headers that shouldn't be forwarded (security/privacy)
-	const originalHeaders = Object.fromEntries(c.req.raw.headers);
 	const headersToRemove = [
 		"authorization", // Replaced with service JWT
 		"atproto-proxy", // Internal routing header
@@ -187,15 +197,17 @@ export async function handleXrpcProxy(
 	];
 
 	for (const header of headersToRemove) {
-		delete originalHeaders[header];
+		forwardHeaders.delete(header);
+	}
+
+	// Add service auth if we have it
+	if (headers["Authorization"]) {
+		forwardHeaders.set("Authorization", headers["Authorization"]);
 	}
 
 	const reqInit: RequestInit = {
 		method: c.req.method,
-		headers: {
-			...originalHeaders,
-			...headers,
-		},
+		headers: forwardHeaders,
 	};
 
 	// Include body for non-GET requests
