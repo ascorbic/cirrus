@@ -10,58 +10,12 @@ import { readDevVars } from "../utils/dotenv.js";
 import { PDSClient, PDSClientError } from "../utils/pds-client.js";
 import { DidResolver } from "../../did-resolver.js";
 
+import { getTargetUrl, getDomain } from "../utils/cli-helpers.js";
+
 // Helper to override clack's dim styling in notes
 const brightNote = (lines: string[]) => lines.map((l) => `\x1b[0m${l}`).join("\n");
 const bold = (text: string) => pc.bold(text);
 
-const LOCAL_PDS_URL = "http://localhost:5173";
-
-/**
- * Get target PDS URL based on mode
- */
-function getTargetUrl(isDev: boolean, pdsHostname: string | undefined): string {
-	if (isDev) {
-		return LOCAL_PDS_URL;
-	}
-	if (!pdsHostname) {
-		throw new Error("PDS_HOSTNAME not configured in wrangler.jsonc");
-	}
-	return `https://${pdsHostname}`;
-}
-
-/**
- * Detect package manager from lockfiles
- */
-function detectPackageManager(): "npm" | "pnpm" | "yarn" | "bun" {
-	if (existsSync("pnpm-lock.yaml")) return "pnpm";
-	if (existsSync("yarn.lock")) return "yarn";
-	if (existsSync("bun.lockb")) return "bun";
-	return "npm";
-}
-
-/**
- * Extract PDS endpoint from DID document
- */
-function getPdsEndpoint(
-	didDoc: { service?: Array<{ id: string; type: string; serviceEndpoint: string | Record<string, unknown> }> },
-): string | null {
-	const service = didDoc.service?.find(
-		(s) => s.type === "AtprotoPersonalDataServer" || s.id === "#atproto_pds",
-	);
-	const endpoint = service?.serviceEndpoint;
-	return typeof endpoint === "string" ? endpoint : null;
-}
-
-/**
- * Extract domain from URL
- */
-function getDomain(url: string): string {
-	try {
-		return new URL(url).hostname;
-	} catch {
-		return url;
-	}
-}
 
 /**
  * Format number with commas

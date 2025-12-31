@@ -6,32 +6,7 @@ import * as p from "@clack/prompts";
 import { getVars } from "../utils/wrangler.js";
 import { readDevVars } from "../utils/dotenv.js";
 import { PDSClient } from "../utils/pds-client.js";
-
-const LOCAL_PDS_URL = "http://localhost:5173";
-
-/**
- * Get target PDS URL based on mode
- */
-function getTargetUrl(isDev: boolean, pdsHostname: string | undefined): string {
-	if (isDev) {
-		return LOCAL_PDS_URL;
-	}
-	if (!pdsHostname) {
-		throw new Error("PDS_HOSTNAME not configured in wrangler.jsonc");
-	}
-	return `https://${pdsHostname}`;
-}
-
-/**
- * Extract domain from URL
- */
-function getDomain(url: string): string {
-	try {
-		return new URL(url).hostname;
-	} catch {
-		return url;
-	}
-}
+import { getTargetUrl, getDomain } from "../utils/cli-helpers.js";
 
 export const activateCommand = defineCommand({
 	meta: {

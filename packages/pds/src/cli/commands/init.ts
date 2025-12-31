@@ -128,10 +128,14 @@ export const initCommand = defineCommand({
 			const isHostedHandle = (h: string) =>
 				hostedDomains.some((domain) => h.endsWith(domain));
 
-			// Loop to allow retry on failed handle resolution
+			// Loop to allow retry on failed handle resolution (max 3 attempts)
 			let resolvedDid: string | null = null;
 			let existingHandle: string | null = null;
-			while (!resolvedDid) {
+			let attempts = 0;
+			const MAX_ATTEMPTS = 3;
+
+			while (!resolvedDid && attempts < MAX_ATTEMPTS) {
+				attempts++;
 				// Get current handle to look up DID
 				const currentHandle = await p.text({
 					message: "Your current Bluesky handle:",
@@ -223,6 +227,16 @@ export const initCommand = defineCommand({
 							`You'll need a custom domain for your new handle (not ${domainExample}).`,
 						);
 					}
+				if (attempts >= MAX_ATTEMPTS) {
+					p.log.error("Unable to resolve handle after 3 attempts.");
+					p.log.info("");
+					p.log.info("You can:");
+					p.log.info("  1. Double-check your handle spelling");
+					p.log.info("  2. Provide your DID directly if you know it");
+					p.log.info("  3. Run 'pds init' again when ready");
+					p.outro("Initialization cancelled.");
+					process.exit(1);
+				}
 				}
 			}
 			did = resolvedDid;

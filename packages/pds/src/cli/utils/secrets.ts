@@ -54,14 +54,18 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 /**
- * Prompt for password with confirmation
+ * Prompt for password with confirmation (max 3 attempts)
  */
 export async function promptPassword(handle?: string): Promise<string> {
 	const message = handle
 		? `Choose a password for @${handle}:`
 		: "Enter password:";
 
-	while (true) {
+	const MAX_ATTEMPTS = 3;
+	let attempts = 0;
+
+	while (attempts < MAX_ATTEMPTS) {
+		attempts++;
 		const password = await p.password({
 			message,
 		});
@@ -84,6 +88,11 @@ export async function promptPassword(handle?: string): Promise<string> {
 
 		p.log.error("Passwords do not match. Try again.");
 	}
+
+	// Max attempts reached
+	p.log.error("Too many failed attempts.");
+	p.cancel("Password setup cancelled");
+	process.exit(1);
 }
 
 /**
