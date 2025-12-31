@@ -1125,8 +1125,9 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		// Clear blob tracking tables
 		storage.clearBlobTracking();
 
-		// Reset in-memory repo reference
+		// Reset in-memory repo reference so it gets reinitialized on next access
 		this.repo = null;
+		this.repoInitialized = false;
 
 		return { blocksDeleted, blobsCleared };
 	}
