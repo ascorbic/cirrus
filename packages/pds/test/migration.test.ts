@@ -63,7 +63,7 @@ describe("Account Migration", () => {
 
 			expect(response.status).toBe(200);
 			const body = (await response.json()) as Record<string, unknown>;
-			expect(body.activated).toBe(true);
+			expect(body.active).toBe(true);
 			expect(body.validDid).toBe(true);
 			expect(body.repoRev).toBeDefined();
 			expect(body.repoRev).not.toBeNull();
@@ -89,7 +89,7 @@ describe("Account Migration", () => {
 			const body = (await response.json()) as Record<string, unknown>;
 			expect(body.validDid).toBe(true);
 			// activated can be true or false depending on test execution order
-			expect(typeof body.activated).toBe("boolean");
+			expect(typeof body.active).toBe("boolean");
 		});
 	});
 
@@ -413,7 +413,7 @@ describe("Account Migration", () => {
 				importedBlobs: number;
 			};
 
-			expect(body.activated).toBe(true);
+			expect(body.active).toBe(true);
 			expect(body.validDid).toBe(true);
 			expect(body.repoCommit).toBeDefined();
 			expect(body.repoRev).toBeDefined();
@@ -470,7 +470,7 @@ describe("Account Migration", () => {
 				string,
 				unknown
 			>;
-			expect(statusBefore.activated).toBe(true);
+			expect(statusBefore.active).toBe(true);
 			expect(statusBefore.repoRev).toBeDefined();
 
 			// Step 3: Export the repo
@@ -665,3 +665,100 @@ describe("Account Migration", () => {
 	});
 });
 
+
+describe("gg.mk.experimental.resetMigration", () => {
+		it("requires authentication", async () => {
+			const response = await worker.fetch(
+				new Request(`http://pds.test/xrpc/gg.mk.experimental.resetMigration`, {
+					method: "POST",
+				}),
+				env,
+			);
+
+			expect(response.status).toBe(401);
+			const body = (await response.json()) as Record<string, unknown>;
+			expect(body.error).toBe("AuthMissing");
+		});
+
+		it("fails on active accounts", async () => {
+			// Ensure account is active
+			await worker.fetch(
+				new Request(`http://pds.test/xrpc/com.atproto.server.activateAccount`, {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+				}),
+				env,
+			);
+
+			const response = await worker.fetch(
+				new Request(`http://pds.test/xrpc/gg.mk.experimental.resetMigration`, {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+				}),
+				env,
+			);
+
+			expect(response.ok).toBe(false);
+			expect(response.status).toBe(400);
+			const body = (await response.json()) as { error: string };
+			expect(body.error).toBe("AccountActive");
+		});
+
+		it("succeeds on deactivated accounts and returns deletion counts", async () => {
+			// First create some records to have data to delete
+			await worker.fetch(
+				new Request(`http://pds.test/xrpc/com.atproto.repo.createRecord`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Test post for reset",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
+				env,
+			);
+
+			// Deactivate the account
+			await worker.fetch(
+				new Request(`http://pds.test/xrpc/com.atproto.server.deactivateAccount`, {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+				}),
+				env,
+			);
+
+			// Now reset should work
+			const response = await worker.fetch(
+				new Request(`http://pds.test/xrpc/gg.mk.experimental.resetMigration`, {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+				}),
+				env,
+			);
+
+			expect(response.ok).toBe(true);
+			const result = (await response.json()) as {
+				blocksDeleted: number;
+				blobsCleared: number;
+			};
+			expect(typeof result.blocksDeleted).toBe("number");
+			expect(typeof result.blobsCleared).toBe("number");
+			expect(result.blocksDeleted).toBeGreaterThan(0); // Should have deleted some blocks
+		});
+	});

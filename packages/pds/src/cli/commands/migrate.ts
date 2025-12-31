@@ -168,7 +168,7 @@ export const migrateCommand = defineCommand({
 		// Handle --clean flag
 		// ============================================
 		if (args.clean) {
-			if (status.activated) {
+			if (status.active) {
 				p.log.error("Cannot reset: account is active");
 				p.log.info(
 					"The --clean flag only works on deactivated accounts.",
@@ -230,7 +230,7 @@ export const migrateCommand = defineCommand({
 		// ============================================
 		// Check if already active
 		// ============================================
-		if (status.activated) {
+		if (status.active) {
 			p.log.warn("Your account is already active in the Atmosphere!");
 			p.log.info("No migration needed - your PDS is live.");
 			p.outro("All good! 🦋");

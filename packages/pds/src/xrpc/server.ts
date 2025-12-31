@@ -245,7 +245,6 @@ export async function getAccountStatus(
 			]);
 
 		return c.json({
-			activated: active,
 			active: active,
 			validDid: true,
 			repoCommit: status.head,
@@ -259,7 +258,6 @@ export async function getAccountStatus(
 	} catch (err) {
 		// If repo doesn't exist yet, return empty status
 		return c.json({
-			activated: false,
 			active: false,
 			validDid: true,
 			repoCommit: null,
