@@ -17,6 +17,7 @@
 		"build": "tsdown",
 		"test": "vitest run",
 		"test:cli": "vitest run --config vitest.config.cli.ts",
+		"test:e2e": "vitest run --config vitest.config.e2e.ts",
 		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm"
 	},
 	"dependencies": {
@@ -39,6 +40,8 @@
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
+		"@atproto/api": "^0.18.9",
+		"@cloudflare/vite-plugin": "^1.17.0",
 		"@cloudflare/vitest-pool-workers": "https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632",
 		"@cloudflare/workers-types": "^4.20251225.0",
 		"@ipld/car": "^5.4.2",
@@ -47,6 +50,7 @@
 		"tsdown": "^0.18.3",
 		"tsx": "^4.21.0",
 		"typescript": "^5.9.3",
+		"vite": "^6.4.1",
 		"vitest": "^4.0.0",
 		"wrangler": "^4.54.0",
 		"ws": "^8.18.3"
