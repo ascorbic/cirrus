@@ -1,0 +1,28 @@
+name: E2E Tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 10.26.2
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          cache: "pnpm"
+          check-latest: true
+          registry-url: "https://registry.npmjs.org"
+      - name: Install dependencies
+        run: |
+          corepack enable
+          pnpm install
+      - name: Build
+        run: pnpm build
+      - name: E2E Tests
+        run: pnpm --filter @ascorbic/pds test:e2e
