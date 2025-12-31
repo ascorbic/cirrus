@@ -663,10 +663,9 @@ describe("Account Migration", () => {
 		expect(createResponse.status).toBe(500);
 		});
 	});
-});
 
 
-describe("gg.mk.experimental.resetMigration", () => {
+	describe("gg.mk.experimental.resetMigration", () => {
 		it("requires authentication", async () => {
 			const response = await worker.fetch(
 				new Request(`http://pds.test/xrpc/gg.mk.experimental.resetMigration`, {
@@ -762,3 +761,4 @@ describe("gg.mk.experimental.resetMigration", () => {
 			expect(result.blocksDeleted).toBeGreaterThan(0); // Should have deleted some blocks
 		});
 	});
+});
