@@ -713,6 +713,32 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
+	 * RPC method: Get specific blocks by CID as CAR file
+	 * Used for partial sync and migration.
+	 */
+	async rpcGetBlocks(cids: string[]): Promise<Uint8Array> {
+		const storage = await this.getStorage();
+		const root = await storage.getRoot();
+
+		if (!root) {
+			throw new Error("No repository root found");
+		}
+
+		// Get requested blocks
+		const blocks = new BlockMap();
+		for (const cidStr of cids) {
+			const cid = CID.parse(cidStr);
+			const bytes = await storage.getBytes(cid);
+			if (bytes) {
+				blocks.set(cid, bytes);
+			}
+		}
+
+		// Return CAR file with requested blocks
+		return blocksToCarFile(root, blocks);
+	}
+
+	/**
 	 * RPC method: Import repo from CAR file
 	 * This is used for account migration - importing an existing repository
 	 * from another PDS.
@@ -755,6 +781,19 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		this.repoInitialized = true;
 
+		// Extract blob references from all imported records for tracking
+		for await (const record of this.repo.walkRecords()) {
+			const blobCids = extractBlobCids(record.record);
+			if (blobCids.length > 0) {
+				const uri = AtUri.make(
+					this.repo.did,
+					record.collection,
+					record.rkey,
+				).toString();
+				this.storage!.addRecordBlobs(uri, blobCids);
+			}
+		}
+
 		return {
 			did: this.repo.did,
 			rev: this.repo.commit.rev,
@@ -778,7 +817,13 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			);
 		}
 
-		return this.blobStore.putBlob(bytes, mimeType);
+		const blobRef = await this.blobStore.putBlob(bytes, mimeType);
+
+		// Track the imported blob for migration progress
+		const storage = await this.getStorage();
+		storage.trackImportedBlob(blobRef.ref.$link, bytes.length, mimeType);
+
+		return blobRef;
 	}
 
 	/**
@@ -990,6 +1035,57 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		await storage.setActive(false);
 	}
 
+	// ============================================
+	// Migration Progress RPC Methods
+	// ============================================
+
+	/**
+	 * RPC method: Count blocks in storage
+	 */
+	async rpcCountBlocks(): Promise<number> {
+		const storage = await this.getStorage();
+		return storage.countBlocks();
+	}
+
+	/**
+	 * RPC method: Count records in repository
+	 */
+	async rpcCountRecords(): Promise<number> {
+		const repo = await this.getRepo();
+		let count = 0;
+		for await (const _record of repo.walkRecords()) {
+			count++;
+		}
+		return count;
+	}
+
+	/**
+	 * RPC method: Count expected blobs (referenced in records)
+	 */
+	async rpcCountExpectedBlobs(): Promise<number> {
+		const storage = await this.getStorage();
+		return storage.countExpectedBlobs();
+	}
+
+	/**
+	 * RPC method: Count imported blobs
+	 */
+	async rpcCountImportedBlobs(): Promise<number> {
+		const storage = await this.getStorage();
+		return storage.countImportedBlobs();
+	}
+
+	/**
+	 * RPC method: List missing blobs (referenced but not imported)
+	 */
+	async rpcListMissingBlobs(
+		limit: number = 500,
+		cursor?: string,
+	): Promise<{ blobs: Array<{ cid: string; recordUri: string }>; cursor?: string }> {
+		const storage = await this.getStorage();
+		return storage.listMissingBlobs(limit, cursor);
+	}
+
 	/**
 	 * Emit an identity event to notify downstream services to refresh identity cache.
 	 */
@@ -1164,4 +1260,44 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		// All other requests should use RPC methods, not fetch
 		return new Response("Method not allowed", { status: 405 });
 	}
+}
+
+/**
+ * Extract blob CIDs from a record by recursively searching for blob references.
+ * Blob refs have the structure: { $type: "blob", ref: { $link: "..." }, mimeType, size }
+ */
+function extractBlobCids(obj: unknown): string[] {
+	const cids: string[] = [];
+
+	function walk(value: unknown): void {
+		if (value === null || value === undefined) return;
+
+		if (typeof value === "object") {
+			const record = value as Record<string, unknown>;
+
+			// Check if this is a blob reference
+			if (
+				record.$type === "blob" &&
+				record.ref &&
+				typeof record.ref === "object"
+			) {
+				const ref = record.ref as Record<string, unknown>;
+				if (typeof ref.$link === "string") {
+					cids.push(ref.$link);
+				}
+			}
+
+			// Recursively walk all properties
+			for (const key of Object.keys(record)) {
+				walk(record[key]);
+			}
+		} else if (Array.isArray(value)) {
+			for (const item of value) {
+				walk(item);
+			}
+		}
+	}
+
+	walk(obj);
+	return cids;
 }

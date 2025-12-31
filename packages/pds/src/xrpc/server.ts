@@ -224,7 +224,7 @@ export async function deleteSession(c: Context<AppEnv>): Promise<Response> {
 }
 
 /**
- * Get account status - used for migration checks
+ * Get account status - used for migration checks and progress tracking
  */
 export async function getAccountStatus(
 	c: Context<AuthedAppEnv>,
@@ -235,16 +235,26 @@ export async function getAccountStatus(
 		const status = await accountDO.rpcGetRepoStatus();
 		const active = await accountDO.rpcGetActive();
 
+		// Get counts for migration progress tracking
+		const [repoBlocks, indexedRecords, expectedBlobs, importedBlobs] =
+			await Promise.all([
+				accountDO.rpcCountBlocks(),
+				accountDO.rpcCountRecords(),
+				accountDO.rpcCountExpectedBlobs(),
+				accountDO.rpcCountImportedBlobs(),
+			]);
+
 		return c.json({
 			activated: active,
 			active: active,
 			validDid: true,
+			repoCommit: status.head,
 			repoRev: status.rev,
-			repoBlocks: null, // Could implement block counting if needed
-			indexedRecords: null, // Could implement record counting if needed
+			repoBlocks,
+			indexedRecords,
 			privateStateValues: null,
-			expectedBlobs: null,
-			importedBlobs: null,
+			expectedBlobs,
+			importedBlobs,
 		});
 	} catch (err) {
 		// If repo doesn't exist yet, return empty status
@@ -252,12 +262,13 @@ export async function getAccountStatus(
 			activated: false,
 			active: false,
 			validDid: true,
+			repoCommit: null,
 			repoRev: null,
-			repoBlocks: null,
-			indexedRecords: null,
+			repoBlocks: 0,
+			indexedRecords: 0,
 			privateStateValues: null,
-			expectedBlobs: null,
-			importedBlobs: null,
+			expectedBlobs: 0,
+			importedBlobs: 0,
 		});
 	}
 }

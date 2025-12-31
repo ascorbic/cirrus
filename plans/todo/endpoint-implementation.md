@@ -7,17 +7,17 @@ This document tracks the implementation status of all AT Protocol XRPC endpoints
 ## Implementation Summary
 
 **Total Core PDS Endpoints: 70**
-- ✅ **Implemented: 26** (37%)
+- ✅ **Implemented: 30** (43%)
 - ⚠️ **Partial/Stub: 3** (4%)
-- ❌ **Not Implemented: 41** (59%)
+- ❌ **Not Implemented: 37** (53%)
 
 **For Single-User PDS:**
-- **Necessary endpoints implemented: 26/~30** (87%)
+- **Necessary endpoints implemented: 30/~32** (94%)
 - Most missing endpoints are multi-user, admin, or moderation features
 
 ## Currently Supported Endpoints
 
-### com.atproto.repo (9/11 - 82%)
+### com.atproto.repo (10/11 - 91%)
 
 | Endpoint | Status | Notes |
 |----------|--------|-------|
@@ -26,30 +26,34 @@ This document tracks the implementation status of all AT Protocol XRPC endpoints
 | `deleteRecord` | ✅ Complete | Updates firehose |
 | `describeRepo` | ✅ Complete | Returns collections and DID document |
 | `getRecord` | ✅ Complete | With CID and value |
-| `importRepo` | ✅ Complete | CAR file import with validation |
+| `importRepo` | ✅ Complete | CAR file import with validation, blob tracking |
+| `listMissingBlobs` | ✅ Complete | Lists blobs referenced but not imported |
 | `listRecords` | ✅ Complete | Pagination, cursor, reverse |
 | `putRecord` | ✅ Complete | Create or update with validation |
-| `uploadBlob` | ✅ Complete | 5MB limit, R2 storage |
+| `uploadBlob` | ✅ Complete | 5MB limit, R2 storage, tracks imports |
 
-### com.atproto.sync (6/11 - 55%)
+### com.atproto.sync (7/11 - 64%)
 
 | Endpoint | Status | Notes |
 |----------|--------|-------|
 | `getBlob` | ✅ Complete | Direct R2 access |
+| `getBlocks` | ✅ Complete | Returns CAR file with requested blocks |
 | `getRepo` | ✅ Complete | CAR file export |
 | `getRepoStatus` | ✅ Complete | Active status, rev, head |
 | `listBlobs` | ✅ Complete | Paginated blob listing |
 | `listRepos` | ✅ Complete | Returns single repo (single-user) |
 | `subscribeRepos` | ✅ Complete | WebSocket firehose with CBOR frames |
 
-### com.atproto.server (7/26 - 27%)
+### com.atproto.server (9/26 - 35%)
 
 | Endpoint | Status | Notes |
 |----------|--------|-------|
+| `activateAccount` | ✅ Complete | Transition deactivated → active |
 | `createSession` | ✅ Complete | JWT + static token auth |
+| `deactivateAccount` | ✅ Complete | Transition active → deactivated |
 | `deleteSession` | ✅ Complete | Stateless (client-side) |
 | `describeServer` | ✅ Complete | Server capabilities |
-| `getAccountStatus` | ✅ Complete | Migration support |
+| `getAccountStatus` | ✅ Complete | Returns activation state, repo metrics, blob counts |
 | `getServiceAuth` | ✅ Complete | Service JWTs for AppView/external services |
 | `getSession` | ✅ Complete | Current session info |
 | `refreshSession` | ✅ Complete | Token refresh with validation |
@@ -70,21 +74,13 @@ This document tracks the implementation status of all AT Protocol XRPC endpoints
 
 ## TODO Endpoints (Grouped by Priority)
 
-### Account Lifecycle (P1 - Critical for Migration)
+### Migration Progress Tracking ✅ Complete
 
-For the deactivated account pattern (see `migration-wizard.md`):
-
-| Endpoint | Purpose | Notes |
-|----------|---------|-------|
-| `activateAccount` | Transition deactivated → active | Enables writes, firehose |
-| `deactivateAccount` | Transition active → deactivated | Disables writes |
-| Enhanced `getAccountStatus` | Return activation state | Add `activated`, `imported` fields |
-
-**Deactivation guards needed:**
-- Block writes (`createRecord`, `putRecord`, `deleteRecord`, `applyWrites`) when deactivated
-- Allow reads, `importRepo`, `uploadBlob`, `activateAccount`
-
-**Total: 2 new endpoints + 1 enhancement**
+All P1 migration endpoints have been implemented:
+- ✅ `listMissingBlobs` - List blobs referenced but not uploaded
+- ✅ Enhanced `getAccountStatus` - Full migration metrics
+- ✅ `getBlocks` - Bulk block retrieval
+- ✅ Blob tracking infrastructure (`record_blob`, `imported_blobs` tables)
 
 ### App Passwords (P2 - Important)
 
@@ -100,11 +96,10 @@ For the deactivated account pattern (see `migration-wizard.md`):
 
 | Endpoint | Purpose |
 |----------|---------|
-| `getBlocks` | Get specific blocks by CID |
 | `getLatestCommit` | Get latest commit without full repo |
 | `getRecord` (sync) | Get record with merkle proof |
 
-**Total: 3 endpoints**
+**Total: 2 endpoints**
 
 ## Not Implementing
 
@@ -178,23 +173,32 @@ This is intentional - the edge PDS focuses on repository operations and federate
 
 ## Implementation Phases
 
-### Phase 1: Account Lifecycle (2 endpoints)
+### Phase 1: Account Lifecycle ✅ Complete
 
 Enable deactivated account pattern for migration:
-- `activateAccount`
-- `deactivateAccount`
-- Deactivation guards on write operations
+- ✅ `activateAccount`
+- ✅ `deactivateAccount`
+- ✅ Deactivation guards on write operations
+- ✅ `INITIAL_ACTIVE` env var for deploy-time configuration
 
-### Phase 2: OAuth Provider
+### Phase 2: Migration Progress Tracking ✅ Complete
+
+Enable reliable migration with progress tracking:
+- ✅ Add blob tracking infrastructure (`record_blob`, `imported_blobs` tables)
+- ✅ Enhance `getAccountStatus` with full metrics
+- ✅ Implement `listMissingBlobs` endpoint
+- ✅ Implement `getBlocks` endpoint
+
+### Phase 3: OAuth Provider ✅ Complete
 
 Enable ecosystem compatibility with "Login with Bluesky" apps.
-See `oauth-provider.md` for detailed specification.
+See `complete/oauth-provider.md` for implementation details.
 
-### Phase 3: App Passwords (3 endpoints)
+### Phase 4: App Passwords (3 endpoints)
 
 Multi-device auth with revocable app passwords.
 
-### Phase 4: Advanced Sync (3 endpoints)
+### Phase 5: Advanced Sync (2 endpoints)
 
 Efficient partial sync and merkle proofs.
 
@@ -202,9 +206,9 @@ Efficient partial sync and merkle proofs.
 
 | Namespace | Supported | Total | Coverage |
 |-----------|-----------|-------|----------|
-| `com.atproto.repo` | 9 | 11 | 82% |
-| `com.atproto.sync` | 6 | 11 | 55% |
-| `com.atproto.server` | 7 | 26 | 27% |
+| `com.atproto.repo` | 10 | 11 | 91% |
+| `com.atproto.sync` | 7 | 11 | 64% |
+| `com.atproto.server` | 9 | 26 | 35% |
 | `com.atproto.identity` | 1 | 6 | 17% |
 | `com.atproto.admin` | 0 | 14 | 0% (intentional) |
 | `app.bsky.*` | 3 | - | Proxy model |

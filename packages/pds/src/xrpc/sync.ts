@@ -188,6 +188,67 @@ export async function listBlobs(
 	return c.json(result);
 }
 
+export async function getBlocks(
+	c: Context<AppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
+	const did = c.req.query("did");
+	const cidsParam = c.req.queries("cids");
+
+	if (!did) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required parameter: did",
+			},
+			400,
+		);
+	}
+
+	if (!cidsParam || cidsParam.length === 0) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required parameter: cids",
+			},
+			400,
+		);
+	}
+
+	// Validate DID format
+	try {
+		ensureValidDid(did);
+	} catch (err) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
+			},
+			400,
+		);
+	}
+
+	if (did !== c.env.DID) {
+		return c.json(
+			{
+				error: "RepoNotFound",
+				message: `Repository not found for DID: ${did}`,
+			},
+			404,
+		);
+	}
+
+	const carBytes = await accountDO.rpcGetBlocks(cidsParam);
+
+	return new Response(carBytes, {
+		status: 200,
+		headers: {
+			"Content-Type": "application/vnd.ipld.car",
+			"Content-Length": carBytes.length.toString(),
+		},
+	});
+}
+
 export async function getBlob(
 	c: Context<AppEnv>,
 	_accountDO: DurableObjectStub<AccountDurableObject>,

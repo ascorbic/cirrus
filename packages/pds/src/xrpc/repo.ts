@@ -515,3 +515,24 @@ export async function importRepo(
 		throw err;
 	}
 }
+
+/**
+ * List blobs that are referenced in records but not yet imported.
+ * Used during migration to track which blobs still need to be uploaded.
+ */
+export async function listMissingBlobs(
+	c: Context<AuthedAppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
+	const limitStr = c.req.query("limit");
+	const cursor = c.req.query("cursor");
+
+	const limit = limitStr ? Math.min(Number.parseInt(limitStr, 10), 500) : 500;
+
+	const result = await accountDO.rpcListMissingBlobs(
+		limit,
+		cursor || undefined,
+	);
+
+	return c.json(result);
+}

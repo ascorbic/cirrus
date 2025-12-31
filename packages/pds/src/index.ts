@@ -140,6 +140,9 @@ app.get("/xrpc/com.atproto.sync.getRepo", (c) =>
 app.get("/xrpc/com.atproto.sync.getRepoStatus", (c) =>
 	sync.getRepoStatus(c, getAccountDO(c.env)),
 );
+app.get("/xrpc/com.atproto.sync.getBlocks", (c) =>
+	sync.getBlocks(c, getAccountDO(c.env)),
+);
 app.get("/xrpc/com.atproto.sync.getBlob", (c) =>
 	sync.getBlob(c, getAccountDO(c.env)),
 );
@@ -194,6 +197,9 @@ app.post("/xrpc/com.atproto.repo.putRecord", requireAuth, (c) =>
 );
 app.post("/xrpc/com.atproto.repo.importRepo", requireAuth, (c) =>
 	repo.importRepo(c, getAccountDO(c.env)),
+);
+app.get("/xrpc/com.atproto.repo.listMissingBlobs", requireAuth, (c) =>
+	repo.listMissingBlobs(c, getAccountDO(c.env)),
 );
 
 // Server identity
