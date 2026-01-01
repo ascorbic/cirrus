@@ -428,7 +428,24 @@ export const migrateCommand = defineCommand({
 		}
 
 		// ============================================
-		// Step 8: Sync blobs
+		// Step 8: Migrate preferences
+		// ============================================
+		spinner.start("Migrating your preferences...");
+		try {
+			const preferences = await sourceClient.getPreferences();
+			if (preferences.length > 0) {
+				await targetClient.putPreferences(preferences);
+				spinner.stop(`Migrated ${preferences.length} preference${preferences.length === 1 ? "" : "s"}`);
+			} else {
+				spinner.stop("No preferences to migrate");
+			}
+		} catch (err) {
+			// Non-fatal - preferences might not be accessible or supported
+			spinner.stop("Skipped preferences (not available)");
+		}
+
+		// ============================================
+		// Step 9: Sync blobs
 		// ============================================
 		const expectedBlobs = status.expectedBlobs;
 		const alreadyImported = status.importedBlobs;
@@ -492,23 +509,6 @@ export const migrateCommand = defineCommand({
 			} else {
 				spinner.stop(`Transferred ${formatNumber(synced)} images`);
 			}
-		}
-
-		// ============================================
-		// Step 9: Migrate preferences
-		// ============================================
-		spinner.start("Migrating your preferences...");
-		try {
-			const preferences = await sourceClient.getPreferences();
-			if (preferences.length > 0) {
-				await targetClient.putPreferences(preferences);
-				spinner.stop(`Migrated ${preferences.length} preference${preferences.length === 1 ? "" : "s"}`);
-			} else {
-				spinner.stop("No preferences to migrate");
-			}
-		} catch (err) {
-			// Non-fatal - preferences might not be accessible or supported
-			spinner.stop("Skipped preferences (not available)");
 		}
 
 		// ============================================
