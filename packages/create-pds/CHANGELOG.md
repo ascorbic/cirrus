@@ -1,5 +1,11 @@
 # create-pds
 
+## 0.0.5
+
+### Patch Changes
+
+- [#37](https://github.com/ascorbic/atproto-worker/pull/37) [`0a68fbe`](https://github.com/ascorbic/atproto-worker/commit/0a68fbec25b639aef2450e163ed5a5de05c03746) Thanks [@ascorbic](https://github.com/ascorbic)! - Fetch latest @ascorbic/pds version from npm registry when creating a new project
+
 ## 0.0.4
 
 ### Patch Changes
