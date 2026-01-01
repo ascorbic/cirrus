@@ -1,5 +1,11 @@
 # create-pds
 
+## 0.0.6
+
+### Patch Changes
+
+- [#44](https://github.com/ascorbic/atproto-worker/pull/44) [`0adeffb`](https://github.com/ascorbic/atproto-worker/commit/0adeffbbca35994317451ecde2830fdf4bb5cb33) Thanks [@ascorbic](https://github.com/ascorbic)! - Improvements to CLI prompts and logic
+
 ## 0.0.5
 
 ### Patch Changes
