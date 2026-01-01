@@ -428,7 +428,24 @@ export const migrateCommand = defineCommand({
 		}
 
 		// ============================================
-		// Step 8: Sync blobs
+		// Step 8: Migrate preferences
+		// ============================================
+		spinner.start("Migrating your preferences...");
+		try {
+			const preferences = await sourceClient.getPreferences();
+			if (preferences.length > 0) {
+				await targetClient.putPreferences(preferences);
+				spinner.stop(`Migrated ${preferences.length} preference${preferences.length === 1 ? "" : "s"}`);
+			} else {
+				spinner.stop("No preferences to migrate");
+			}
+		} catch (err) {
+			// Non-fatal - preferences might not be accessible or supported
+			spinner.stop("Skipped preferences (not available)");
+		}
+
+		// ============================================
+		// Step 9: Sync blobs
 		// ============================================
 		const expectedBlobs = status.expectedBlobs;
 		const alreadyImported = status.importedBlobs;
@@ -495,7 +512,7 @@ export const migrateCommand = defineCommand({
 		}
 
 		// ============================================
-		// Step 9: Verify and show next steps
+		// Step 10: Verify and show next steps
 		// ============================================
 		spinner.start("Verifying migration...");
 		const finalStatus = await targetClient.getAccountStatus();
