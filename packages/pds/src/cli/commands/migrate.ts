@@ -74,9 +74,6 @@ export const migrateCommand = defineCommand({
 
 		p.intro("🦋 PDS Migration");
 
-		// ============================================
-		// Step 1: Healthcheck
-		// ============================================
 		const spinner = p.spinner();
 		spinner.start(`Checking PDS at ${targetDomain}...`);
 
@@ -98,9 +95,6 @@ export const migrateCommand = defineCommand({
 		}
 		spinner.stop(`Connected to ${targetDomain}`);
 
-		// ============================================
-		// Step 2: Load config
-		// ============================================
 		const wranglerVars = getVars();
 		const devVars = readDevVars();
 		const config = { ...devVars, ...wranglerVars };
@@ -121,12 +115,8 @@ export const migrateCommand = defineCommand({
 			process.exit(1);
 		}
 
-		// Set auth token for target PDS
 		targetClient.setAuthToken(authToken);
 
-		// ============================================
-		// Step 3: Resolve source PDS from DID
-		// ============================================
 		spinner.start(`Looking up @${handle}...`);
 
 		const didResolver = new DidResolver();
@@ -150,9 +140,6 @@ export const migrateCommand = defineCommand({
 		const sourceDomain = getDomain(sourcePdsUrl);
 		spinner.stop(`Found your account at ${sourceDomain}`);
 
-		// ============================================
-		// Step 4: Check target state
-		// ============================================
 		spinner.start("Checking account status...");
 
 		let status;
@@ -169,9 +156,6 @@ export const migrateCommand = defineCommand({
 
 		spinner.stop("Account status retrieved");
 
-		// ============================================
-		// Handle --clean flag
-		// ============================================
 		if (args.clean) {
 			if (status.active) {
 				p.log.error("Cannot reset: account is active");
@@ -230,9 +214,6 @@ export const migrateCommand = defineCommand({
 			status = await targetClient.getAccountStatus();
 		}
 
-		// ============================================
-		// Check if already active
-		// ============================================
 		if (status.active) {
 			p.log.warn("Your account is already active in the Atmosphere!");
 			p.log.info("No migration needed - your PDS is live.");
@@ -240,9 +221,6 @@ export const migrateCommand = defineCommand({
 			return;
 		}
 
-		// ============================================
-		// Step 5: Fetch source stats
-		// ============================================
 		spinner.start(`Fetching your account details from ${sourceDomain}...`);
 
 		const sourceClient = new PDSClient(sourcePdsUrl);
@@ -271,9 +249,6 @@ export const migrateCommand = defineCommand({
 		const needsBlobSync = missingBlobs > 0 || needsRepoImport;
 		const isResuming = !needsRepoImport && needsBlobSync;
 
-		// ============================================
-		// Show migration preview
-		// ============================================
 		if (isResuming) {
 			// Resume flow
 			p.log.info("Welcome back!");
@@ -350,9 +325,6 @@ export const migrateCommand = defineCommand({
 			return;
 		}
 
-		// ============================================
-		// Step 6: Authenticate to source PDS
-		// ============================================
 		const isBlueskyPds = sourceDomain.endsWith(".bsky.network");
 		const passwordPrompt = isBlueskyPds
 			? "Your current Bluesky password:"
@@ -386,9 +358,6 @@ export const migrateCommand = defineCommand({
 			process.exit(1);
 		}
 
-		// ============================================
-		// Step 7: Export and import repo
-		// ============================================
 		if (needsRepoImport) {
 			spinner.start("Packing your repository...");
 			let carBytes: Uint8Array;
@@ -423,9 +392,6 @@ export const migrateCommand = defineCommand({
 			status = await targetClient.getAccountStatus();
 		}
 
-		// ============================================
-		// Step 8: Migrate preferences
-		// ============================================
 		spinner.start("Migrating your preferences...");
 		try {
 			const preferences = await sourceClient.getPreferences();
@@ -440,9 +406,6 @@ export const migrateCommand = defineCommand({
 			spinner.stop("Skipped preferences (not available)");
 		}
 
-		// ============================================
-		// Step 9: Sync blobs
-		// ============================================
 		const expectedBlobs = status.expectedBlobs;
 		const alreadyImported = status.importedBlobs;
 		const blobsToSync = expectedBlobs - alreadyImported;
@@ -499,9 +462,6 @@ export const migrateCommand = defineCommand({
 			}
 		}
 
-		// ============================================
-		// Step 10: Verify and show next steps
-		// ============================================
 		spinner.start("Verifying migration...");
 		const finalStatus = await targetClient.getAccountStatus();
 		spinner.stop("Verification complete");

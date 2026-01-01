@@ -1,5 +1,11 @@
 # @ascorbic/pds
 
+## 0.2.1
+
+### Patch Changes
+
+- [`abcf913`](https://github.com/ascorbic/atproto-worker/commit/abcf91361a7c25ce3cdc5fb0c2f8eea610fcc6c5) Thanks [@ascorbic](https://github.com/ascorbic)! - Correctly migrate preferences
+
 ## 0.2.0
 
 ### Minor Changes

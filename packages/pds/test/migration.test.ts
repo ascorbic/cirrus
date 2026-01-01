@@ -660,7 +660,9 @@ describe("Account Migration", () => {
 			);
 
 			expect(createResponse.ok).toBe(false);
-		expect(createResponse.status).toBe(500);
+			expect(createResponse.status).toBe(403);
+			const error = (await createResponse.json()) as { error: string };
+			expect(error.error).toBe("AccountDeactivated");
 		});
 	});
 
