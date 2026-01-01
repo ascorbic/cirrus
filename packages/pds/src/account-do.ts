@@ -12,7 +12,7 @@ import {
 } from "@atproto/repo";
 import type { RepoRecord } from "@atproto/lexicon";
 import { Secp256k1Keypair } from "@atproto/crypto";
-import { CID } from "@atproto/lex-data";
+import { CID, isCid, asCid, isBlobRef } from "@atproto/lex-data";
 import { TID } from "@atproto/common-web";
 import { AtUri } from "@atproto/syntax";
 import { encode as cborEncode } from "@atproto/lex-cbor";
@@ -1315,14 +1315,10 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 function serializeRecord(obj: unknown): unknown {
 	if (obj === null || obj === undefined) return obj;
 
-	// Check if this is a CID object (has toV1() method which is characteristic of CID)
-	if (
-		typeof obj === "object" &&
-		obj !== null &&
-		"toV1" in obj &&
-		typeof (obj as { toV1: unknown }).toV1 === "function"
-	) {
-		return { $link: (obj as CID).toString() };
+	// Check if this is a CID object using @atproto/lex-data helper
+	const cid = asCid(obj);
+	if (cid) {
+		return { $link: cid.toString() };
 	}
 
 	if (Array.isArray(obj)) {
@@ -1342,8 +1338,7 @@ function serializeRecord(obj: unknown): unknown {
 
 /**
  * Extract blob CIDs from a record by recursively searching for blob references.
- * Blob refs have the structure: { $type: "blob", ref: { $link: "..." }, mimeType, size }
- * Note: ref might be a CID object or already serialized as { $link: "..." }
+ * Blob refs have the structure: { $type: "blob", ref: CID, mimeType, size }
  */
 function extractBlobCids(obj: unknown): string[] {
 	const cids: string[] = [];
@@ -1351,36 +1346,20 @@ function extractBlobCids(obj: unknown): string[] {
 	function walk(value: unknown): void {
 		if (value === null || value === undefined) return;
 
-		if (typeof value === "object") {
-			const record = value as Record<string, unknown>;
+		// Check if this is a blob reference using @atproto/lex-data helper
+		if (isBlobRef(value)) {
+			cids.push(value.ref.toString());
+			return; // No need to recurse into blob ref properties
+		}
 
-			// Check if this is a blob reference
-			if (
-				record.$type === "blob" &&
-				record.ref &&
-				typeof record.ref === "object"
-			) {
-				const ref = record.ref as Record<string, unknown>;
-				// Handle both CID objects and serialized { $link: "..." } format
-				if (
-					"toV1" in ref &&
-					typeof (ref as { toV1: unknown }).toV1 === "function"
-				) {
-					// It's a CID object
-					cids.push((ref as CID).toString());
-				} else if (typeof ref.$link === "string") {
-					// It's already serialized
-					cids.push(ref.$link);
-				}
-			}
-
-			// Recursively walk all properties
-			for (const key of Object.keys(record)) {
-				walk(record[key]);
-			}
-		} else if (Array.isArray(value)) {
+		if (Array.isArray(value)) {
 			for (const item of value) {
 				walk(item);
+			}
+		} else if (typeof value === "object") {
+			// Recursively walk all properties
+			for (const key of Object.keys(value as Record<string, unknown>)) {
+				walk((value as Record<string, unknown>)[key]);
 			}
 		}
 	}
