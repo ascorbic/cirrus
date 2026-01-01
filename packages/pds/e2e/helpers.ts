@@ -22,4 +22,3 @@ export function uniqueRkey(): string {
 export const TEST_DID = "did:web:test.local";
 export const TEST_HANDLE = "test.local";
 export const TEST_PASSWORD = "test-password"; // Matches PASSWORD_HASH in .dev.vars
-export const TEST_AUTH_TOKEN = "test-token";

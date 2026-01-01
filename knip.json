@@ -11,8 +11,8 @@
 			"ignoreDependencies": ["@changesets/cli"]
 		},
 		"packages/pds": {
-			"ignore": ["scripts/**", "test/fixtures/**"],
-			"ignoreDependencies": ["tsx", "ws", "@types/ws"]
+			"ignore": ["scripts/**", "test/fixtures/**", "e2e/fixture/**"],
+			"ignoreDependencies": ["tsx", "vite", "@cloudflare/vite-plugin"]
 		},
 		"packages/create-pds": {
 			"ignore": ["templates/**"]
