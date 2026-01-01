@@ -300,6 +300,32 @@ export class PDSClient {
 	}
 
 	// ============================================
+	// Preferences
+	// ============================================
+
+	/**
+	 * Get user preferences
+	 */
+	async getPreferences(): Promise<unknown[]> {
+		const result = await this.xrpc<{ preferences: unknown[] }>(
+			"GET",
+			"app.bsky.actor.getPreferences",
+			{ auth: true },
+		);
+		return result.preferences;
+	}
+
+	/**
+	 * Update user preferences
+	 */
+	async putPreferences(preferences: unknown[]): Promise<void> {
+		await this.xrpc("POST", "app.bsky.actor.putPreferences", {
+			body: { preferences },
+			auth: true,
+		});
+	}
+
+	// ============================================
 	// Import Operations (Target PDS)
 	// ============================================
 
