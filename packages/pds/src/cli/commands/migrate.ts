@@ -443,11 +443,11 @@ export const migrateCommand = defineCommand({
 						);
 						await targetClient.uploadBlob(bytes, mimeType);
 						synced++;
-						progressBar.advance(1);
+						progressBar.advance(1, `${synced}/${totalBlobs} images transferred`);
 					} catch (err) {
 						synced++;
 						failedBlobs.push(blob.cid);
-						progressBar.advance(1);
+						progressBar.advance(1, `${synced}/${totalBlobs} images (${failedBlobs.length} failed)`);
 					}
 				}
 			} while (cursor);
