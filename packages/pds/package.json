@@ -15,7 +15,7 @@
 	},
 	"scripts": {
 		"build": "tsdown",
-		"test": "pnpm run test:unit && pnpm run test:cli && pnpm run test:e2e",
+		"test": "pnpm run test:unit && pnpm run test:cli",
 		"test:unit": "vitest run",
 		"test:cli": "vitest run --config vitest.config.cli.ts",
 		"test:e2e": "vitest run --config vitest.config.e2e.ts",
