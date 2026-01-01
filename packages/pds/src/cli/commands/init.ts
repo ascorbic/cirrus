@@ -364,7 +364,7 @@ export const initCommand = defineCommand({
 
 			// Show different notes based on whether handle matches hostname
 			if (handle === hostname) {
-				p.note(
+				p.box(
 					[
 						"Your handle matches your PDS hostname, so your PDS will",
 						"automatically handle domain verification for you!",
@@ -380,7 +380,7 @@ export const initCommand = defineCommand({
 					"Identity Setup 🪪",
 				);
 			} else {
-				p.note(
+				p.box(
 					[
 						"For did:web, your PDS will serve the DID document at:",
 						`  https://${hostname}/.well-known/did.json`,
@@ -452,23 +452,23 @@ export const initCommand = defineCommand({
 			// Local mode: always prompt for password and generate fresh secrets
 			const password = await promptPassword(handle);
 
-			spinner.start("Hashing password...");
+			const setupTask = p.taskLog({ title: "Setting up secrets" });
+
+			setupTask.message("Hashing password...");
 			passwordHash = await hashPassword(password);
-			spinner.stop("Password hashed");
 
-			spinner.start("Generating JWT secret...");
+			setupTask.message("Generating JWT secret...");
 			jwtSecret = generateJwtSecret();
-			spinner.stop("JWT secret generated");
 
-			spinner.start("Generating auth token...");
+			setupTask.message("Generating auth token...");
 			authToken = generateAuthToken();
-			spinner.stop("Auth token generated");
 
-			spinner.start("Generating signing keypair...");
+			setupTask.message("Generating signing keypair...");
 			const keypair = await generateSigningKeypair();
 			signingKey = keypair.privateKey;
 			signingKeyPublic = keypair.publicKey;
-			spinner.stop("Signing keypair generated");
+
+			setupTask.success("Secrets generated");
 		}
 
 		// Always set public vars and worker name in wrangler.jsonc
@@ -506,10 +506,10 @@ export const initCommand = defineCommand({
 			await runWranglerTypes();
 			spinner.stop("TypeScript types generated");
 		} catch {
-			spinner.stop("Failed to generate types (wrangler types)");
+			spinner.error("Failed to generate types (wrangler types)");
 		}
 
-		p.note(
+		p.box(
 			[
 				"  Worker name:  " + workerName,
 				"  PDS hostname: " + hostname,
@@ -547,7 +547,7 @@ export const initCommand = defineCommand({
 		}
 
 		if (isMigrating) {
-			p.note(
+			p.box(
 				[
 					deployedSecrets
 						? "Deploy your worker and run the migration:"

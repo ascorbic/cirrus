@@ -86,7 +86,7 @@ export const activateCommand = defineCommand({
 		}
 
 		// Show confirmation
-		p.note(
+		p.box(
 			[
 				`@${handle || "your-handle"}`,
 				"",
@@ -114,7 +114,7 @@ export const activateCommand = defineCommand({
 			await client.activateAccount();
 			spinner.stop("Account activated!");
 		} catch (err) {
-			spinner.stop("Activation failed");
+			spinner.error("Activation failed");
 			p.log.error(
 				err instanceof Error ? err.message : "Could not activate account",
 			);

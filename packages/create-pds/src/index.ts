@@ -245,8 +245,9 @@ const main = defineCommand({
 		const pdsVersion = await getLatestPdsVersion();
 		spinner.stop(`Using @ascorbic/pds ${pdsVersion}`);
 
-		spinner.start("Copying template...");
+		const setupTask = p.taskLog({ title: "Setting up project" });
 
+		setupTask.message("Copying template files...");
 		const templateDir = join(__dirname, "..", "templates", "pds-worker");
 		await copyTemplateDir(templateDir, targetDir);
 
@@ -256,18 +257,17 @@ const main = defineCommand({
 			pdsVersion,
 		});
 
-		spinner.stop("Template copied");
-
 		// Initialize git
 		if (initGit) {
-			spinner.start("Initializing git...");
+			setupTask.message("Initializing git repository...");
 			try {
 				await runCommand("git", ["init"], targetDir, { silent: true });
-				spinner.stop("Git initialized");
 			} catch {
-				spinner.stop("Failed to initialize git");
+				setupTask.error("Failed to initialize git");
 			}
 		}
+
+		setupTask.success("Project created");
 
 		// Install dependencies
 		if (!args["skip-install"]) {
@@ -276,7 +276,7 @@ const main = defineCommand({
 				await runCommand(pm, ["install"], targetDir, { silent: true });
 				spinner.stop("Dependencies installed");
 			} catch {
-				spinner.stop("Failed to install dependencies");
+				spinner.error("Failed to install dependencies");
 				p.log.warning("You can install dependencies manually later");
 			}
 		}

@@ -22,11 +22,6 @@ function detectPackageManager(): PackageManager {
 	return "npm";
 }
 
-// Helper to override clack's dim styling in notes
-const brightNote = (lines: string[]) =>
-	lines.map((l) => `\x1b[0m${l}`).join("\n");
-const bold = (text: string) => pc.bold(text);
-
 /**
  * Format number with commas
  */
@@ -89,7 +84,7 @@ export const migrateCommand = defineCommand({
 		const isHealthy = await targetClient.healthCheck();
 
 		if (!isHealthy) {
-			spinner.stop(`PDS not responding at ${targetDomain}`);
+			spinner.error(`PDS not responding at ${targetDomain}`);
 			if (isDev) {
 				p.log.error(`Your local PDS isn't running at ${targetUrl}`);
 				p.log.info(`Start it with: ${pm} dev`);
@@ -138,7 +133,7 @@ export const migrateCommand = defineCommand({
 		const didDoc = await didResolver.resolve(did);
 
 		if (!didDoc) {
-			spinner.stop("Failed to resolve DID");
+			spinner.error("Failed to resolve DID");
 			p.log.error(`Could not resolve DID: ${did}`);
 			p.outro("Migration cancelled.");
 			process.exit(1);
@@ -164,7 +159,7 @@ export const migrateCommand = defineCommand({
 		try {
 			status = await targetClient.getAccountStatus();
 		} catch (err) {
-			spinner.stop("Failed to get account status");
+			spinner.error("Failed to get account status");
 			p.log.error(
 				err instanceof Error ? err.message : "Could not get account status",
 			);
@@ -190,17 +185,17 @@ export const migrateCommand = defineCommand({
 			}
 
 			// Show what will be deleted
-			p.note(
-				brightNote([
-					bold("This will permanently delete from your new PDS:"),
+			p.box(
+				[
+					pc.bold("This will permanently delete from your new PDS:"),
 					"",
 					`  • ${formatNumber(status.repoBlocks)} repository blocks`,
 					`  • ${formatNumber(status.importedBlobs)} imported images`,
 					"  • All blob tracking data",
 					"",
-					bold(`Your data on ${sourceDomain} is NOT affected.`),
+					pc.bold(`Your data on ${sourceDomain} is NOT affected.`),
 					"You'll need to re-import everything.",
-				]),
+				].join("\n"),
 				"⚠️  Reset Migration Data",
 			);
 
@@ -221,7 +216,7 @@ export const migrateCommand = defineCommand({
 					`Deleted ${formatNumber(result.blocksDeleted)} blocks, ${formatNumber(result.blobsCleared)} blobs`,
 				);
 			} catch (err) {
-				spinner.stop("Reset failed");
+				spinner.error("Reset failed");
 				p.log.error(
 					err instanceof Error ? err.message : "Could not reset migration",
 				);
@@ -254,7 +249,7 @@ export const migrateCommand = defineCommand({
 		try {
 			await sourceClient.describeRepo(did);
 		} catch (err) {
-			spinner.stop("Failed to fetch account details");
+			spinner.error("Failed to fetch account details");
 			p.log.error(
 				err instanceof Error
 					? err.message
@@ -286,7 +281,7 @@ export const migrateCommand = defineCommand({
 				"Looks like you started packing earlier. Let's pick up where we left off.",
 			);
 
-			p.note(
+			p.box(
 				[
 					`@${handle} (${did.slice(0, 20)}...)`,
 					"",
@@ -320,17 +315,18 @@ export const migrateCommand = defineCommand({
 					]
 				: [`  📝 Posts, follows, images, likes, and blocks`];
 
-			p.note(
-				brightNote([
-					bold(`@${handle}`) + ` (${did.slice(0, 20)}...)`,
+			p.box(
+				[
+					pc.bold(`@${handle}`) + ` (${did.slice(0, 20)}...)`,
 					"",
 					`Currently at:  ${sourceDomain}`,
 					`Moving to:     ${targetDomain}`,
 					"",
 					"What you're bringing:",
 					...statsLines,
-				]),
+				].join("\n"),
 				"Your Bluesky Account 🦋",
+				{ titleAlign: "center" },
 			);
 
 			p.log.info(
@@ -378,7 +374,7 @@ export const migrateCommand = defineCommand({
 			sourceClient.setAuthToken(session.accessJwt);
 			spinner.stop("Authenticated successfully");
 		} catch (err) {
-			spinner.stop("Login failed");
+			spinner.error("Login failed");
 			if (err instanceof PDSClientError) {
 				p.log.error(`Authentication failed: ${err.message}`);
 			} else {
@@ -402,7 +398,7 @@ export const migrateCommand = defineCommand({
 					`Downloaded ${formatBytes(carBytes.length)} from ${sourceDomain}`,
 				);
 			} catch (err) {
-				spinner.stop("Export failed");
+				spinner.error("Export failed");
 				p.log.error(
 					err instanceof Error ? err.message : "Could not export repository",
 				);
@@ -415,7 +411,7 @@ export const migrateCommand = defineCommand({
 				await targetClient.importRepo(carBytes);
 				spinner.stop("Repository imported");
 			} catch (err) {
-				spinner.stop("Import failed");
+				spinner.error("Import failed");
 				p.log.error(
 					err instanceof Error ? err.message : "Could not import repository",
 				);
@@ -528,20 +524,20 @@ export const migrateCommand = defineCommand({
 });
 
 function showNextSteps(pm: string, sourceDomain: string): void {
-	p.note(
-		brightNote([
-			bold("Your data is safe in your new PDS."),
+	p.box(
+		[
+			pc.bold("Your data is safe in your new PDS."),
 			"Two more steps to go live in the Atmosphere:",
 			"",
-			bold("1. Update your identity"),
+			pc.bold("1. Update your identity"),
 			"   Tell the network where you live now.",
 			`   (Requires email verification from ${sourceDomain})`,
 			"",
-			bold("2. Flip the switch"),
+			pc.bold("2. Flip the switch"),
 			`   ${pm} pds activate`,
 			"",
 			"Docs: https://atproto.com/guides/account-migration",
-		]),
+		].join("\n"),
 		"Almost there!",
 	);
 }

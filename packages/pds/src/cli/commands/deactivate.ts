@@ -9,10 +9,6 @@ import { readDevVars } from "../utils/dotenv.js";
 import { PDSClient } from "../utils/pds-client.js";
 import { getTargetUrl, getDomain } from "../utils/cli-helpers.js";
 
-// Helper to override clack's dim styling in notes
-const brightNote = (lines: string[]) => lines.map((l) => `\x1b[0m${l}`).join("\n");
-const bold = (text: string) => pc.bold(text);
-
 export const deactivateCommand = defineCommand({
 	meta: {
 		name: "deactivate",
@@ -91,17 +87,17 @@ export const deactivateCommand = defineCommand({
 		}
 
 		// Show warning
-		p.note(
-			brightNote([
-				bold(`⚠️  WARNING: This will disable writes for @${handle || "your-handle"}`),
+		p.box(
+			[
+				pc.bold(`⚠️  WARNING: This will disable writes for @${handle || "your-handle"}`),
 				"",
 				"Your account will:",
 				"  • Stop accepting new posts, follows, and other writes",
 				"  • Remain readable in the Atmosphere",
 				"  • Allow you to use 'pds migrate --clean' to re-import",
 				"",
-				bold("Only deactivate if you need to re-import your data."),
-			]),
+				pc.bold("Only deactivate if you need to re-import your data."),
+			].join("\n"),
 			"Deactivate Account",
 		);
 
@@ -121,7 +117,7 @@ export const deactivateCommand = defineCommand({
 			await client.deactivateAccount();
 			spinner.stop("Account deactivated");
 		} catch (err) {
-			spinner.stop("Deactivation failed");
+			spinner.error("Deactivation failed");
 			p.log.error(
 				err instanceof Error ? err.message : "Could not deactivate account",
 			);
