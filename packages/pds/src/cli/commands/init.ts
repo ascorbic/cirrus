@@ -511,18 +511,18 @@ export const initCommand = defineCommand({
 
 		p.box(
 			[
-				"  Worker name:  " + workerName,
-				"  PDS hostname: " + hostname,
-				"  DID: " + did,
-				"  Handle: " + handle,
-				"  Public signing key: " + signingKeyPublic.slice(0, 20) + "...",
+				pc.cyan("  Worker name:  ") + workerName,
+				pc.cyan("  PDS hostname: ") + hostname,
+				pc.cyan("  DID: ") + pc.dim(did),
+				pc.cyan("  Handle: ") + pc.bold(handle),
+				pc.cyan("  Public signing key: ") + pc.dim(signingKeyPublic.slice(0, 20) + "..."),
 				"",
 				isProduction
-					? "Secrets deployed to Cloudflare ☁️"
-					: "Secrets saved to .dev.vars",
+					? pc.green("✓ Secrets deployed to Cloudflare ☁️")
+					: pc.green("✓ Secrets saved to .dev.vars"),
 				"",
-				"Auth token (save this!):",
-				"  " + authToken,
+				pc.yellow("Auth token (save this!):"),
+				"  " + pc.bold(authToken),
 			].join("\n"),
 			"Your New Home 🏠",
 		);
@@ -550,19 +550,19 @@ export const initCommand = defineCommand({
 			p.box(
 				[
 					deployedSecrets
-						? "Deploy your worker and run the migration:"
-						: "Push secrets, deploy, and run the migration:",
+						? pc.bold("Deploy your worker and run the migration:")
+						: pc.bold("Push secrets, deploy, and run the migration:"),
 					"",
-					...(deployedSecrets ? [] : ["  pnpm pds init --production", ""]),
-					"  wrangler deploy",
-					"  pnpm pds migrate",
+					...(deployedSecrets ? [] : [pc.cyan("  pnpm pds init --production"), ""]),
+					pc.cyan("  wrangler deploy"),
+					pc.cyan("  pnpm pds migrate"),
 					"",
-					"To test locally first:",
-					"  pnpm dev              # in one terminal",
-					"  pnpm pds migrate --dev  # in another",
+					pc.bold("To test locally first:"),
+					pc.cyan("  pnpm dev") + pc.dim("              # in one terminal"),
+					pc.cyan("  pnpm pds migrate --dev") + pc.dim("  # in another"),
 					"",
-					"Then update your identity and flip the switch! 🦋",
-					"  https://atproto.com/guides/account-migration",
+					pc.bold("Then update your identity and flip the switch! 🦋"),
+					pc.blue("  https://atproto.com/guides/account-migration"),
 				].join("\n"),
 				"Next Steps 🧳",
 			);
