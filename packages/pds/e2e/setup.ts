@@ -124,8 +124,9 @@ function startViteServer(cwd: string): Promise<number> {
 
 			// Look for the local URL in Vite's output
 			// e.g., "  ➜  Local:   http://localhost:5173/"
-			// Use a simpler pattern that just looks for localhost:port
-			const match = output.match(/localhost:(\d+)/);
+			// Strip ANSI escape codes before matching (bold, colors, etc)
+			const cleanOutput = output.replace(/\x1b\[[0-9;]*m/g, "");
+			const match = cleanOutput.match(/localhost:(\d+)/);
 			if (match?.[1]) {
 				console.log(
 					`Detected Vite server on port ${match[1]} (${Date.now() - startTime}ms)`,
