@@ -75,13 +75,13 @@ export const migrateCommand = defineCommand({
 		p.intro("🦋 PDS Migration");
 
 		const spinner = p.spinner();
-		spinner.start(`Checking PDS at ${targetDomain}...`);
+		spinner.start(`Checking PDS at ${pc.cyan(targetDomain)}...`);
 
 		const targetClient = new PDSClient(targetUrl);
 		const isHealthy = await targetClient.healthCheck();
 
 		if (!isHealthy) {
-			spinner.error(`PDS not responding at ${targetDomain}`);
+			spinner.error(`PDS not responding at ${pc.cyan(targetDomain)}`);
 			if (isDev) {
 				p.log.error(`Your local PDS isn't running at ${targetUrl}`);
 				p.log.info(`Start it with: ${pm} dev`);
@@ -93,7 +93,7 @@ export const migrateCommand = defineCommand({
 			p.outro("Migration cancelled.");
 			process.exit(1);
 		}
-		spinner.stop(`Connected to ${targetDomain}`);
+		spinner.stop(`Connected to ${pc.cyan(targetDomain)}`);
 
 		const wranglerVars = getVars();
 		const devVars = readDevVars();
@@ -117,7 +117,7 @@ export const migrateCommand = defineCommand({
 
 		targetClient.setAuthToken(authToken);
 
-		spinner.start(`Looking up @${handle}...`);
+		spinner.start(`Looking up ${pc.bold(`@${handle}`)}...`);
 
 		const didResolver = new DidResolver();
 		const didDoc = await didResolver.resolve(did);
@@ -138,7 +138,7 @@ export const migrateCommand = defineCommand({
 		}
 
 		const sourceDomain = getDomain(sourcePdsUrl);
-		spinner.stop(`Found your account at ${sourceDomain}`);
+		spinner.stop(`Found your account at ${pc.cyan(sourceDomain)}`);
 
 		spinner.start("Checking account status...");
 
@@ -221,7 +221,7 @@ export const migrateCommand = defineCommand({
 			return;
 		}
 
-		spinner.start(`Fetching your account details from ${sourceDomain}...`);
+		spinner.start(`Fetching your account details from ${pc.cyan(sourceDomain)}...`);
 
 		const sourceClient = new PDSClient(sourcePdsUrl);
 		try {
@@ -339,12 +339,12 @@ export const migrateCommand = defineCommand({
 		}
 
 		spinner.start(
-			`Logging in to ${isBlueskyPds ? "Bluesky" : sourceDomain}...`,
+			`Logging in to ${isBlueskyPds ? pc.cyan("Bluesky") : pc.cyan(sourceDomain)}...`,
 		);
 		try {
 			const session = await sourceClient.createSession(did, password);
 			sourceClient.setAuthToken(session.accessJwt);
-			spinner.stop("Authenticated successfully");
+			spinner.stop(pc.green("Authenticated successfully"));
 		} catch (err) {
 			spinner.error("Login failed");
 			if (err instanceof PDSClientError) {
@@ -364,7 +364,7 @@ export const migrateCommand = defineCommand({
 			try {
 				carBytes = await sourceClient.getRepo(did);
 				spinner.stop(
-					`Downloaded ${formatBytes(carBytes.length)} from ${sourceDomain}`,
+					`Downloaded ${pc.green(formatBytes(carBytes.length))} from ${pc.cyan(sourceDomain)}`,
 				);
 			} catch (err) {
 				spinner.error("Export failed");
@@ -375,10 +375,10 @@ export const migrateCommand = defineCommand({
 				process.exit(1);
 			}
 
-			spinner.start(`Unpacking at ${targetDomain}...`);
+			spinner.start(`Unpacking at ${pc.cyan(targetDomain)}...`);
 			try {
 				await targetClient.importRepo(carBytes);
-				spinner.stop("Repository imported");
+				spinner.stop(pc.green("Repository imported"));
 			} catch (err) {
 				spinner.error("Import failed");
 				p.log.error(
@@ -425,7 +425,7 @@ export const migrateCommand = defineCommand({
 				countCursor = page.cursor;
 			} while (countCursor);
 
-			spinner.stop(`Found ${formatNumber(totalBlobs)} images to transfer`);
+			spinner.stop(`Found ${pc.yellow(formatNumber(totalBlobs))} images to transfer`);
 
 			// Use clack progress bar for transferring
 			const progressBar = p.progress({

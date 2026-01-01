@@ -58,11 +58,11 @@ export const deactivateCommand = defineCommand({
 
 		// Check if PDS is reachable
 		const spinner = p.spinner();
-		spinner.start(`Checking PDS at ${targetDomain}...`);
+		spinner.start(`Checking PDS at ${pc.cyan(targetDomain)}...`);
 
 		const isHealthy = await client.healthCheck();
 		if (!isHealthy) {
-			spinner.stop(`PDS not responding at ${targetDomain}`);
+			spinner.error(`PDS not responding at ${targetDomain}`);
 			p.log.error(`Your PDS isn't responding at ${targetUrl}`);
 			if (!isDev) {
 				p.log.info("Make sure your worker is deployed: wrangler deploy");
@@ -71,7 +71,7 @@ export const deactivateCommand = defineCommand({
 			process.exit(1);
 		}
 
-		spinner.stop(`Connected to ${targetDomain}`);
+		spinner.stop(`Connected to ${pc.cyan(targetDomain)}`);
 
 		// Get current account status
 		spinner.start("Checking account status...");
@@ -89,7 +89,7 @@ export const deactivateCommand = defineCommand({
 		// Show warning
 		p.box(
 			[
-				pc.bold(`⚠️  WARNING: This will disable writes for @${handle || "your-handle"}`),
+				pc.yellow(pc.bold(`⚠️  WARNING: This will disable writes for @${handle || "your-handle"}`)),
 				"",
 				"Your account will:",
 				"  • Stop accepting new posts, follows, and other writes",
@@ -115,7 +115,7 @@ export const deactivateCommand = defineCommand({
 		spinner.start("Deactivating account...");
 		try {
 			await client.deactivateAccount();
-			spinner.stop("Account deactivated");
+			spinner.stop(pc.green("Account deactivated"));
 		} catch (err) {
 			spinner.error("Deactivation failed");
 			p.log.error(
@@ -129,10 +129,10 @@ export const deactivateCommand = defineCommand({
 		p.log.info("Writes are now disabled.");
 		p.log.info("");
 		p.log.info("To re-import your data:");
-		p.log.info("  pnpm pds migrate --clean");
+		p.log.info(`  ${pc.cyan("pnpm pds migrate --clean")}`);
 		p.log.info("");
 		p.log.info("To re-enable writes:");
-		p.log.info("  pnpm pds activate");
+		p.log.info(`  ${pc.cyan("pnpm pds activate")}`);
 		p.outro("Deactivated.");
 	},
 });

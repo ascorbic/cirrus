@@ -3,6 +3,7 @@
  */
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
+import pc from "picocolors";
 import { getVars } from "../utils/wrangler.js";
 import { readDevVars } from "../utils/dotenv.js";
 import { PDSClient } from "../utils/pds-client.js";
@@ -57,7 +58,7 @@ export const activateCommand = defineCommand({
 
 		// Check if PDS is reachable
 		const spinner = p.spinner();
-		spinner.start(`Checking PDS at ${targetDomain}...`);
+		spinner.start(`Checking PDS at ${pc.cyan(targetDomain)}...`);
 
 		const isHealthy = await client.healthCheck();
 		if (!isHealthy) {
@@ -70,7 +71,7 @@ export const activateCommand = defineCommand({
 			process.exit(1);
 		}
 
-		spinner.stop(`Connected to ${targetDomain}`);
+		spinner.stop(`Connected to ${pc.cyan(targetDomain)}`);
 
 		// Get current account status
 		spinner.start("Checking account status...");
@@ -88,7 +89,7 @@ export const activateCommand = defineCommand({
 		// Show confirmation
 		p.box(
 			[
-				`@${handle || "your-handle"}`,
+				pc.bold(`@${handle || "your-handle"}`),  
 				"",
 				"This will enable writes and make your account live.",
 				"Make sure you've:",
@@ -112,7 +113,7 @@ export const activateCommand = defineCommand({
 		spinner.start("Activating account...");
 		try {
 			await client.activateAccount();
-			spinner.stop("Account activated!");
+			spinner.stop(pc.green("Account activated! 🎉"));
 		} catch (err) {
 			spinner.error("Activation failed");
 			p.log.error(
