@@ -61,7 +61,8 @@ export const migrateCommand = defineCommand({
 		},
 	},
 	async run({ args }) {
-		const pm = detectPackageManager();
+		const packageManager = detectPackageManager();
+		const pm = packageManager === "npm" ? "npm run" : packageManager;
 		const isDev = args.dev;
 
 		// Get target URL
@@ -147,6 +148,9 @@ export const migrateCommand = defineCommand({
 
 		spinner.start("Checking account status...");
 
+		const isBlueskyPds = sourceDomain.endsWith(".bsky.network");
+		const pdsDisplayName = isBlueskyPds ? "bsky.social" : sourceDomain;
+
 		let status;
 		try {
 			status = await targetClient.getAccountStatus();
@@ -165,7 +169,7 @@ export const migrateCommand = defineCommand({
 			if (status.active) {
 				p.log.error("Cannot reset: account is active");
 				p.log.info("The --clean flag only works on deactivated accounts.");
-				p.log.info("Your account is already live in the Atmosphere.");
+				p.log.info("Your account is already live");
 				p.log.info("");
 				p.log.info("If you need to re-import, first deactivate:");
 				p.log.info("  pnpm pds deactivate");
@@ -182,7 +186,7 @@ export const migrateCommand = defineCommand({
 					`  • ${formatNumber(status.importedBlobs)} imported images`,
 					"  • All blob tracking data",
 					"",
-					bold(`Your data on ${sourceDomain} is NOT affected.`),
+					bold(`Your data on ${pdsDisplayName} is NOT affected.`),
 					"You'll need to re-import everything.",
 				]),
 				"⚠️  Reset Migration Data",
@@ -220,13 +224,13 @@ export const migrateCommand = defineCommand({
 		}
 
 		if (status.active) {
-			p.log.warn("Your account is already active in the Atmosphere!");
+			p.log.warn(`Your account is already active at ${targetDomain}!`);
 			p.log.info("No migration needed - your PDS is live.");
-			p.outro("All good! 🦋");
+			p.outro("All good!");
 			return;
 		}
 
-		spinner.start(`Fetching your account details from ${sourceDomain}...`);
+		spinner.start(`Fetching your account details from ${pdsDisplayName}...`);
 
 		const sourceClient = new PDSClient(sourcePdsUrl);
 		try {
@@ -266,13 +270,13 @@ export const migrateCommand = defineCommand({
 					`@${handle} (${did.slice(0, 20)}...)`,
 					"",
 					"✓ Repository imported",
-					`◐ Images: ${formatNumber(status.importedBlobs)}/${formatNumber(status.expectedBlobs)} transferred`,
+					`◐ Media: ${formatNumber(status.importedBlobs)}/${formatNumber(status.expectedBlobs)} images and videos transferred`,
 				].join("\n"),
 				"Migration Progress",
 			);
 
 			const continueTransfer = await p.confirm({
-				message: "Continue transferring images?",
+				message: "Continue transferring images and video?",
 				initialValue: true,
 			});
 
@@ -283,17 +287,15 @@ export const migrateCommand = defineCommand({
 		} else if (needsRepoImport) {
 			// Fresh migration
 			p.log.info("Time to pack your bags!");
-			p.log.info(
-				"Let's move your Bluesky account to its new home in the Atmosphere.",
-			);
+			p.log.info("Let's clone your account to its new home in the Atmosphere.");
 
 			const statsLines = profileStats
 				? [
 						`  📝 ${formatNumber(profileStats.postsCount)} posts`,
 						`  👥 ${formatNumber(profileStats.followsCount)} follows`,
-						`  ...plus all your images, likes, and blocks`,
+						`  ...plus all your images, likes and preferences`,
 					]
-				: [`  📝 Posts, follows, images, likes, and blocks`];
+				: [`  📝 Posts, follows, images, likes and preferences`];
 
 			p.note(
 				brightNote([
@@ -309,11 +311,11 @@ export const migrateCommand = defineCommand({
 			);
 
 			p.log.info(
-				"This will copy your data - nothing is changed or deleted on Bluesky.",
+				`This will copy your data - nothing is changed or deleted on your current PDS.`,
 			);
 
 			const proceed = await p.confirm({
-				message: "Ready to start packing?",
+				message: "Ready to start moving?",
 				initialValue: true,
 			});
 
@@ -323,18 +325,14 @@ export const migrateCommand = defineCommand({
 			}
 		} else {
 			// Already complete
-			p.log.success("All packed and moved! 🦋");
-			showNextSteps(pm, sourceDomain);
+			p.log.success("Everything looks good!");
+			showNextSteps(pm, pdsDisplayName);
 			p.outro("Welcome to your new home in the Atmosphere! 🦋");
 			return;
 		}
 
-		const isBlueskyPds = sourceDomain.endsWith(".bsky.network");
-		const passwordPrompt = isBlueskyPds
-			? "Your current Bluesky password:"
-			: `Your ${sourceDomain} password:`;
 		const password = await p.password({
-			message: passwordPrompt,
+			message: `Your password for ${pdsDisplayName}:`,
 		});
 
 		if (p.isCancel(password)) {
@@ -342,9 +340,7 @@ export const migrateCommand = defineCommand({
 			process.exit(0);
 		}
 
-		spinner.start(
-			`Logging in to ${isBlueskyPds ? "Bluesky" : sourceDomain}...`,
-		);
+		spinner.start(`Logging in to ${pdsDisplayName}...`);
 		try {
 			const session = await sourceClient.createSession(did, password);
 			sourceClient.setAuthToken(session.accessJwt);
@@ -363,7 +359,7 @@ export const migrateCommand = defineCommand({
 		}
 
 		if (needsRepoImport) {
-			spinner.start("Packing your repository...");
+			spinner.start(`Exporting your repository from ${pdsDisplayName}...`);
 			let carBytes: Uint8Array;
 			try {
 				carBytes = await sourceClient.getRepo(did);
@@ -379,7 +375,7 @@ export const migrateCommand = defineCommand({
 				process.exit(1);
 			}
 
-			spinner.start(`Unpacking at ${targetDomain}...`);
+			spinner.start(`Importing to ${targetDomain}...`);
 			try {
 				await targetClient.importRepo(carBytes);
 				spinner.stop("Repository imported");
@@ -401,7 +397,9 @@ export const migrateCommand = defineCommand({
 			const preferences = await sourceClient.getPreferences();
 			if (preferences.length > 0) {
 				await targetClient.putPreferences(preferences);
-				spinner.stop(`Migrated ${preferences.length} preference${preferences.length === 1 ? "" : "s"}`);
+				spinner.stop(
+					`Migrated ${preferences.length} preference${preferences.length === 1 ? "" : "s"}`,
+				);
 			} else {
 				spinner.stop("No preferences to migrate");
 			}
@@ -437,7 +435,7 @@ export const migrateCommand = defineCommand({
 				countCursor = page.cursor;
 			} while (countCursor);
 
-			spinner.message(`Transferring images ${progressBar(0, totalBlobs)}`);
+			spinner.message(`Transferring media:\n${progressBar(0, totalBlobs)}`);
 
 			do {
 				const page = await targetClient.listMissingBlobs(100, cursor);
@@ -452,13 +450,13 @@ export const migrateCommand = defineCommand({
 						await targetClient.uploadBlob(bytes, mimeType);
 						synced++;
 						spinner.message(
-							`Transferring images ${progressBar(synced, totalBlobs)}`,
+							`Transferring media:\n${progressBar(synced, totalBlobs)}`,
 						);
 					} catch (err) {
 						synced++;
 						failedBlobs.push(blob.cid);
 						spinner.message(
-							`Transferring images ${progressBar(synced, totalBlobs)}`,
+							`Transferring media:\n${progressBar(synced, totalBlobs)}`,
 						);
 					}
 				}
@@ -466,11 +464,11 @@ export const migrateCommand = defineCommand({
 
 			if (failedBlobs.length > 0) {
 				spinner.stop(
-					`Transferred ${formatNumber(synced - failedBlobs.length)} images (${failedBlobs.length} failed)`,
+					`Transferred ${formatNumber(synced - failedBlobs.length)} images and videos (${failedBlobs.length} failed)`,
 				);
 				p.log.warn(`Run 'pds migrate' again to retry failed transfers.`);
 			} else {
-				spinner.stop(`Transferred ${formatNumber(synced)} images`);
+				spinner.stop(`Transferred ${formatNumber(synced)} images and videos`);
 			}
 		}
 
@@ -482,7 +480,7 @@ export const migrateCommand = defineCommand({
 			finalStatus.importedBlobs >= finalStatus.expectedBlobs;
 
 		if (allBlobsSynced) {
-			p.log.success("All packed and moved! 🦋");
+			p.log.success("All packed and moved!");
 		} else {
 			p.log.warn(
 				`Migration partially complete. ${finalStatus.expectedBlobs - finalStatus.importedBlobs} images remaining.`,
@@ -490,7 +488,7 @@ export const migrateCommand = defineCommand({
 			p.log.info("Run 'pds migrate' again to continue.");
 		}
 
-		showNextSteps(pm, sourceDomain);
+		showNextSteps(pm, pdsDisplayName);
 		p.outro("Welcome to your new home in the Atmosphere! 🦋");
 	},
 });

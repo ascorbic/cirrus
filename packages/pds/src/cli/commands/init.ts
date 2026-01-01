@@ -11,6 +11,11 @@ import {
 	setWorkerName,
 	type SecretName,
 } from "../utils/wrangler.js";
+import {
+	promptText,
+	promptConfirm,
+	promptSelect,
+} from "../utils/cli-helpers.js";
 
 /**
  * Slugify a handle to create a worker name
@@ -23,6 +28,34 @@ function slugifyHandle(handle: string): string {
 			.replace(/[^a-z0-9]+/g, "-")
 			.replace(/^-|-$/g, "") + "-pds"
 	);
+}
+
+const defaultWorkerName = "my-pds";
+
+/**
+ * Prompt for worker name with validation
+ */
+async function promptWorkerName(
+	handle: string,
+	currentWorkerName: string | undefined,
+): Promise<string> {
+	// Use current worker name if it exists and is not the default
+	const placeholder =
+		currentWorkerName && currentWorkerName !== defaultWorkerName
+			? currentWorkerName
+			: // Otherwise, generate from handle
+				slugifyHandle(handle);
+	return promptText({
+		message: "Cloudflare Worker name:",
+		placeholder,
+		initialValue: placeholder,
+		validate: (v) => {
+			if (!v) return "Worker name is required";
+			if (!/^[a-z0-9-]+$/.test(v))
+				return "Worker name can only contain lowercase letters, numbers, and hyphens";
+			return undefined;
+		},
+	});
 }
 import { readDevVars } from "../utils/dotenv.js";
 import {
@@ -77,8 +110,7 @@ export const initCommand = defineCommand({
 	args: {
 		production: {
 			type: "boolean",
-			description:
-				"Deploy secrets to Cloudflare (prompts to reuse .dev.vars values)",
+			description: "Deploy secrets to Cloudflare?",
 			default: false,
 		},
 	},
@@ -87,10 +119,9 @@ export const initCommand = defineCommand({
 
 		const isProduction = args.production;
 		if (isProduction) {
-			p.log.info("Production mode: secrets will be deployed via wrangler");
-		} else {
-			p.log.info("Let's set up your new home in the Atmosphere!");
+			p.log.info("Production mode: secrets will be deployed to Cloudflare");
 		}
+		p.log.info("Let's set up your new home in the Atmosphere!");
 
 		// Get current config from both sources
 		const wranglerVars = getVars();
@@ -100,14 +131,10 @@ export const initCommand = defineCommand({
 		const currentVars = { ...devVars, ...wranglerVars };
 
 		// Ask if migrating an existing account
-		const isMigrating = await p.confirm({
-			message: "Are you migrating an existing Bluesky account? 🦋",
+		const isMigrating = await promptConfirm({
+			message: "Are you migrating an existing Bluesky/ATProto account?",
 			initialValue: false,
 		});
-		if (p.isCancel(isMigrating)) {
-			p.cancel("Setup cancelled");
-			process.exit(0);
-		}
 
 		let did: string;
 		let handle: string;
@@ -120,13 +147,13 @@ export const initCommand = defineCommand({
 		if (isMigrating) {
 			p.log.info("Time to pack your bags! 🧳");
 			p.log.info(
-				"Your account will be inactive until you've moved your data over.",
+				"Your new account will be inactive until you've ready to go live.",
 			);
 
 			// Fallback hosted domains - will be updated from source PDS if possible
 			let hostedDomains = [".bsky.social", ".bsky.network", ".bsky.team"];
-			const isHostedHandle = (h: string) =>
-				hostedDomains.some((domain) => h.endsWith(domain));
+			const isHostedHandle = (h: string | null) =>
+				hostedDomains.some((domain) => h?.endsWith(domain));
 
 			// Loop to allow retry on failed handle resolution (max 3 attempts)
 			let resolvedDid: string | null = null;
@@ -137,16 +164,12 @@ export const initCommand = defineCommand({
 			while (!resolvedDid && attempts < MAX_ATTEMPTS) {
 				attempts++;
 				// Get current handle to look up DID
-				const currentHandle = await p.text({
+				const currentHandle = await promptText({
 					message: "Your current Bluesky/ATProto handle:",
 					placeholder: "example.bsky.social",
 					validate: (v) => (!v ? "Handle is required" : undefined),
 				});
-				if (p.isCancel(currentHandle)) {
-					p.cancel("Cancelled");
-					process.exit(0);
-				}
-				existingHandle = currentHandle as string;
+				existingHandle = currentHandle;
 
 				// Resolve handle to DID
 				const spinner = p.spinner();
@@ -157,20 +180,16 @@ export const initCommand = defineCommand({
 					spinner.stop("Not found");
 					p.log.error(`Failed to resolve handle "${currentHandle}"`);
 
-					const action = await p.select({
+					const action = await promptSelect({
 						message: "What would you like to do?",
 						options: [
-							{ value: "retry", label: "Try a different handle" },
-							{ value: "manual", label: "Enter DID manually" },
+							{ value: "retry" as const, label: "Try a different handle" },
+							{ value: "manual" as const, label: "Enter DID manually" },
 						],
 					});
-					if (p.isCancel(action)) {
-						p.cancel("Cancelled");
-						process.exit(0);
-					}
 
 					if (action === "manual") {
-						const manualDid = await p.text({
+						resolvedDid = await promptText({
 							message: "Enter your DID:",
 							placeholder: "did:plc:...",
 							validate: (v) => {
@@ -179,11 +198,6 @@ export const initCommand = defineCommand({
 								return undefined;
 							},
 						});
-						if (p.isCancel(manualDid)) {
-							p.cancel("Cancelled");
-							process.exit(0);
-						}
-						resolvedDid = manualDid as string;
 					}
 					// If action === "retry", loop continues with fresh handle prompt
 				} else {
@@ -215,10 +229,10 @@ export const initCommand = defineCommand({
 						// Ignore errors, use fallback domains
 					}
 					spinner.stop(`Found you! ${resolvedDid}`);
-					if (isHostedHandle(existingHandle!)) {
+					if (isHostedHandle(existingHandle)) {
 						// Show the actual hosted domain they're on
 						const theirDomain = hostedDomains.find((d) =>
-							existingHandle!.endsWith(d),
+							existingHandle?.endsWith(d),
 						);
 						const domainExample = theirDomain
 							? `*${theirDomain}`
@@ -247,7 +261,7 @@ export const initCommand = defineCommand({
 					? existingHandle
 					: currentVars.HANDLE || "";
 
-			handle = (await p.text({
+			handle = await promptText({
 				message: "New account handle (must be a domain you control):",
 				placeholder: "example.com",
 				initialValue: defaultHandle,
@@ -258,41 +272,17 @@ export const initCommand = defineCommand({
 					}
 					return undefined;
 				},
-			})) as string;
-			if (p.isCancel(handle)) {
-				p.cancel("Cancelled");
-				process.exit(0);
-			}
+			});
 
 			// Prompt for PDS hostname - default to handle if it looks like a good PDS domain
-			hostname = (await p.text({
+			hostname = await promptText({
 				message: "Domain where you'll deploy your PDS:",
 				placeholder: handle,
 				initialValue: currentVars.PDS_HOSTNAME || handle,
 				validate: (v) => (!v ? "Hostname is required" : undefined),
-			})) as string;
-			if (p.isCancel(hostname)) {
-				p.cancel("Cancelled");
-				process.exit(0);
-			}
+			});
 
-			// Prompt for worker name
-			const defaultWorkerName = currentWorkerName || slugifyHandle(handle);
-			workerName = (await p.text({
-				message: "Cloudflare Worker name:",
-				placeholder: defaultWorkerName,
-				initialValue: defaultWorkerName,
-				validate: (v) => {
-					if (!v) return "Worker name is required";
-					if (!/^[a-z0-9-]+$/.test(v))
-						return "Worker name can only contain lowercase letters, numbers, and hyphens";
-					return undefined;
-				},
-			})) as string;
-			if (p.isCancel(workerName)) {
-				p.cancel("Cancelled");
-				process.exit(0);
-			}
+			workerName = await promptWorkerName(handle, currentWorkerName);
 
 			// Set to deactivated initially for migration
 			initialActive = "false";
@@ -301,63 +291,37 @@ export const initCommand = defineCommand({
 			p.log.info("A fresh start in the Atmosphere! ✨");
 
 			// Prompt for hostname
-			hostname = (await p.text({
+			hostname = await promptText({
 				message: "Domain where you'll deploy your PDS:",
 				placeholder: "pds.example.com",
 				initialValue: currentVars.PDS_HOSTNAME || "",
 				validate: (v) => (!v ? "Hostname is required" : undefined),
-			})) as string;
-			if (p.isCancel(hostname)) {
-				p.cancel("Cancelled");
-				process.exit(0);
-			}
+			});
 
 			// Prompt for handle - default to hostname for simplicity
-			handle = (await p.text({
+			handle = await promptText({
 				message: "Account handle:",
 				placeholder: hostname,
 				initialValue: currentVars.HANDLE || hostname,
 				validate: (v) => (!v ? "Handle is required" : undefined),
-			})) as string;
-			if (p.isCancel(handle)) {
-				p.cancel("Cancelled");
-				process.exit(0);
-			}
+			});
 
 			// Prompt for DID
 			const didDefault = "did:web:" + hostname;
-			did = (await p.text({
+			did = await promptText({
 				message: "Account DID:",
 				placeholder: didDefault,
 				initialValue: currentVars.DID || didDefault,
 				validate: (v) => {
-					if (!v) return "DID is required";
-					if (!v.startsWith("did:")) return "DID must start with did:";
+					if (!v) {
+						return "DID is required";
+					}
+					if (!v.startsWith("did:")) return "DID must start with 'did:'";
 					return undefined;
 				},
-			})) as string;
-			if (p.isCancel(did)) {
-				p.cancel("Cancelled");
-				process.exit(0);
-			}
+			});
 
-			// Prompt for worker name
-			const defaultWorkerName = currentWorkerName || slugifyHandle(handle);
-			workerName = (await p.text({
-				message: "Cloudflare Worker name:",
-				placeholder: defaultWorkerName,
-				initialValue: defaultWorkerName,
-				validate: (v) => {
-					if (!v) return "Worker name is required";
-					if (!/^[a-z0-9-]+$/.test(v))
-						return "Worker name can only contain lowercase letters, numbers, and hyphens";
-					return undefined;
-				},
-			})) as string;
-			if (p.isCancel(workerName)) {
-				p.cancel("Cancelled");
-				process.exit(0);
-			}
+			workerName = await promptWorkerName(handle, currentWorkerName);
 
 			// Active by default for new accounts
 			initialActive = "true";
@@ -399,77 +363,52 @@ export const initCommand = defineCommand({
 
 		const spinner = p.spinner();
 
-		// In production mode, we may reuse secrets from .dev.vars
-		// Otherwise, we always generate fresh values
-		let authToken: string;
-		let signingKey: string;
-		let signingKeyPublic: string;
-		let jwtSecret: string;
-		let passwordHash: string;
-
-		if (isProduction) {
-			// For each secret, ask if we should reuse from .dev.vars
-			authToken = await getOrGenerateSecret("AUTH_TOKEN", devVars, async () => {
+		const authToken = await getOrGenerateSecret(
+			"AUTH_TOKEN",
+			devVars,
+			async () => {
 				spinner.start("Generating auth token...");
 				const token = generateAuthToken();
 				spinner.stop("Auth token generated");
 				return token;
-			});
+			},
+		);
 
-			signingKey = await getOrGenerateSecret(
-				"SIGNING_KEY",
-				devVars,
-				async () => {
-					spinner.start("Generating signing keypair...");
-					const { privateKey } = await generateSigningKeypair();
-					spinner.stop("Signing keypair generated");
-					return privateKey;
-				},
-			);
+		const signingKey = await getOrGenerateSecret(
+			"SIGNING_KEY",
+			devVars,
+			async () => {
+				spinner.start("Generating signing keypair...");
+				const { privateKey } = await generateSigningKeypair();
+				spinner.stop("Signing keypair generated");
+				return privateKey;
+			},
+		);
 
-			// Derive public key from the signing key we're using
-			signingKeyPublic = await derivePublicKey(signingKey);
+		const signingKeyPublic = await derivePublicKey(signingKey);
 
-			jwtSecret = await getOrGenerateSecret("JWT_SECRET", devVars, async () => {
+		const jwtSecret = await getOrGenerateSecret(
+			"JWT_SECRET",
+			devVars,
+			async () => {
 				spinner.start("Generating JWT secret...");
 				const secret = generateJwtSecret();
 				spinner.stop("JWT secret generated");
 				return secret;
-			});
+			},
+		);
 
-			passwordHash = await getOrGenerateSecret(
-				"PASSWORD_HASH",
-				devVars,
-				async () => {
-					const password = await promptPassword(handle);
-					spinner.start("Hashing password...");
-					const hash = await hashPassword(password);
-					spinner.stop("Password hashed");
-					return hash;
-				},
-			);
-		} else {
-			// Local mode: always prompt for password and generate fresh secrets
-			const password = await promptPassword(handle);
-
-			spinner.start("Hashing password...");
-			passwordHash = await hashPassword(password);
-			spinner.stop("Password hashed");
-
-			spinner.start("Generating JWT secret...");
-			jwtSecret = generateJwtSecret();
-			spinner.stop("JWT secret generated");
-
-			spinner.start("Generating auth token...");
-			authToken = generateAuthToken();
-			spinner.stop("Auth token generated");
-
-			spinner.start("Generating signing keypair...");
-			const keypair = await generateSigningKeypair();
-			signingKey = keypair.privateKey;
-			signingKeyPublic = keypair.publicKey;
-			spinner.stop("Signing keypair generated");
-		}
+		const passwordHash = await getOrGenerateSecret(
+			"PASSWORD_HASH",
+			devVars,
+			async () => {
+				const password = await promptPassword(handle);
+				spinner.start("Hashing password...");
+				const hash = await hashPassword(password);
+				spinner.stop("Password hashed");
+				return hash;
+			},
+		);
 
 		// Always set public vars and worker name in wrangler.jsonc
 		spinner.start("Updating wrangler.jsonc...");
@@ -589,11 +528,7 @@ async function getOrGenerateSecret(
 			message: `Use ${name} from .dev.vars?`,
 			initialValue: true,
 		});
-		if (p.isCancel(useExisting)) {
-			p.cancel("Cancelled");
-			process.exit(0);
-		}
-		if (useExisting) {
+		if (useExisting === true) {
 			return devVars[name];
 		}
 	}

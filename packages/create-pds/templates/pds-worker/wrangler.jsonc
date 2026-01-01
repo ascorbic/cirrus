@@ -1,7 +1,7 @@
 {
 	// AT Protocol PDS on Cloudflare Workers
 	// Run `pnpm pds init` to configure, or `pnpm pds init --production` to deploy secrets
-	"name": "atproto-pds",
+	"name": "my-pds",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-12-02",
 	"compatibility_flags": [

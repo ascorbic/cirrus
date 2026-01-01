@@ -106,11 +106,12 @@ async function getLatestPdsVersion(): Promise<string> {
 			throw new Error(`Failed to fetch: ${response.status}`);
 		}
 		const data = (await response.json()) as { version: string };
-		return `^${data.version}`;
-	} catch {
-		// Fallback to a known version if fetch fails
-		return "^0.2.0";
-	}
+		if (data.version) {
+			return data.version;
+		}
+	} catch {}
+	// Fallback to a known version if fetch fails
+	return "^0.2.0";
 }
 
 const main = defineCommand({
@@ -253,7 +254,7 @@ const main = defineCommand({
 		// Replace placeholders in package.json
 		await replaceInFile(join(targetDir, "package.json"), {
 			name: projectName,
-			pdsVersion,
+			pdsVersion: `^${pdsVersion}`,
 		});
 
 		spinner.stop("Template copied");
