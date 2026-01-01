@@ -97,6 +97,22 @@ async function replaceInFile(
 	await writeFile(filePath, content);
 }
 
+async function getLatestPdsVersion(): Promise<string> {
+	try {
+		const response = await fetch(
+			"https://registry.npmjs.org/@ascorbic/pds/latest",
+		);
+		if (!response.ok) {
+			throw new Error(`Failed to fetch: ${response.status}`);
+		}
+		const data = (await response.json()) as { version: string };
+		return `^${data.version}`;
+	} catch {
+		// Fallback to a known version if fetch fails
+		return "^0.2.0";
+	}
+}
+
 const main = defineCommand({
 	meta: {
 		name: "create-pds",
@@ -225,6 +241,10 @@ const main = defineCommand({
 
 		// Copy template
 		const spinner = p.spinner();
+		spinner.start("Fetching latest @ascorbic/pds version...");
+		const pdsVersion = await getLatestPdsVersion();
+		spinner.stop(`Using @ascorbic/pds ${pdsVersion}`);
+
 		spinner.start("Copying template...");
 
 		const templateDir = join(__dirname, "..", "templates", "pds-worker");
@@ -233,6 +253,7 @@ const main = defineCommand({
 		// Replace placeholders in package.json
 		await replaceInFile(join(targetDir, "package.json"), {
 			name: projectName,
+			pdsVersion,
 		});
 
 		spinner.stop("Template copied");
