@@ -1,5 +1,5 @@
 /**
- * Migration command - transfers account data from source PDS to local PDS
+ * Migration command - transfers account data from source PDS to new PDS
  */
 import { existsSync } from "node:fs";
 import { defineCommand } from "citty";
@@ -25,12 +25,11 @@ function detectPackageManager(): PackageManager {
 // Helper to override clack's dim styling in notes
 const brightNote = (lines: string[]) =>
 	lines.map((l) => `\x1b[0m${l}`).join("\n");
-const bold = (text: string) => pc.bold(text);
 
 /**
  * Format number with commas
  */
-function formatNumber(n: number): string {
+function num(n: number): string {
 	return n.toLocaleString();
 }
 
@@ -180,13 +179,13 @@ export const migrateCommand = defineCommand({
 			// Show what will be deleted
 			p.note(
 				brightNote([
-					bold("This will permanently delete from your new PDS:"),
+					pc.bold("This will permanently delete from your new PDS:"),
 					"",
-					`  • ${formatNumber(status.repoBlocks)} repository blocks`,
-					`  • ${formatNumber(status.importedBlobs)} imported images`,
+					`  • ${num(status.repoBlocks)} repository blocks`,
+					`  • ${num(status.importedBlobs)} imported images`,
 					"  • All blob tracking data",
 					"",
-					bold(`Your data on ${pdsDisplayName} is NOT affected.`),
+					pc.bold(`Your data on ${pdsDisplayName} is NOT affected.`),
 					"You'll need to re-import everything.",
 				]),
 				"⚠️  Reset Migration Data",
@@ -206,7 +205,7 @@ export const migrateCommand = defineCommand({
 			try {
 				const result = await targetClient.resetMigration();
 				spinner.stop(
-					`Deleted ${formatNumber(result.blocksDeleted)} blocks, ${formatNumber(result.blobsCleared)} blobs`,
+					`Deleted ${num(result.blocksDeleted)} blocks, ${num(result.blobsCleared)} blobs`,
 				);
 			} catch (err) {
 				spinner.stop("Reset failed");
@@ -270,7 +269,7 @@ export const migrateCommand = defineCommand({
 					`@${handle} (${did.slice(0, 20)}...)`,
 					"",
 					"✓ Repository imported",
-					`◐ Media: ${formatNumber(status.importedBlobs)}/${formatNumber(status.expectedBlobs)} images and videos transferred`,
+					`◐ Media: ${num(status.importedBlobs)}/${num(status.expectedBlobs)} images and videos transferred`,
 				].join("\n"),
 				"Migration Progress",
 			);
@@ -291,15 +290,15 @@ export const migrateCommand = defineCommand({
 
 			const statsLines = profileStats
 				? [
-						`  📝 ${formatNumber(profileStats.postsCount)} posts`,
-						`  👥 ${formatNumber(profileStats.followsCount)} follows`,
+						`  📝 ${num(profileStats.postsCount)} posts`,
+						`  👥 ${num(profileStats.followsCount)} follows`,
 						`  ...plus all your images, likes and preferences`,
 					]
 				: [`  📝 Posts, follows, images, likes and preferences`];
 
 			p.note(
 				brightNote([
-					bold(`@${handle}`) + ` (${did.slice(0, 20)}...)`,
+					pc.bold(`@${handle}`) + ` (${did.slice(0, 20)}...)`,
 					"",
 					`Currently at:  ${sourceDomain}`,
 					`Moving to:     ${targetDomain}`,
@@ -435,7 +434,7 @@ export const migrateCommand = defineCommand({
 				countCursor = page.cursor;
 			} while (countCursor);
 
-			spinner.message(`Transferring media:\n${progressBar(0, totalBlobs)}`);
+			spinner.message(`Transferring media ${progressBar(0, totalBlobs)}`);
 
 			do {
 				const page = await targetClient.listMissingBlobs(100, cursor);
@@ -450,13 +449,13 @@ export const migrateCommand = defineCommand({
 						await targetClient.uploadBlob(bytes, mimeType);
 						synced++;
 						spinner.message(
-							`Transferring media:\n${progressBar(synced, totalBlobs)}`,
+							`Transferring media ${progressBar(synced, totalBlobs)}`,
 						);
 					} catch (err) {
 						synced++;
 						failedBlobs.push(blob.cid);
 						spinner.message(
-							`Transferring media:\n${progressBar(synced, totalBlobs)}`,
+							`Transferring media ${progressBar(synced, totalBlobs)}`,
 						);
 					}
 				}
@@ -464,11 +463,11 @@ export const migrateCommand = defineCommand({
 
 			if (failedBlobs.length > 0) {
 				spinner.stop(
-					`Transferred ${formatNumber(synced - failedBlobs.length)} images and videos (${failedBlobs.length} failed)`,
+					`Transferred ${num(synced - failedBlobs.length)} images and videos (${failedBlobs.length} failed)`,
 				);
 				p.log.warn(`Run 'pds migrate' again to retry failed transfers.`);
 			} else {
-				spinner.stop(`Transferred ${formatNumber(synced)} images and videos`);
+				spinner.stop(`Transferred ${num(synced)} images and videos`);
 			}
 		}
 
@@ -496,14 +495,14 @@ export const migrateCommand = defineCommand({
 function showNextSteps(pm: string, sourceDomain: string): void {
 	p.note(
 		brightNote([
-			bold("Your data is safe in your new PDS."),
-			"Two more steps to go live in the Atmosphere:",
+			pc.bold("Your data is safe in your new PDS."),
+			"Two more steps to go live:",
 			"",
-			bold("1. Update your identity"),
+			pc.bold("1. Update your identity"),
 			"   Tell the network where you live now.",
 			`   (Requires email verification from ${sourceDomain})`,
 			"",
-			bold("2. Flip the switch"),
+			pc.bold("2. Flip the switch"),
 			`   ${pm} pds activate`,
 			"",
 			"Docs: https://atproto.com/guides/account-migration",
