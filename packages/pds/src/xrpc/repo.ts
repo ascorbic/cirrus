@@ -19,6 +19,30 @@ function invalidRecordError(
 	);
 }
 
+/**
+ * Check if an error is an AccountDeactivated error and return appropriate HTTP 403 response.
+ * @param c - Hono context for creating the response
+ * @param err - The error to check (expected format: "AccountDeactivated: <message>")
+ * @returns HTTP 403 Response with AccountDeactivated error type, or null if not a deactivation error
+ */
+function checkAccountDeactivatedError(
+	c: Context<AuthedAppEnv>,
+	err: unknown,
+): Response | null {
+	const message = err instanceof Error ? err.message : String(err);
+	if (message.startsWith("AccountDeactivated:")) {
+		return c.json(
+			{
+				error: "AccountDeactivated",
+				message:
+					"Account is deactivated. Call activateAccount to enable writes.",
+			},
+			403,
+		);
+	}
+	return null;
+}
+
 export async function describeRepo(
 	c: Context<AppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
@@ -230,9 +254,15 @@ export async function createRecord(
 		return invalidRecordError(c, err);
 	}
 
-	const result = await accountDO.rpcCreateRecord(collection, rkey, record);
+	try {
+		const result = await accountDO.rpcCreateRecord(collection, rkey, record);
+		return c.json(result);
+	} catch (err) {
+		const deactivatedError = checkAccountDeactivatedError(c, err);
+		if (deactivatedError) return deactivatedError;
 
-	return c.json(result);
+		throw err;
+	}
 }
 
 export async function deleteRecord(
@@ -262,19 +292,26 @@ export async function deleteRecord(
 		);
 	}
 
-	const result = await accountDO.rpcDeleteRecord(collection, rkey);
+	try {
+		const result = await accountDO.rpcDeleteRecord(collection, rkey);
 
-	if (!result) {
-		return c.json(
-			{
-				error: "RecordNotFound",
-				message: `Record not found: ${collection}/${rkey}`,
-			},
-			404,
-		);
+		if (!result) {
+			return c.json(
+				{
+					error: "RecordNotFound",
+					message: `Record not found: ${collection}/${rkey}`,
+				},
+				404,
+			);
+		}
+
+		return c.json(result);
+	} catch (err) {
+		const deactivatedError = checkAccountDeactivatedError(c, err);
+		if (deactivatedError) return deactivatedError;
+
+		throw err;
 	}
-
-	return c.json(result);
 }
 
 export async function putRecord(
@@ -315,6 +352,9 @@ export async function putRecord(
 		const result = await accountDO.rpcPutRecord(collection, rkey, record);
 		return c.json(result);
 	} catch (err) {
+		const deactivatedError = checkAccountDeactivatedError(c, err);
+		if (deactivatedError) return deactivatedError;
+
 		return c.json(
 			{
 				error: "InvalidRequest",
@@ -381,6 +421,9 @@ export async function applyWrites(
 		const result = await accountDO.rpcApplyWrites(writes);
 		return c.json(result);
 	} catch (err) {
+		const deactivatedError = checkAccountDeactivatedError(c, err);
+		if (deactivatedError) return deactivatedError;
+
 		return c.json(
 			{
 				error: "InvalidRequest",
