@@ -133,6 +133,47 @@ app.get("/health", (c) =>
 	}),
 );
 
+// Homepage
+app.get("/", (c) => {
+	const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>☁️</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+	background: #f0f0f0;
+	color: #000;
+	padding: 2rem;
+}
+.cloud { font-size: clamp(4rem, 15vw, 10rem); line-height: 1; }
+.name { font-size: clamp(1.5rem, 5vw, 3rem); font-weight: 700; letter-spacing: 0.2em; margin: 1rem 0; }
+.what { font-size: clamp(0.8rem, 2vw, 1rem); color: #666; max-width: 300px; text-align: center; }
+.handle { font-size: clamp(0.9rem, 2.5vw, 1.2rem); margin-top: 2rem; padding: 0.5rem 1rem; border: 2px solid #000; }
+:is(.handle, .name) a { color: inherit; text-decoration: none; }
+:is(.handle, .name) a:hover { text-decoration: underline; }
+.version { position: fixed; bottom: 1rem; right: 1rem; font-size: 0.7rem; color: #999; }
+</style>
+</head>
+<body>
+<div class="cloud">☁️</div>
+<div class="name"><a href="https://github.com/ascorbic/cirrus">CIRRUS</a></div>
+<div class="what">a personal data server for the atmosphere</div>
+<div class="handle"><a href="https://bsky.app/profile/${c.env.HANDLE}" target="_blank">@${c.env.HANDLE}</a></div>
+<div class="version">v${version}</div>
+</body>
+</html>`;
+	return c.html(html);
+});
+
 // Sync endpoints (federation)
 app.get("/xrpc/com.atproto.sync.getRepo", (c) =>
 	sync.getRepo(c, getAccountDO(c.env)),
