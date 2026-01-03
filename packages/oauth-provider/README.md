@@ -1,4 +1,4 @@
-# @ascorbic/atproto-oauth-provider
+# @getcirrus/oauth-provider
 
 > **🚨 This package has been renamed to `@getcirrus/oauth-provider`**
 >
@@ -20,15 +20,15 @@ A complete OAuth 2.1 provider implementation that enables "Login with Bluesky" f
 ## Installation
 
 ```bash
-npm install @ascorbic/atproto-oauth-provider
+npm install @getcirrus/oauth-provider
 # or
-pnpm add @ascorbic/atproto-oauth-provider
+pnpm add @getcirrus/oauth-provider
 ```
 
 ## Quick Start
 
 ```typescript
-import { OAuthProvider } from "@ascorbic/atproto-oauth-provider";
+import { OAuthProvider } from "@getcirrus/oauth-provider";
 import { OAuthStorage } from "./your-storage-implementation";
 
 // Initialize the provider
@@ -102,7 +102,7 @@ export interface OAuthProviderStorage {
 }
 ```
 
-A SQLite implementation for Durable Objects is included in the `@ascorbic/pds` package.
+A SQLite implementation for Durable Objects is included in the `@getcirrus/pds` package.
 
 ## OAuth 2.1 Flow
 
@@ -283,6 +283,6 @@ MIT
 
 ## Related Packages
 
-- `@ascorbic/pds` - AT Protocol PDS implementation using this OAuth provider
+- `@getcirrus/pds` - AT Protocol PDS implementation using this OAuth provider
 - `@atproto/oauth-client` - Official AT Protocol OAuth client
 - `@atproto/oauth-types` - TypeScript types for AT Protocol OAuth

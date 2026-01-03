@@ -1190,7 +1190,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	/** Save an authorization code */
 	async rpcSaveAuthCode(
 		code: string,
-		data: import("@ascorbic/atproto-oauth-provider").AuthCodeData,
+		data: import("@getcirrus/oauth-provider").AuthCodeData,
 	): Promise<void> {
 		const storage = await this.getOAuthStorage();
 		await storage.saveAuthCode(code, data);
@@ -1199,7 +1199,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	/** Get authorization code data */
 	async rpcGetAuthCode(
 		code: string,
-	): Promise<import("@ascorbic/atproto-oauth-provider").AuthCodeData | null> {
+	): Promise<import("@getcirrus/oauth-provider").AuthCodeData | null> {
 		const storage = await this.getOAuthStorage();
 		return storage.getAuthCode(code);
 	}
@@ -1212,7 +1212,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 	/** Save token data */
 	async rpcSaveTokens(
-		data: import("@ascorbic/atproto-oauth-provider").TokenData,
+		data: import("@getcirrus/oauth-provider").TokenData,
 	): Promise<void> {
 		const storage = await this.getOAuthStorage();
 		await storage.saveTokens(data);
@@ -1221,7 +1221,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	/** Get token data by access token */
 	async rpcGetTokenByAccess(
 		accessToken: string,
-	): Promise<import("@ascorbic/atproto-oauth-provider").TokenData | null> {
+	): Promise<import("@getcirrus/oauth-provider").TokenData | null> {
 		const storage = await this.getOAuthStorage();
 		return storage.getTokenByAccess(accessToken);
 	}
@@ -1229,7 +1229,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	/** Get token data by refresh token */
 	async rpcGetTokenByRefresh(
 		refreshToken: string,
-	): Promise<import("@ascorbic/atproto-oauth-provider").TokenData | null> {
+	): Promise<import("@getcirrus/oauth-provider").TokenData | null> {
 		const storage = await this.getOAuthStorage();
 		return storage.getTokenByRefresh(refreshToken);
 	}
@@ -1249,7 +1249,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	/** Save client metadata */
 	async rpcSaveClient(
 		clientId: string,
-		metadata: import("@ascorbic/atproto-oauth-provider").ClientMetadata,
+		metadata: import("@getcirrus/oauth-provider").ClientMetadata,
 	): Promise<void> {
 		const storage = await this.getOAuthStorage();
 		await storage.saveClient(clientId, metadata);
@@ -1258,7 +1258,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	/** Get client metadata */
 	async rpcGetClient(
 		clientId: string,
-	): Promise<import("@ascorbic/atproto-oauth-provider").ClientMetadata | null> {
+	): Promise<import("@getcirrus/oauth-provider").ClientMetadata | null> {
 		const storage = await this.getOAuthStorage();
 		return storage.getClient(clientId);
 	}
@@ -1266,7 +1266,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	/** Save PAR data */
 	async rpcSavePAR(
 		requestUri: string,
-		data: import("@ascorbic/atproto-oauth-provider").PARData,
+		data: import("@getcirrus/oauth-provider").PARData,
 	): Promise<void> {
 		const storage = await this.getOAuthStorage();
 		await storage.savePAR(requestUri, data);
@@ -1275,7 +1275,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	/** Get PAR data */
 	async rpcGetPAR(
 		requestUri: string,
-	): Promise<import("@ascorbic/atproto-oauth-provider").PARData | null> {
+	): Promise<import("@getcirrus/oauth-provider").PARData | null> {
 		const storage = await this.getOAuthStorage();
 		return storage.getPAR(requestUri);
 	}

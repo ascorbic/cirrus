@@ -1,20 +1,20 @@
 /**
  * OAuth 2.1 integration for the PDS
  *
- * Connects the @ascorbic/atproto-oauth-provider package with the PDS
+ * Connects the @getcirrus/oauth-provider package with the PDS
  * by providing storage through Durable Objects and user authentication
  * through the existing session system.
  */
 
 import { Hono } from "hono";
-import { ATProtoOAuthProvider } from "@ascorbic/atproto-oauth-provider";
+import { ATProtoOAuthProvider } from "@getcirrus/oauth-provider";
 import type {
 	OAuthStorage,
 	AuthCodeData,
 	TokenData,
 	ClientMetadata,
 	PARData,
-} from "@ascorbic/atproto-oauth-provider";
+} from "@getcirrus/oauth-provider";
 import { compare } from "bcryptjs";
 import type { PDSEnv } from "./types";
 import type { AccountDurableObject } from "./account-do";

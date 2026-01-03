@@ -1,7 +1,7 @@
 # OAuth Provider Implementation
 
 **Status:** ✅ Complete
-**Package:** `@ascorbic/atproto-oauth-provider`
+**Package:** `@getcirrus/oauth-provider`
 
 ## Overview
 
@@ -9,7 +9,7 @@ OAuth 2.1 provider with AT Protocol extensions enabling "Login with Bluesky" eco
 
 ## What Was Built
 
-### Package: `@ascorbic/atproto-oauth-provider`
+### Package: `@getcirrus/oauth-provider`
 
 A purpose-built OAuth 2.1 provider (not extending Cloudflare's OAuth provider) with:
 
@@ -117,7 +117,7 @@ packages/pds/src/
 ## Usage
 
 ```typescript
-import { ATProtoOAuthProvider } from "@ascorbic/atproto-oauth-provider";
+import { ATProtoOAuthProvider } from "@getcirrus/oauth-provider";
 
 const provider = new ATProtoOAuthProvider({
   issuer: "https://your-pds.com",

@@ -180,7 +180,7 @@ If migration fails partway through:
 
 - [AT Protocol Documentation](https://atproto.com)
 - [Cloudflare Workers Docs](https://developers.cloudflare.com/workers/)
-- [@ascorbic/pds Documentation](https://github.com/ascorbic/atproto-worker/tree/main/packages/pds)
+- [@getcirrus/pds Documentation](https://github.com/ascorbic/cirrus/tree/main/packages/pds)
 - [Account Migration Guide](https://atproto.com/guides/account-migration)
 
 ## License

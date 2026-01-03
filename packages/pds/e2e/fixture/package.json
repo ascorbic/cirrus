@@ -7,7 +7,7 @@
 		"dev": "vite"
 	},
 	"dependencies": {
-		"@ascorbic/pds": "{{PDS_PACKAGE_PATH}}"
+		"@getcirrus/pds": "{{PDS_PACKAGE_PATH}}"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "^1.17.0",

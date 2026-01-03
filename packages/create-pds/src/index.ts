@@ -100,7 +100,7 @@ async function replaceInFile(
 async function getLatestPdsVersion(): Promise<string> {
 	try {
 		const response = await fetch(
-			"https://registry.npmjs.org/@ascorbic/pds/latest",
+			"https://registry.npmjs.org/@getcirrus/pds/latest",
 		);
 		if (!response.ok) {
 			throw new Error(`Failed to fetch: ${response.status}`);
@@ -242,9 +242,9 @@ const main = defineCommand({
 
 		// Copy template
 		const spinner = p.spinner();
-		spinner.start("Fetching latest @ascorbic/pds version...");
+		spinner.start("Fetching latest @getcirrus/pds version...");
 		const pdsVersion = await getLatestPdsVersion();
-		spinner.stop(`Using @ascorbic/pds ${pdsVersion}`);
+		spinner.stop(`Using @getcirrus/pds ${pdsVersion}`);
 
 		spinner.start("Copying template...");
 

@@ -4,7 +4,7 @@ This file provides guidance to agentic coding tools when working with code in th
 
 **ALWAYS verify your current working directory before operating on files:**
 
-- Repository root is `atproto-worker` not `packages/pds/`
+- Repository root is `cirrus` not `packages/pds/`
 - Use `pwd` or check `process.cwd()` to confirm location
 - Many project files (CLAUDE.md, plans/) are at repository root
 - Package-specific files are in `packages/pds/`
@@ -27,8 +27,10 @@ This file provides guidance to agentic coding tools when working with code in th
 
 This is a monorepo using pnpm workspaces with the following structure:
 
-- **Root** (`atproto-worker`): Workspace configuration, shared tooling, plan documents
-- **packages/pds**: The main PDS library (`@ascorbic/pds`)
+- **Root** (`cirrus`): Workspace configuration, shared tooling, plan documents
+- **packages/pds**: The main PDS library (`@getcirrus/pds`)
+- **packages/oauth-provider**: OAuth 2.1 Provider (`@getcirrus/oauth-provider`)
+- **packages/create-pds**: CLI scaffolding tool (`create-pds`)
 - **demos/pds**: Demo PDS deployment
 
 ## Commands

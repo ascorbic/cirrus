@@ -1,6 +1,6 @@
 # create-pds
 
-Scaffold a new [AT Protocol](https://atproto.com) Personal Data Server (PDS) on Cloudflare Workers.
+Scaffold a new [AT Protocol](https://atproto.com) Personal Data Server (PDS) on Cloudflare Workers. Creates a Cirrus PDS project.
 
 ## Usage
 
@@ -24,7 +24,7 @@ This will:
 create-pds [name]
 
 Arguments:
-  name                Project name (default: pds-worker)
+  name                Project name (default: my-pds)
 
 Options:
   --package-manager   Package manager to use (npm, yarn, pnpm, bun)
@@ -45,4 +45,4 @@ npm run dev
 
 Your PDS will be running at http://localhost:5173
 
-See the [@ascorbic/pds documentation](https://github.com/ascorbic/atproto-worker/tree/main/packages/pds) for configuration and deployment instructions.
+See the [@getcirrus/pds documentation](https://github.com/ascorbic/cirrus/tree/main/packages/pds) for configuration and deployment instructions.

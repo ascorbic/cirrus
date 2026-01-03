@@ -1,5 +1,5 @@
 {
-	"name": "@ascorbic/atproto-oauth-provider",
+	"name": "@getcirrus/oauth-provider",
 	"version": "0.1.1",
 	"description": "OAuth 2.1 Provider with AT Protocol extensions for Cloudflare Workers",
 	"type": "module",

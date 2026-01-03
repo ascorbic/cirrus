@@ -3,7 +3,7 @@
 	"changelog": [
 		"@changesets/changelog-github",
 		{
-			"repo": "ascorbic/atproto-worker"
+			"repo": "ascorbic/cirrus"
 		}
 	],
 	"commit": false,

@@ -1,1 +1,1 @@
-export { default, AccountDurableObject } from "@ascorbic/pds";
+export { default, AccountDurableObject } from "@getcirrus/pds";

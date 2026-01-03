@@ -1,4 +1,4 @@
-# @ascorbic/pds
+# @getcirrus/pds
 
 ## 0.2.3
 

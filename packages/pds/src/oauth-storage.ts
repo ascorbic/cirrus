@@ -4,12 +4,12 @@ import type {
 	OAuthStorage,
 	PARData,
 	TokenData,
-} from "@ascorbic/atproto-oauth-provider";
+} from "@getcirrus/oauth-provider";
 
 /**
  * SQLite-backed OAuth storage for Cloudflare Durable Objects.
  *
- * Implements the OAuthStorage interface from @ascorbic/atproto-oauth-provider,
+ * Implements the OAuthStorage interface from @getcirrus/oauth-provider,
  * storing OAuth data in SQLite tables within a Durable Object.
  */
 export class SqliteOAuthStorage implements OAuthStorage {

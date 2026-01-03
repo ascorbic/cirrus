@@ -1,6 +1,9 @@
-# AT Protocol PDS on Cloudflare Workers
+<div align="center">
+  <h1>☁️ Cirrus</h1>
+  <p><em>The lightest PDS in the Atmosphere</em></p>
+</div>
 
-A single-user [AT Protocol](https://atproto.com) Personal Data Server (PDS) that runs entirely on Cloudflare's edge infrastructure. Host your Bluesky identity on your own domain with minimal operational overhead.
+A single-user [AT Protocol](https://atproto.com) Personal Data Server (PDS) that runs on a Cloudflare Worker.
 
 ## Why run your own PDS?
 
@@ -31,11 +34,11 @@ This scaffolds a new project, installs dependencies, and runs the setup wizard. 
 
 ## Packages
 
-| Package | Description |
-|---------|-------------|
-| [`@ascorbic/pds`](./packages/pds/) | The PDS implementation – handles repository operations, federation, OAuth, and the CLI |
-| [`@ascorbic/atproto-oauth-provider`](./packages/oauth-provider/) | OAuth 2.1 provider for "Login with Bluesky" |
-| [`create-pds`](./packages/create-pds/) | Scaffolding CLI to create new PDS projects |
+| Package                                                   | Description                                                                            |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [`@getcirrus/pds`](./packages/pds/)                       | The PDS implementation – handles repository operations, federation, OAuth, and the CLI |
+| [`@getcirrus/oauth-provider`](./packages/oauth-provider/) | OAuth 2.1 provider for "Login with Bluesky"                                            |
+| [`create-pds`](./packages/create-pds/)                    | Scaffolding CLI to create new PDS projects                                             |
 
 ## Status
 

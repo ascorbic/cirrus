@@ -1,12 +1,12 @@
 {
-	"name": "atproto-worker",
+	"name": "cirrus",
 	"private": true,
 	"version": "1.0.0",
-	"description": "AT Protocol PDS on Cloudflare Workers",
+	"description": "Cirrus – A single-user AT Protocol PDS on Cloudflare Workers",
 	"scripts": {
-		"check": "pnpm run --filter '@ascorbic/*' --filter 'create-pds' check",
-		"test": "pnpm run --filter '@ascorbic/*' --filter 'create-pds' test",
-		"build": "pnpm run --filter '@ascorbic/*' --filter 'create-pds' build",
+		"check": "pnpm run --filter '@getcirrus/*' --filter 'create-pds' check",
+		"test": "pnpm run --filter '@getcirrus/*' --filter 'create-pds' test",
+		"build": "pnpm run --filter '@getcirrus/*' --filter 'create-pds' build",
 		"format": "prettier --write .",
 		"knip": "knip"
 	},

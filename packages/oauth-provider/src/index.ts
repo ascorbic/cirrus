@@ -1,5 +1,5 @@
 /**
- * @ascorbic/atproto-oauth-provider
+ * @getcirrus/oauth-provider
  * OAuth 2.1 Provider with AT Protocol extensions for Cloudflare Workers
  */
 

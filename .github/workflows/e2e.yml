@@ -25,4 +25,4 @@ jobs:
       - name: Build
         run: pnpm build
       - name: E2E Tests
-        run: pnpm --filter @ascorbic/pds test:e2e
+        run: pnpm --filter @getcirrus/pds test:e2e

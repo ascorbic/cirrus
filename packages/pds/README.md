@@ -1,10 +1,11 @@
-# @ascorbic/pds
+<div align="center">
+  <h1>☁️ Cirrus</h1>
+  <p><em>The lightest PDS in the Atmosphere</em></p>
+</div>
 
-> **🚨 This package has been renamed to `@getcirrus/pds`**
->
-> This package is deprecated and will no longer receive updates. Please migrate to [`@getcirrus/pds`](https://www.npmjs.com/package/@getcirrus/pds) for the latest features and bug fixes.
+Cirrus is a single-user [AT Protocol](https://atproto.com) Personal Data Server (PDS) that runs on Cloudflare Workers. Named for the highest, lightest clouds in a blue sky – fitting for a Bluesky server running on Cloudflare.
 
-A single-user [AT Protocol](https://atproto.com) Personal Data Server (PDS) that runs on Cloudflare Workers. Host your own Bluesky identity with minimal infrastructure.
+Host your own Bluesky identity with minimal infrastructure.
 
 > **⚠️ Experimental Software**
 >
@@ -25,6 +26,8 @@ Key benefits:
 ## Quick Start
 
 ```bash
+pnpm create pds
+# or
 npm create pds
 ```
 
@@ -40,36 +43,38 @@ npm run dev
 ### 1. Install the package
 
 ```bash
-npm install @ascorbic/pds
+npm install @getcirrus/pds
 ```
 
 ### 2. Create a worker entry point
 
 ```typescript
 // src/index.ts
-export { default, AccountDurableObject } from "@ascorbic/pds";
+export { default, AccountDurableObject } from "@getcirrus/pds";
 ```
 
 ### 3. Configure wrangler.jsonc
 
 ```jsonc
 {
-  "name": "my-pds",
-  "main": "src/index.ts",
-  "compatibility_date": "2024-12-01",
-  "compatibility_flags": ["nodejs_compat"],
-  "durable_objects": {
-    "bindings": [{ "name": "ACCOUNT", "class_name": "AccountDurableObject" }]
-  },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AccountDurableObject"] }],
-  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "pds-blobs" }]
+	"name": "my-pds",
+	"main": "src/index.ts",
+	"compatibility_date": "2024-12-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"durable_objects": {
+		"bindings": [{ "name": "ACCOUNT", "class_name": "AccountDurableObject" }],
+	},
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["AccountDurableObject"] },
+	],
+	"r2_buckets": [{ "binding": "BLOBS", "bucket_name": "pds-blobs" }],
 }
 ```
 
 ### 4. Run the setup wizard
 
 ```bash
-npx pds init
+pnpm pds init
 ```
 
 This prompts for your hostname, handle, and password, then generates signing keys and writes configuration.
@@ -185,31 +190,31 @@ The PDS runs as a Cloudflare Worker with a Durable Object for state:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Cloudflare Worker                        │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ Hono Router                                          │   │
-│  │ • Authentication middleware                          │   │
-│  │ • CORS handling                                      │   │
-│  │ • DID document serving                               │   │
-│  │ • XRPC endpoint routing                              │   │
-│  │ • OAuth 2.1 provider                                 │   │
-│  │ • Proxy to AppView for read endpoints               │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ Hono Router                                         │    │
+│  │ • Authentication middleware                         │    │
+│  │ • CORS handling                                     │    │
+│  │ • DID document serving                              │    │
+│  │ • XRPC endpoint routing                             │    │
+│  │ • OAuth 2.1 provider                                │    │
+│  │ • Proxy to AppView for read endpoints               │    │
+│  └─────────────────────────────────────────────────────┘    │
 │                           │                                 │
 │                           ▼                                 │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ AccountDurableObject                                 │   │
-│  │ • SQLite repository storage                          │   │
-│  │ • Merkle tree for commits                           │   │
-│  │ • Record indexing                                    │   │
-│  │ • WebSocket firehose                                 │   │
-│  │ • OAuth token storage                                │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ AccountDurableObject                                │    │
+│  │ • SQLite repository storage                         │    │
+│  │ • Merkle tree for commits                           │    │
+│  │ • Record indexing                                   │    │
+│  │ • WebSocket firehose                                │    │
+│  │ • OAuth token storage                               │    │
+│  └─────────────────────────────────────────────────────┘    │
 │                           │                                 │
 │                           ▼                                 │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ R2 Bucket                                            │   │
-│  │ • Blob storage (images, videos)                      │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ R2 Bucket                                           │    │
+│  │ • Blob storage (images, videos)                     │    │
+│  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -267,12 +272,12 @@ The PDS uses environment variables for configuration. Public values go in `wrang
 
 ### Public Variables (wrangler.jsonc)
 
-| Variable             | Description                              |
-| -------------------- | ---------------------------------------- |
-| `PDS_HOSTNAME`       | Public hostname (e.g., pds.example.com)  |
-| `DID`                | Account DID (did:web:... or did:plc:...) |
-| `HANDLE`             | Account handle                           |
-| `SIGNING_KEY_PUBLIC` | Public key for DID document (multibase)  |
+| Variable             | Description                                |
+| -------------------- | ------------------------------------------ |
+| `PDS_HOSTNAME`       | Public hostname (e.g., pds.example.com)    |
+| `DID`                | Account DID (did:web:... or did:plc:...)   |
+| `HANDLE`             | Account handle                             |
+| `SIGNING_KEY_PUBLIC` | Public key for DID document (multibase)    |
 | `INITIAL_ACTIVE`     | Whether account starts active (true/false) |
 
 ### Secrets
@@ -288,11 +293,11 @@ The PDS uses environment variables for configuration. Public values go in `wrang
 
 ### Identity
 
-| Endpoint                       | Description                                          |
-| ------------------------------ | ---------------------------------------------------- |
-| `GET /.well-known/did.json`    | DID document for did:web resolution                  |
+| Endpoint                       | Description                                           |
+| ------------------------------ | ----------------------------------------------------- |
+| `GET /.well-known/did.json`    | DID document for did:web resolution                   |
 | `GET /.well-known/atproto-did` | Handle verification (only if handle matches hostname) |
-| `GET /health`                  | Health check with version info                       |
+| `GET /health`                  | Health check with version info                        |
 
 ### Federation (Sync)
 
@@ -323,45 +328,45 @@ The PDS uses environment variables for configuration. Public values go in `wrang
 
 ### Server & Session
 
-| Endpoint                                        | Auth | Description                       |
-| ----------------------------------------------- | ---- | --------------------------------- |
-| `GET /xrpc/com.atproto.server.describeServer`   | No   | Server capabilities and info      |
-| `POST /xrpc/com.atproto.server.createSession`   | No   | Login with password, get JWT      |
-| `POST /xrpc/com.atproto.server.refreshSession`  | Yes  | Refresh JWT tokens                |
-| `GET /xrpc/com.atproto.server.getSession`       | Yes  | Get current session info          |
-| `POST /xrpc/com.atproto.server.deleteSession`   | Yes  | Logout                            |
-| `GET /xrpc/com.atproto.server.getServiceAuth`   | Yes  | Get JWT for external services     |
-| `GET /xrpc/com.atproto.server.getAccountStatus` | Yes  | Account status (active/deactivated) |
-| `POST /xrpc/com.atproto.server.activateAccount` | Yes  | Enable writes                     |
-| `POST /xrpc/com.atproto.server.deactivateAccount` | Yes | Disable writes                   |
+| Endpoint                                          | Auth | Description                         |
+| ------------------------------------------------- | ---- | ----------------------------------- |
+| `GET /xrpc/com.atproto.server.describeServer`     | No   | Server capabilities and info        |
+| `POST /xrpc/com.atproto.server.createSession`     | No   | Login with password, get JWT        |
+| `POST /xrpc/com.atproto.server.refreshSession`    | Yes  | Refresh JWT tokens                  |
+| `GET /xrpc/com.atproto.server.getSession`         | Yes  | Get current session info            |
+| `POST /xrpc/com.atproto.server.deleteSession`     | Yes  | Logout                              |
+| `GET /xrpc/com.atproto.server.getServiceAuth`     | Yes  | Get JWT for external services       |
+| `GET /xrpc/com.atproto.server.getAccountStatus`   | Yes  | Account status (active/deactivated) |
+| `POST /xrpc/com.atproto.server.activateAccount`   | Yes  | Enable writes                       |
+| `POST /xrpc/com.atproto.server.deactivateAccount` | Yes  | Disable writes                      |
 
 ### Handle Resolution
 
-| Endpoint                                      | Description                               |
-| --------------------------------------------- | ----------------------------------------- |
+| Endpoint                                       | Description                              |
+| ---------------------------------------------- | ---------------------------------------- |
 | `GET /xrpc/com.atproto.identity.resolveHandle` | Resolve handle to DID (local or proxied) |
 
 ### Actor Preferences
 
-| Endpoint                                  | Auth | Description          |
-| ----------------------------------------- | ---- | -------------------- |
-| `GET /xrpc/app.bsky.actor.getPreferences` | Yes  | Get user preferences |
-| `POST /xrpc/app.bsky.actor.putPreferences` | Yes | Set user preferences |
+| Endpoint                                   | Auth | Description          |
+| ------------------------------------------ | ---- | -------------------- |
+| `GET /xrpc/app.bsky.actor.getPreferences`  | Yes  | Get user preferences |
+| `POST /xrpc/app.bsky.actor.putPreferences` | Yes  | Set user preferences |
 
 ### OAuth 2.1
 
 The PDS includes a complete OAuth 2.1 provider for "Login with Bluesky":
 
-| Endpoint                                      | Description                          |
-| --------------------------------------------- | ------------------------------------ |
-| `GET /.well-known/oauth-authorization-server` | OAuth server metadata                |
-| `POST /oauth/par`                             | Pushed Authorization Request         |
-| `GET /oauth/authorize`                        | Authorization endpoint               |
-| `POST /oauth/authorize`                       | Process authorization decision       |
-| `POST /oauth/token`                           | Token exchange                       |
-| `POST /oauth/revoke`                          | Token revocation                     |
+| Endpoint                                      | Description                    |
+| --------------------------------------------- | ------------------------------ |
+| `GET /.well-known/oauth-authorization-server` | OAuth server metadata          |
+| `POST /oauth/par`                             | Pushed Authorization Request   |
+| `GET /oauth/authorize`                        | Authorization endpoint         |
+| `POST /oauth/authorize`                       | Process authorization decision |
+| `POST /oauth/token`                           | Token exchange                 |
+| `POST /oauth/revoke`                          | Token revocation               |
 
-See the [@ascorbic/atproto-oauth-provider](../oauth-provider/) package for implementation details.
+See the [@getcirrus/oauth-provider](../oauth-provider/) package for implementation details.
 
 ## Deploying to Production
 

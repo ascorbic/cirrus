@@ -1,7 +1,7 @@
 {
-	"name": "@ascorbic/pds",
+	"name": "@getcirrus/pds",
 	"version": "0.2.3",
-	"description": "AT Protocol PDS on Cloudflare Workers",
+	"description": "Cirrus – A single-user AT Protocol PDS on Cloudflare Workers",
 	"type": "module",
 	"main": "dist/index.js",
 	"bin": {
@@ -22,7 +22,7 @@
 		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm"
 	},
 	"dependencies": {
-		"@ascorbic/atproto-oauth-provider": "workspace:*",
+		"@getcirrus/oauth-provider": "workspace:*",
 		"@atproto-labs/handle-resolver": "^0.3.4",
 		"@atproto/common-web": "^0.4.7",
 		"@atproto/crypto": "^0.4.5",

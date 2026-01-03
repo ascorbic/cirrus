@@ -1,4 +1,4 @@
-# @ascorbic/atproto-oauth-provider
+# @getcirrus/oauth-provider
 
 ## 0.1.1
 
