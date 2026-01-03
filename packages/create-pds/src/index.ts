@@ -12,6 +12,21 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+const BANNER = `
+        ☁️        ☁️  ☁️      ☁️           ☁️
+    ☁️      ☁️  ☁️      ☁️  ☁️    ☁️    ☁️
+  ☁️    ☁️        ☁️  ☁️      ☁️      ☁️    ☁️
+
+   ██████╗██╗██████╗ ██████╗ ██╗   ██╗███████╗
+  ██╔════╝██║██╔══██╗██╔══██╗██║   ██║██╔════╝
+  ██║     ██║██████╔╝██████╔╝██║   ██║███████╗
+  ██║     ██║██╔══██╗██╔══██╗██║   ██║╚════██║
+  ╚██████╗██║██║  ██║██║  ██║╚██████╔╝███████║
+   ╚═════╝╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝
+
+   ☁️  The lightest PDS in the Atmosphere  ☁️
+`;
+
 type PackageManager = "npm" | "yarn" | "pnpm" | "bun";
 
 function detectPackageManager(): PackageManager {
@@ -155,9 +170,10 @@ const main = defineCommand({
 	},
 	async run({ args }) {
 		const nonInteractive = args.yes || !process.stdout.isTTY;
-		p.intro("🦋 Create PDS");
 
-		p.log.info("Let's build your new home in the Atmosphere!");
+		console.log(BANNER);
+
+		p.intro("Let's build your new home");
 		p.log.warn(
 			"This is experimental software. Don't migrate your main account yet.",
 		);
@@ -316,9 +332,14 @@ const main = defineCommand({
 			} catch {
 				p.log.warning("Failed to run pds init. You can run it manually later:");
 				p.log.info(
-					`  cd ${projectName} && ${pm}${pm === "npm" ? "run" : ""} pds init`,
+					`  cd ${projectName} && ${pm}${pm === "npm" ? " run" : ""} pds init`,
 				);
 			}
+		} else if (!args["skip-init"] && args["skip-install"]) {
+			p.log.info("Run pds init after installing dependencies:");
+			p.log.info(
+				`  cd ${projectName} && ${pm}${pm === "npm" ? " run" : ""} pds init`,
+			);
 		}
 
 		p.note(
