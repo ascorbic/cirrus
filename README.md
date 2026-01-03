@@ -1,6 +1,7 @@
 <div align="center">
-  <h1>☁️ Cirrus</h1>
-  <p><em>The lightest PDS in the Atmosphere</em></p>
+    <h1>☁️</h1>
+    <h1><samp>CIRRUS</samp></h1>
+		<p><em>The lightest PDS in the Atmosphere</em></p>
 </div>
 
 A single-user [AT Protocol](https://atproto.com) Personal Data Server (PDS) that runs on a Cloudflare Worker.
