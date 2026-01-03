@@ -34,10 +34,10 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/ascorbic/atproto-worker.git",
+		"url": "git+https://github.com/ascorbic/cirrus.git",
 		"directory": "packages/oauth-provider"
 	},
-	"homepage": "https://github.com/ascorbic/atproto-worker",
+	"homepage": "https://github.com/ascorbic/cirrus",
 	"keywords": [
 		"atproto",
 		"bluesky",
