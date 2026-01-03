@@ -1,5 +1,11 @@
 # @getcirrus/pds
 
+## 0.2.5
+
+### Patch Changes
+
+- [#53](https://github.com/ascorbic/cirrus/pull/53) [`5d21116`](https://github.com/ascorbic/cirrus/commit/5d21116b32f72e43c4d1537add9e09e9392b10ec) Thanks [@ascorbic](https://github.com/ascorbic)! - Serve a page from the index
+
 ## 0.2.4
 
 ### Patch Changes
