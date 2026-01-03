@@ -1,5 +1,9 @@
 # @ascorbic/pds
 
+> **🚨 This package has been renamed to `@getcirrus/pds`**
+>
+> This package is deprecated and will no longer receive updates. Please migrate to [`@getcirrus/pds`](https://www.npmjs.com/package/@getcirrus/pds) for the latest features and bug fixes.
+
 A single-user [AT Protocol](https://atproto.com) Personal Data Server (PDS) that runs on Cloudflare Workers. Host your own Bluesky identity with minimal infrastructure.
 
 > **⚠️ Experimental Software**
