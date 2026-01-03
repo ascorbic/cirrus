@@ -1,5 +1,11 @@
 # create-pds
 
+## 0.0.8
+
+### Patch Changes
+
+- [#51](https://github.com/ascorbic/cirrus/pull/51) [`a2aea3a`](https://github.com/ascorbic/cirrus/commit/a2aea3a4f29f2c358ee6ead13f0c333a2e0d20e2) Thanks [@ascorbic](https://github.com/ascorbic)! - Don't attempt to run init if dependencies haven't been installed
+
 ## 0.0.7
 
 ### Patch Changes
