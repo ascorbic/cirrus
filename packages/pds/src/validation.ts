@@ -1,43 +1,62 @@
-import { Lexicons, jsonToLex, type LexiconDoc } from "@atproto/lexicon";
+import { parse, ValidationError, type BaseSchema } from "@atcute/lexicons/validations";
+
+// Import record schemas from @atcute/bluesky
+import {
+	AppBskyActorProfile,
+	AppBskyFeedGenerator,
+	AppBskyFeedLike,
+	AppBskyFeedPost,
+	AppBskyFeedPostgate,
+	AppBskyFeedRepost,
+	AppBskyFeedThreadgate,
+	AppBskyGraphBlock,
+	AppBskyGraphFollow,
+	AppBskyGraphList,
+	AppBskyGraphListblock,
+	AppBskyGraphListitem,
+	AppBskyGraphStarterpack,
+	AppBskyGraphVerification,
+	AppBskyLabelerService,
+} from "@atcute/bluesky";
+
+/**
+ * Map of collection NSID to validation schema.
+ * Only includes record types that can be created in repositories.
+ */
+const recordSchemas: Record<string, BaseSchema> = {
+	"app.bsky.actor.profile": AppBskyActorProfile.mainSchema,
+	"app.bsky.feed.generator": AppBskyFeedGenerator.mainSchema,
+	"app.bsky.feed.like": AppBskyFeedLike.mainSchema,
+	"app.bsky.feed.post": AppBskyFeedPost.mainSchema,
+	"app.bsky.feed.postgate": AppBskyFeedPostgate.mainSchema,
+	"app.bsky.feed.repost": AppBskyFeedRepost.mainSchema,
+	"app.bsky.feed.threadgate": AppBskyFeedThreadgate.mainSchema,
+	"app.bsky.graph.block": AppBskyGraphBlock.mainSchema,
+	"app.bsky.graph.follow": AppBskyGraphFollow.mainSchema,
+	"app.bsky.graph.list": AppBskyGraphList.mainSchema,
+	"app.bsky.graph.listblock": AppBskyGraphListblock.mainSchema,
+	"app.bsky.graph.listitem": AppBskyGraphListitem.mainSchema,
+	"app.bsky.graph.starterpack": AppBskyGraphStarterpack.mainSchema,
+	"app.bsky.graph.verification": AppBskyGraphVerification.mainSchema,
+	"app.bsky.labeler.service": AppBskyLabelerService.mainSchema,
+};
 
 /**
  * Record validator for AT Protocol records.
  *
- * Validates records against official Bluesky lexicon schemas.
+ * Validates records against official Bluesky lexicon schemas from @atcute/bluesky.
  * Uses optimistic validation strategy:
- * - If a lexicon schema is loaded for the collection, validate the record
+ * - If a schema is loaded for the collection, validate the record
  * - If no schema is loaded, allow the record (fail-open)
  *
  * This allows the PDS to accept records for new or unknown collection types
- * while still validating known types when schemas are available.
+ * while still validating known types.
  */
 export class RecordValidator {
-	private lex: Lexicons;
 	private strictMode: boolean;
 
-	constructor(options: { strict?: boolean; lexicons?: Lexicons } = {}) {
-		this.lex = options.lexicons ?? new Lexicons();
+	constructor(options: { strict?: boolean } = {}) {
 		this.strictMode = options.strict ?? false;
-
-		// Load official Bluesky schemas
-		this.loadBlueskySchemas();
-	}
-
-	/**
-	 * Load official Bluesky lexicon schemas from vendored JSON files.
-	 * Uses Vite's glob import to automatically load all schema files.
-	 */
-	private loadBlueskySchemas(): void {
-		// Import all lexicon JSON files using Vite's glob import
-		const schemas = import.meta.glob<{ default: LexiconDoc }>(
-			"./lexicons/*.json",
-			{ eager: true },
-		);
-
-		// Load each schema into the Lexicons instance
-		for (const schema of Object.values(schemas)) {
-			this.lex.add(schema.default);
-		}
 	}
 
 	/**
@@ -48,31 +67,27 @@ export class RecordValidator {
 	 * @throws {Error} If validation fails and schema is loaded
 	 */
 	validateRecord(collection: string, record: unknown): void {
-		// Check if we have a schema for this collection
-		const hasSchema = this.hasSchema(collection);
+		const schema = recordSchemas[collection];
 
-		if (!hasSchema) {
+		if (!schema) {
 			// Optimistic validation: if we don't have the schema, allow it
 			if (this.strictMode) {
 				throw new Error(
 					`No lexicon schema loaded for collection: ${collection}. Enable optimistic validation or add the schema.`,
 				);
 			}
-			// In non-strict mode, we allow unknown schemas
 			return;
 		}
 
-		// Convert JSON to lexicon format (handles $link -> CID, blob -> BlobRef)
-		const lexRecord = jsonToLex(record);
-
-		// We have a schema, so validate against it
 		try {
-			this.lex.assertValidRecord(collection, lexRecord);
+			parse(schema, record);
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			throw new Error(
-				`Lexicon validation failed for ${collection}: ${message}`,
-			);
+			if (error instanceof ValidationError) {
+				throw new Error(
+					`Lexicon validation failed for ${collection}: ${error.message}`,
+				);
+			}
+			throw error;
 		}
 	}
 
@@ -80,59 +95,19 @@ export class RecordValidator {
 	 * Check if a schema is loaded for a collection.
 	 */
 	hasSchema(collection: string): boolean {
-		try {
-			// Try to get the schema - if it exists, this won't throw
-			this.lex.getDefOrThrow(collection);
-			return true;
-		} catch {
-			return false;
-		}
-	}
-
-	/**
-	 * Add a lexicon schema to the validator.
-	 *
-	 * @param doc - The lexicon document to add
-	 *
-	 * @example
-	 * ```ts
-	 * validator.addSchema({
-	 *   lexicon: 1,
-	 *   id: "com.example.post",
-	 *   defs: { ... }
-	 * })
-	 * ```
-	 */
-	addSchema(doc: any): void {
-		this.lex.add(doc);
+		return collection in recordSchemas;
 	}
 
 	/**
 	 * Get list of all loaded schema NSIDs.
 	 */
 	getLoadedSchemas(): string[] {
-		// Convert the Lexicons iterable to an array and extract IDs
-		return Array.from(this.lex).map((doc) => doc.id);
-	}
-
-	/**
-	 * Get the underlying Lexicons instance for advanced usage.
-	 */
-	getLexicons(): Lexicons {
-		return this.lex;
+		return Object.keys(recordSchemas);
 	}
 }
 
 /**
  * Shared validator instance (singleton pattern).
  * Uses optimistic validation by default (strict: false).
- *
- * Automatically loads all schemas from ./lexicons/*.json
- *
- * Additional schemas can be added:
- * ```ts
- * import { validator } from './validation'
- * validator.addSchema(myCustomSchema)
- * ```
  */
 export const validator = new RecordValidator({ strict: false });

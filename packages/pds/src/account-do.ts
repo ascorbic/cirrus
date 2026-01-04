@@ -10,7 +10,8 @@ import {
 	type RecordDeleteOp,
 	type RecordWriteOp,
 } from "@atproto/repo";
-import type { RepoRecord } from "@atproto/lexicon";
+/** Record type compatible with @atproto/repo operations */
+type RepoRecord = Record<string, unknown>;
 import { Secp256k1Keypair } from "@atproto/crypto";
 import { CID, isCid, asCid, isBlobRef } from "@atproto/lex-data";
 import { now as tidNow } from "@atcute/tid";
