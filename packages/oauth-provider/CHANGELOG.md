@@ -1,5 +1,15 @@
 # @getcirrus/oauth-provider
 
+## 0.1.3
+
+### Patch Changes
+
+- [#63](https://github.com/ascorbic/cirrus/pull/63) [`95ffff6`](https://github.com/ascorbic/cirrus/commit/95ffff6766325822fe621ff82f1c3ab8850dcdea) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix CSP blocking OAuth authorization flow in Chrome
+
+  Remove `form-action` from CSP due to inconsistent browser behavior with redirects. Chrome blocks redirects after form submission if the redirect URL isn't in `form-action`, while Firefox does not. Since OAuth requires redirecting to the client's callback URL after consent, `form-action` cannot be used without breaking the flow in Chrome.
+
+- [#65](https://github.com/ascorbic/cirrus/pull/65) [`30910f7`](https://github.com/ascorbic/cirrus/commit/30910f71596b04947a0c157acd4bf6edb3a3d298) Thanks [@ascorbic](https://github.com/ascorbic)! - Switch to atcute for most internal protocol handling
+
 ## 0.1.2
 
 ### Patch Changes
