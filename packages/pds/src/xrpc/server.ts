@@ -244,8 +244,12 @@ export async function getAccountStatus(
 				accountDO.rpcCountImportedBlobs(),
 			]);
 
+		// Account is considered "activated" if it's currently active OR has content
+		const activated = active || indexedRecords > 0;
+
 		return c.json({
-			active: active,
+			activated,
+			active,
 			validDid: true,
 			repoCommit: status.head,
 			repoRev: status.rev,
@@ -258,6 +262,7 @@ export async function getAccountStatus(
 	} catch (err) {
 		// If repo doesn't exist yet, return empty status
 		return c.json({
+			activated: false,
 			active: false,
 			validDid: true,
 			repoCommit: null,

@@ -8,6 +8,7 @@ import { initCommand } from "./commands/init.js";
 import { migrateCommand } from "./commands/migrate.js";
 import { activateCommand } from "./commands/activate.js";
 import { deactivateCommand } from "./commands/deactivate.js";
+import { statusCommand } from "./commands/status.js";
 
 const main = defineCommand({
 	meta: {
@@ -21,6 +22,7 @@ const main = defineCommand({
 		migrate: migrateCommand,
 		activate: activateCommand,
 		deactivate: deactivateCommand,
+		status: statusCommand,
 	},
 });
 

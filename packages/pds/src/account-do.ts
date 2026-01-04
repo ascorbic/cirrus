@@ -1183,6 +1183,35 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	// ============================================
+	// Health Check RPC Methods
+	// ============================================
+
+	/**
+	 * RPC method: Health check - verifies storage is accessible
+	 */
+	async rpcHealthCheck(): Promise<{ ok: true }> {
+		this.ctx.storage.sql.exec("SELECT 1").toArray();
+		return { ok: true };
+	}
+
+	/**
+	 * RPC method: Firehose status - returns subscriber count and latest sequence
+	 */
+	async rpcGetFirehoseStatus(): Promise<{
+		subscribers: number;
+		latestSeq: number | null;
+	}> {
+		const sockets = this.ctx.getWebSockets();
+		await this.ensureStorageInitialized();
+		const storage = await this.getStorage();
+		const seq = await storage.getSeq();
+		return {
+			subscribers: sockets.length,
+			latestSeq: seq || null,
+		};
+	}
+
+	// ============================================
 	// OAuth Storage RPC Methods
 	// These methods proxy to SqliteOAuthStorage since we can't serialize the storage object
 	// ============================================

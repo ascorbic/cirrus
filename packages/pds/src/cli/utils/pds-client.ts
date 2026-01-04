@@ -423,4 +423,125 @@ export class PDSClient {
 			return false;
 		}
 	}
+
+	// ============================================
+	// Identity Verification
+	// ============================================
+
+	/**
+	 * Get DID document from PDS
+	 */
+	async getDidDocument(): Promise<{ id: string; service?: unknown[] }> {
+		const res = await fetch(new URL("/.well-known/did.json", this.baseUrl));
+		if (!res.ok) throw new Error("Failed to fetch DID document");
+		return res.json() as Promise<{ id: string; service?: unknown[] }>;
+	}
+
+	/**
+	 * Resolve handle to DID via public API
+	 */
+	async resolveHandle(handle: string): Promise<string | null> {
+		try {
+			const res = await fetch(
+				`https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`,
+			);
+			if (!res.ok) return null;
+			const data = (await res.json()) as { did: string };
+			return data.did;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Resolve DID to get service endpoints (supports did:plc and did:web)
+	 */
+	async resolveDid(did: string): Promise<{ pdsEndpoint: string | null }> {
+		try {
+			let doc: { service?: Array<{ type: string; serviceEndpoint: string }> };
+			if (did.startsWith("did:plc:")) {
+				const res = await fetch(`https://plc.directory/${did}`);
+				if (!res.ok) return { pdsEndpoint: null };
+				doc = (await res.json()) as typeof doc;
+			} else if (did.startsWith("did:web:")) {
+				const hostname = did.slice(8);
+				const res = await fetch(`https://${hostname}/.well-known/did.json`);
+				if (!res.ok) return { pdsEndpoint: null };
+				doc = (await res.json()) as typeof doc;
+			} else {
+				return { pdsEndpoint: null };
+			}
+			const pds = doc.service?.find(
+				(s) => s.type === "AtprotoPersonalDataServer",
+			);
+			return { pdsEndpoint: pds?.serviceEndpoint ?? null };
+		} catch {
+			return { pdsEndpoint: null };
+		}
+	}
+
+	/**
+	 * Check if profile is indexed by AppView
+	 */
+	async checkAppViewIndexing(did: string): Promise<boolean> {
+		try {
+			const res = await fetch(
+				`https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`,
+			);
+			return res.ok;
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * Get firehose status (subscribers, seq)
+	 */
+	async getFirehoseStatus(): Promise<{
+		subscribers: number;
+		latestSeq: number | null;
+	}> {
+		return this.xrpc<{ subscribers: number; latestSeq: number | null }>(
+			"GET",
+			"gg.mk.experimental.getFirehoseStatus",
+			{ auth: true },
+		);
+	}
+
+	/**
+	 * Check handle verification via HTTP well-known
+	 */
+	async checkHandleViaHttp(handle: string): Promise<string | null> {
+		try {
+			const res = await fetch(`https://${handle}/.well-known/atproto-did`);
+			if (!res.ok) return null;
+			const text = await res.text();
+			return text.trim() || null;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Check handle verification via DNS TXT record (using DNS-over-HTTPS)
+	 */
+	async checkHandleViaDns(handle: string): Promise<string | null> {
+		try {
+			const res = await fetch(
+				`https://cloudflare-dns.com/dns-query?name=_atproto.${handle}&type=TXT`,
+				{ headers: { Accept: "application/dns-json" } },
+			);
+			if (!res.ok) return null;
+			const data = (await res.json()) as {
+				Answer?: Array<{ data: string }>;
+			};
+			const txtRecord = data.Answer?.find((a) => a.data?.includes("did="));
+			if (!txtRecord) return null;
+			// TXT records are quoted, extract the did= value
+			const match = txtRecord.data.match(/did=([^\s"]+)/);
+			return match?.[1] ?? null;
+		} catch {
+			return null;
+		}
+	}
 }

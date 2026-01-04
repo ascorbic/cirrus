@@ -5,7 +5,7 @@ describe("XRPC Endpoints", () => {
 	describe("Health Check", () => {
 		it("should return status and version", async () => {
 			const response = await worker.fetch(
-				new Request("http://pds.test/health"),
+				new Request("http://pds.test/xrpc/_health"),
 				env,
 			);
 			expect(response.status).toBe(200);

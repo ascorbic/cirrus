@@ -125,13 +125,16 @@ app.get("/.well-known/atproto-did", (c) => {
 	});
 });
 
-// Health check
-app.get("/health", (c) =>
-	c.json({
-		status: "ok",
-		version,
-	}),
-);
+// Health check - AT Protocol standard path
+app.get("/xrpc/_health", async (c) => {
+	try {
+		const accountDO = getAccountDO(c.env);
+		await accountDO.rpcHealthCheck();
+		return c.json({ status: "ok", version });
+	} catch {
+		return c.json({ status: "unhealthy", version }, 503);
+	}
+});
 
 // Homepage
 app.get("/", (c) => {
@@ -315,6 +318,16 @@ app.post("/admin/emit-identity", requireAuth, async (c) => {
 	const result = await accountDO.rpcEmitIdentityEvent(c.env.HANDLE);
 	return c.json(result);
 });
+
+// Firehose status (authenticated)
+app.get(
+	"/xrpc/gg.mk.experimental.getFirehoseStatus",
+	requireAuth,
+	async (c) => {
+		const accountDO = getAccountDO(c.env);
+		return c.json(await accountDO.rpcGetFirehoseStatus());
+	},
+);
 
 // OAuth 2.1 endpoints for "Login with Bluesky"
 const oauthApp = createOAuthApp(getAccountDO);
