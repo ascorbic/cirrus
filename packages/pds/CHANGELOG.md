@@ -1,5 +1,13 @@
 # @getcirrus/pds
 
+## 0.3.1
+
+### Patch Changes
+
+- [#71](https://github.com/ascorbic/cirrus/pull/71) [`a696032`](https://github.com/ascorbic/cirrus/commit/a696032449107b6144946036f4e77769487d9bd9) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix foreign DID requests returning 404 for repo endpoints
+
+  Previously, `getRecord`, `listRecords`, and `describeRepo` returned 404 when the requested repo DID didn't match the local PDS DID. Now these endpoints proxy foreign DID requests to the Bluesky AppView, enabling clients to fetch records from other users' repositories.
+
 ## 0.3.0
 
 ### Minor Changes
