@@ -66,3 +66,29 @@ export function getDomain(url: string): string {
 		return url;
 	}
 }
+
+export type PackageManager = "npm" | "yarn" | "pnpm" | "bun";
+
+/**
+ * Detect which package manager is being used based on npm_config_user_agent
+ */
+export function detectPackageManager(): PackageManager {
+	const userAgent = process.env.npm_config_user_agent || "";
+	if (userAgent.startsWith("yarn")) return "yarn";
+	if (userAgent.startsWith("pnpm")) return "pnpm";
+	if (userAgent.startsWith("bun")) return "bun";
+	return "npm";
+}
+
+/**
+ * Format a command for the detected package manager
+ * npm always needs "run" for scripts, pnpm/yarn/bun can use shorthand
+ * except for "deploy" which conflicts with pnpm's built-in deploy command
+ */
+export function formatCommand(pm: PackageManager, ...args: string[]): string {
+	const needsRun = pm === "npm" || args[0] === "deploy";
+	if (needsRun) {
+		return `${pm} run ${args.join(" ")}`;
+	}
+	return `${pm} ${args.join(" ")}`;
+}

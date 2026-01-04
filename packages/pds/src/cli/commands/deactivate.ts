@@ -7,7 +7,12 @@ import pc from "picocolors";
 import { getVars } from "../utils/wrangler.js";
 import { readDevVars } from "../utils/dotenv.js";
 import { PDSClient } from "../utils/pds-client.js";
-import { getTargetUrl, getDomain } from "../utils/cli-helpers.js";
+import {
+	getTargetUrl,
+	getDomain,
+	detectPackageManager,
+	formatCommand,
+} from "../utils/cli-helpers.js";
 
 // Helper to override clack's dim styling in notes
 const brightNote = (lines: string[]) => lines.map((l) => `\x1b[0m${l}`).join("\n");
@@ -26,6 +31,7 @@ export const deactivateCommand = defineCommand({
 		},
 	},
 	async run({ args }) {
+		const pm = detectPackageManager();
 		const isDev = args.dev;
 
 		p.intro("🦋 Deactivate Account");
@@ -69,7 +75,7 @@ export const deactivateCommand = defineCommand({
 			spinner.stop(`PDS not responding at ${targetDomain}`);
 			p.log.error(`Your PDS isn't responding at ${targetUrl}`);
 			if (!isDev) {
-				p.log.info("Make sure your worker is deployed: wrangler deploy");
+				p.log.info(`Make sure your worker is deployed: ${formatCommand(pm, "deploy")}`);
 			}
 			p.outro("Deactivation cancelled.");
 			process.exit(1);
@@ -133,10 +139,10 @@ export const deactivateCommand = defineCommand({
 		p.log.info("Writes are now disabled.");
 		p.log.info("");
 		p.log.info("To re-import your data:");
-		p.log.info("  pnpm pds migrate --clean");
+		p.log.info(`  ${formatCommand(pm, "pds", "migrate", "--clean")}`);
 		p.log.info("");
 		p.log.info("To re-enable writes:");
-		p.log.info("  pnpm pds activate");
+		p.log.info(`  ${formatCommand(pm, "pds", "activate")}`);
 		p.outro("Deactivated.");
 	},
 });

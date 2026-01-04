@@ -6,7 +6,12 @@ import * as p from "@clack/prompts";
 import { getVars } from "../utils/wrangler.js";
 import { readDevVars } from "../utils/dotenv.js";
 import { PDSClient } from "../utils/pds-client.js";
-import { getTargetUrl, getDomain } from "../utils/cli-helpers.js";
+import {
+	getTargetUrl,
+	getDomain,
+	detectPackageManager,
+	formatCommand,
+} from "../utils/cli-helpers.js";
 
 export const activateCommand = defineCommand({
 	meta: {
@@ -21,6 +26,7 @@ export const activateCommand = defineCommand({
 		},
 	},
 	async run({ args }) {
+		const pm = detectPackageManager();
 		const isDev = args.dev;
 
 		p.intro("🦋 Activate Account");
@@ -64,7 +70,7 @@ export const activateCommand = defineCommand({
 			spinner.stop(`PDS not responding at ${targetDomain}`);
 			p.log.error(`Your PDS isn't responding at ${targetUrl}`);
 			if (!isDev) {
-				p.log.info("Make sure your worker is deployed: wrangler deploy");
+				p.log.info(`Make sure your worker is deployed: ${formatCommand(pm, "deploy")}`);
 			}
 			p.outro("Activation cancelled.");
 			process.exit(1);

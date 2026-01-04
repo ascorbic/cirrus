@@ -10,17 +10,14 @@ import { readDevVars } from "../utils/dotenv.js";
 import { PDSClient, PDSClientError } from "../utils/pds-client.js";
 import { DidResolver } from "../../did-resolver.js";
 
-import { getTargetUrl, getDomain } from "../utils/cli-helpers.js";
+import {
+	getTargetUrl,
+	getDomain,
+	detectPackageManager,
+	formatCommand,
+	type PackageManager,
+} from "../utils/cli-helpers.js";
 import { getPdsEndpoint } from "@atproto/common-web";
-type PackageManager = "npm" | "yarn" | "pnpm" | "bun";
-
-function detectPackageManager(): PackageManager {
-	const userAgent = process.env.npm_config_user_agent || "";
-	if (userAgent.startsWith("yarn")) return "yarn";
-	if (userAgent.startsWith("pnpm")) return "pnpm";
-	if (userAgent.startsWith("bun")) return "bun";
-	return "npm";
-}
 
 // Helper to override clack's dim styling in notes
 const brightNote = (lines: string[]) =>
@@ -60,8 +57,7 @@ export const migrateCommand = defineCommand({
 		},
 	},
 	async run({ args }) {
-		const packageManager = detectPackageManager();
-		const pm = packageManager === "npm" ? "npm run" : packageManager;
+		const pm = detectPackageManager();
 		const isDev = args.dev;
 
 		// Get target URL
@@ -89,11 +85,11 @@ export const migrateCommand = defineCommand({
 			spinner.stop(`PDS not responding at ${targetDomain}`);
 			if (isDev) {
 				p.log.error(`Your local PDS isn't running at ${targetUrl}`);
-				p.log.info(`Start it with: ${pm} dev`);
+				p.log.info(`Start it with: ${formatCommand(pm, "dev")}`);
 			} else {
 				p.log.error(`Your PDS isn't responding at ${targetUrl}`);
-				p.log.info("Make sure your worker is deployed: wrangler deploy");
-				p.log.info(`Or test locally first: ${pm} pds migrate --dev`);
+				p.log.info(`Make sure your worker is deployed: ${formatCommand(pm, "deploy")}`);
+				p.log.info(`Or test locally first: ${formatCommand(pm, "pds", "migrate", "--dev")}`);
 			}
 			p.outro("Migration cancelled.");
 			process.exit(1);
@@ -171,7 +167,7 @@ export const migrateCommand = defineCommand({
 				p.log.info("Your account is already live");
 				p.log.info("");
 				p.log.info("If you need to re-import, first deactivate:");
-				p.log.info("  pnpm pds deactivate");
+				p.log.info(`  ${formatCommand(pm, "pds", "deactivate")}`);
 				p.outro("Migration cancelled.");
 				process.exit(1);
 			}
@@ -492,7 +488,7 @@ export const migrateCommand = defineCommand({
 	},
 });
 
-function showNextSteps(pm: string, sourceDomain: string): void {
+function showNextSteps(pm: PackageManager, sourceDomain: string): void {
 	p.note(
 		brightNote([
 			pc.bold("Your data is safe in your new PDS."),
@@ -503,7 +499,7 @@ function showNextSteps(pm: string, sourceDomain: string): void {
 			`   (Requires email verification from ${sourceDomain})`,
 			"",
 			pc.bold("2. Flip the switch"),
-			`   ${pm} pds activate`,
+			`   ${formatCommand(pm, "pds", "activate")}`,
 			"",
 			"Docs: https://atproto.com/guides/account-migration",
 		]),
