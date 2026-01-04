@@ -22,7 +22,10 @@
 		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm"
 	},
 	"dependencies": {
-		"@getcirrus/oauth-provider": "workspace:*",
+		"@atcute/cbor": "^2.2.8",
+		"@atcute/cid": "^2.3.0",
+		"@atcute/crypto": "^2.3.0",
+		"@atcute/tid": "^1.1.1",
 		"@atproto-labs/handle-resolver": "^0.3.4",
 		"@atproto/common-web": "^0.4.7",
 		"@atproto/crypto": "^0.4.5",
@@ -33,6 +36,7 @@
 		"@atproto/repo": "^0.8.12",
 		"@atproto/syntax": "^0.4.2",
 		"@clack/prompts": "^0.11.0",
+		"@getcirrus/oauth-provider": "workspace:*",
 		"bcryptjs": "^3.0.3",
 		"citty": "^0.1.6",
 		"hono": "^4.11.3",

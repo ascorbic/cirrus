@@ -1,8 +1,4 @@
-import {
-	encode as cborEncode,
-	decode as cborDecode,
-	type LexValue,
-} from "@atproto/lex-cbor";
+import { encode as cborEncode, decode as cborDecode } from "./cbor-compat";
 import { CID } from "@atproto/lex-data";
 import { blocksToCarFile, type BlockMap } from "@atproto/repo";
 import type { RecordWriteOp } from "@atproto/repo";
@@ -97,7 +93,7 @@ export class Sequencer {
 
 		// Store in SQLite
 		// Type assertion: CBOR handles CID/Uint8Array serialization
-		const payload = cborEncode(eventPayload as {} as LexValue);
+		const payload = cborEncode(eventPayload);
 		const result = this.sql
 			.exec(
 				`INSERT INTO firehose_events (event_type, payload)

@@ -1,5 +1,9 @@
 import { CID } from "@atproto/lex-data";
-import { cidForRawBytes } from "@atproto/lex-cbor";
+import {
+	create as createCid,
+	CODEC_RAW,
+	toString as cidToString,
+} from "@atcute/cid";
 
 export interface BlobRef {
 	$type: "blob";
@@ -23,17 +27,18 @@ export class BlobStore {
 	 */
 	async putBlob(bytes: Uint8Array, mimeType: string): Promise<BlobRef> {
 		// Compute CID using SHA-256 (RAW codec)
-		const cid = await cidForRawBytes(bytes);
+		const cidObj = await createCid(CODEC_RAW, bytes);
+		const cidStr = cidToString(cidObj);
 
 		// Store in R2 with DID prefix for isolation
-		const key = `${this.did}/${cid.toString()}`;
+		const key = `${this.did}/${cidStr}`;
 		await this.r2.put(key, bytes, {
 			httpMetadata: { contentType: mimeType },
 		});
 
 		return {
 			$type: "blob",
-			ref: { $link: cid.toString() },
+			ref: { $link: cidStr },
 			mimeType,
 			size: bytes.length,
 		};

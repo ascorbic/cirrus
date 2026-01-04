@@ -15,7 +15,7 @@ import { Secp256k1Keypair } from "@atproto/crypto";
 import { CID, isCid, asCid, isBlobRef } from "@atproto/lex-data";
 import { TID } from "@atproto/common-web";
 import { AtUri } from "@atproto/syntax";
-import { encode as cborEncode } from "@atproto/lex-cbor";
+import { encode as cborEncode } from "./cbor-compat";
 import { SqliteRepoStorage } from "./storage";
 import { SqliteOAuthStorage } from "./oauth-storage";
 import { Sequencer, type SeqEvent, type CommitData } from "./sequencer";
@@ -1160,12 +1160,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			handle,
 		};
 
-		const headerBytes = cborEncode(
-			header as unknown as import("@atproto/lex-cbor").LexValue,
-		);
-		const bodyBytes = cborEncode(
-			body as unknown as import("@atproto/lex-cbor").LexValue,
-		);
+		const headerBytes = cborEncode(header);
+		const bodyBytes = cborEncode(body);
 		const frame = new Uint8Array(headerBytes.length + bodyBytes.length);
 		frame.set(headerBytes, 0);
 		frame.set(bodyBytes, headerBytes.length);
