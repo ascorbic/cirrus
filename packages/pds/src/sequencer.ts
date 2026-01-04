@@ -21,6 +21,16 @@ export interface CommitEvent {
 }
 
 /**
+ * Identity event payload for the firehose
+ */
+export interface IdentityEvent {
+	seq: number;
+	did: string;
+	handle: string;
+	time: string;
+}
+
+/**
  * Repository operation in a commit
  */
 export interface RepoOp {
@@ -30,14 +40,29 @@ export interface RepoOp {
 }
 
 /**
- * Sequenced event wrapper
+ * Sequenced commit event wrapper
  */
-export interface SeqEvent {
+export interface SeqCommitEvent {
 	seq: number;
 	type: "commit";
 	event: CommitEvent;
 	time: string;
 }
+
+/**
+ * Sequenced identity event wrapper
+ */
+export interface SeqIdentityEvent {
+	seq: number;
+	type: "identity";
+	event: IdentityEvent;
+	time: string;
+}
+
+/**
+ * Sequenced event (commit or identity)
+ */
+export type SeqEvent = SeqCommitEvent | SeqIdentityEvent;
 
 /**
  * Data needed to sequence a commit
@@ -119,6 +144,7 @@ export class Sequencer {
 	/**
 	 * Get events from a cursor position.
 	 * Returns up to `limit` events after the cursor.
+	 * Skips identity events that have empty payloads.
 	 */
 	async getEventsSince(cursor: number, limit = 100): Promise<SeqEvent[]> {
 		const rows = this.sql
@@ -133,20 +159,40 @@ export class Sequencer {
 			)
 			.toArray();
 
-		return rows.map((row) => {
-			const payload = new Uint8Array(row.payload as ArrayBuffer);
-			const decoded = cborDecode(payload);
+		const events: SeqEvent[] = [];
 
-			return {
-				seq: row.seq as number,
-				type: "commit",
-				event: {
-					...(decoded as unknown as Omit<CommitEvent, "seq">),
-					seq: row.seq as number,
-				},
-				time: row.created_at as string,
-			};
-		});
+		for (const row of rows) {
+			const eventType = row.event_type as string;
+			const payload = new Uint8Array(row.payload as ArrayBuffer);
+			const seq = row.seq as number;
+			const time = row.created_at as string;
+
+			if (eventType === "identity") {
+				// Skip legacy identity events with empty payload
+				if (payload.length === 0) {
+					continue;
+				}
+				// Decode identity event with proper payload
+				const decoded = cborDecode(payload) as Omit<IdentityEvent, "seq">;
+				events.push({
+					seq,
+					type: "identity",
+					event: { ...decoded, seq },
+					time,
+				});
+			} else {
+				// Commit event
+				const decoded = cborDecode(payload) as Omit<CommitEvent, "seq">;
+				events.push({
+					seq,
+					type: "commit",
+					event: { ...decoded, seq },
+					time,
+				});
+			}
+		}
+
+		return events;
 	}
 
 	/**
