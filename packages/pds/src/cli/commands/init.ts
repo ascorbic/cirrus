@@ -9,6 +9,9 @@ import {
 	getVars,
 	getWorkerName,
 	setWorkerName,
+	setAccountId,
+	setCustomDomains,
+	detectCloudflareAccounts,
 	type SecretName,
 } from "../utils/wrangler.js";
 import {
@@ -72,6 +75,37 @@ import {
 
 import { resolveHandleToDid } from "../utils/handle-resolver.js";
 import { DidResolver } from "../../did-resolver.js";
+
+/**
+ * Ensure a Cloudflare account_id is configured.
+ * If multiple accounts detected, prompts user to select one.
+ */
+async function ensureAccountConfigured(): Promise<void> {
+	const spinner = p.spinner();
+	spinner.start("Checking Cloudflare account...");
+
+	const accounts = await detectCloudflareAccounts();
+
+	if (accounts === null) {
+		spinner.stop("Cloudflare account configured");
+		return;
+	}
+
+	spinner.stop(`Found ${accounts.length} Cloudflare accounts`);
+
+	const selectedId = await promptSelect({
+		message: "Select your Cloudflare account:",
+		options: accounts.map((acc) => ({
+			value: acc.id,
+			label: acc.name,
+			hint: acc.id.slice(0, 8) + "...",
+		})),
+	});
+
+	setAccountId(selectedId);
+	const selectedName = accounts.find((a) => a.id === selectedId)?.name;
+	p.log.success(`Account "${selectedName}" saved to wrangler.jsonc`);
+}
 
 /**
  * Run wrangler types to regenerate TypeScript types
@@ -291,6 +325,9 @@ export const initCommand = defineCommand({
 
 			// Set to deactivated initially for migration
 			initialActive = "false";
+
+			// Ensure Cloudflare account is configured before any wrangler operations
+			await ensureAccountConfigured();
 		} else {
 			// New account flow
 			p.log.info("A fresh start in the Atmosphere! ✨");
@@ -330,6 +367,9 @@ export const initCommand = defineCommand({
 
 			// Active by default for new accounts
 			initialActive = "true";
+
+			// Ensure Cloudflare account is configured before any wrangler operations
+			await ensureAccountConfigured();
 
 			// Show different notes based on whether handle matches hostname
 			if (handle === hostname) {
@@ -425,6 +465,7 @@ export const initCommand = defineCommand({
 			SIGNING_KEY_PUBLIC: signingKeyPublic,
 			INITIAL_ACTIVE: initialActive,
 		});
+		setCustomDomains([hostname]);
 		spinner.stop("wrangler.jsonc updated");
 
 		// Set secrets

@@ -99,3 +99,99 @@ export async function setSecret(
 		child.on("error", reject);
 	});
 }
+
+/**
+ * Get account_id from wrangler config
+ */
+function getAccountId(): string | undefined {
+	const { rawConfig } = experimental_readRawConfig({});
+	return rawConfig.account_id as string | undefined;
+}
+
+/**
+ * Set account_id in wrangler config
+ */
+export function setAccountId(accountId: string): void {
+	const { configPath } = experimental_readRawConfig({});
+	if (!configPath) {
+		throw new Error("No wrangler config found");
+	}
+	experimental_patchConfig(configPath, { account_id: accountId });
+}
+
+/**
+ * Set custom domain routes in wrangler config
+ */
+export function setCustomDomains(domains: string[]): void {
+	const { configPath } = experimental_readRawConfig({});
+	if (!configPath) {
+		throw new Error("No wrangler config found");
+	}
+	const routes = domains.map((pattern) => ({ pattern, custom_domain: true }));
+	experimental_patchConfig(configPath, { routes });
+}
+
+export interface CloudflareAccount {
+	id: string;
+	name: string;
+}
+
+/**
+ * Detect available Cloudflare accounts by running wrangler whoami.
+ * Returns array of accounts if multiple found, null if single account or already configured.
+ */
+export async function detectCloudflareAccounts(): Promise<CloudflareAccount[] | null> {
+	if (getAccountId()) {
+		return null;
+	}
+
+	const { stdout, stderr } = await runWranglerWithOutput(["whoami"]);
+	const output = stdout + stderr;
+
+	// Parse accounts from wrangler whoami table output:
+	// │ Account Name │ Account ID │
+	const accounts: CloudflareAccount[] = [];
+	const regex = /│\s*([^│]+?)\s*│\s*([a-f0-9]{32})\s*│/g;
+	let match;
+	while ((match = regex.exec(output)) !== null) {
+		const name = match[1]?.trim();
+		const id = match[2];
+		// Skip header row
+		if (name && id && name !== "Account Name") {
+			accounts.push({ name, id });
+		}
+	}
+
+	return accounts.length > 1 ? accounts : null;
+}
+
+/**
+ * Run a wrangler command and capture output
+ */
+function runWranglerWithOutput(
+	args: string[],
+): Promise<{ stdout: string; stderr: string }> {
+	return new Promise((resolve) => {
+		const child = spawn("wrangler", args, {
+			stdio: ["pipe", "pipe", "pipe"],
+		});
+
+		let stdout = "";
+		let stderr = "";
+
+		child.stdout?.on("data", (data: Buffer) => {
+			stdout += data.toString();
+		});
+		child.stderr?.on("data", (data: Buffer) => {
+			stderr += data.toString();
+		});
+
+		child.on("close", () => {
+			resolve({ stdout, stderr });
+		});
+
+		child.on("error", () => {
+			resolve({ stdout, stderr });
+		});
+	});
+}
