@@ -1,9 +1,4 @@
-import { CID } from "@atproto/lex-data";
-import {
-	create as createCid,
-	CODEC_RAW,
-	toString as cidToString,
-} from "@atcute/cid";
+import { create as createCid, CODEC_RAW, toString as cidToString } from "@atcute/cid";
 
 export interface BlobRef {
 	$type: "blob";
@@ -45,18 +40,18 @@ export class BlobStore {
 	}
 
 	/**
-	 * Retrieve a blob from R2 by CID.
+	 * Retrieve a blob from R2 by CID string.
 	 */
-	async getBlob(cid: CID): Promise<R2ObjectBody | null> {
-		const key = `${this.did}/${cid.toString()}`;
+	async getBlob(cid: string): Promise<R2ObjectBody | null> {
+		const key = `${this.did}/${cid}`;
 		return this.r2.get(key);
 	}
 
 	/**
 	 * Check if a blob exists in R2.
 	 */
-	async hasBlob(cid: CID): Promise<boolean> {
-		const key = `${this.did}/${cid.toString()}`;
+	async hasBlob(cid: string): Promise<boolean> {
+		const key = `${this.did}/${cid}`;
 		const head = await this.r2.head(key);
 		return head !== null;
 	}

@@ -13,9 +13,8 @@ import {
 /** Record type compatible with @atproto/repo operations */
 type RepoRecord = Record<string, unknown>;
 import { Secp256k1Keypair } from "@atproto/crypto";
-import { CID, isCid, asCid, isBlobRef } from "@atproto/lex-data";
+import { CID, asCid, isBlobRef } from "@atproto/lex-data";
 import { now as tidNow } from "@atcute/tid";
-import type { Did } from "@atcute/lexicons/syntax";
 import { encode as cborEncode } from "./cbor-compat";
 import { SqliteRepoStorage } from "./storage";
 import { SqliteOAuthStorage } from "./oauth-storage";
@@ -836,9 +835,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		if (!this.blobStore) {
 			throw new Error("Blob storage not configured");
 		}
-
-		const cid = CID.parse(cidStr);
-		return this.blobStore.getBlob(cid);
+		return this.blobStore.getBlob(cidStr);
 	}
 
 	/**
