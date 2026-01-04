@@ -44,6 +44,10 @@
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
+		"@atcute/atproto": "^3.1.10",
+		"@atcute/bluesky": "^3.2.14",
+		"@atcute/client": "^4.2.0",
+		"@atcute/lexicons": "^1.2.6",
 		"@atproto/api": "^0.18.9",
 		"@cloudflare/vite-plugin": "^1.17.0",
 		"@cloudflare/vitest-pool-workers": "https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632",
