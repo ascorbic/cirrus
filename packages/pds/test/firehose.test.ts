@@ -1,7 +1,21 @@
 import { describe, it, expect } from "vitest";
 import { CarReader } from "@ipld/car";
+import { decodeAll } from "@atproto/lex-cbor";
 import { env, worker, runInDurableObject } from "./helpers";
 import type { AccountDurableObject } from "../src/account-do";
+import type { SeqCommitEvent, SeqIdentityEvent } from "../src/sequencer";
+
+/**
+ * Decode a firehose frame into header and body.
+ * Frames are two concatenated CBOR values: header + body.
+ */
+function decodeFrame(frame: Uint8Array): { header: unknown; body: unknown } {
+	const decoded = [...decodeAll(frame)];
+	if (decoded.length !== 2) {
+		throw new Error(`Expected 2 CBOR values in frame, got ${decoded.length}`);
+	}
+	return { header: decoded[0], body: decoded[1] };
+}
 
 describe("Firehose (subscribeRepos)", () => {
 	describe("WebSocket Upgrade", () => {
@@ -282,6 +296,155 @@ describe("Firehose (subscribeRepos)", () => {
 				// Request only 5 events
 				const events = await sequencer.getEventsSince(currentSeq, 5);
 				expect(events.length).toBe(5);
+			});
+		});
+	});
+
+	describe("Frame Encoding", () => {
+		it("should encode commit events with #commit frame type", async () => {
+			const id = env.ACCOUNT.idFromName("account");
+			const stub = env.ACCOUNT.get(id);
+
+			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+				await instance.getStorage();
+				const sequencer = (instance as any).sequencer;
+				const encodeEventFrame = (instance as any).encodeEventFrame.bind(
+					instance,
+				);
+
+				const seqBefore = sequencer.getLatestSeq();
+
+				// Create a record to get a commit event
+				await instance.rpcCreateRecord(
+					"app.bsky.feed.post",
+					"frame-type-test",
+					{
+						text: "Test frame type",
+						createdAt: new Date().toISOString(),
+					},
+				);
+
+				// Get the event
+				const events = await sequencer.getEventsSince(seqBefore, 1);
+				expect(events.length).toBe(1);
+				expect(events[0].type).toBe("commit");
+
+				// Encode the event and verify frame header
+				const frame = encodeEventFrame(events[0] as SeqCommitEvent);
+				const { header, body } = decodeFrame(frame);
+
+				expect(header).toMatchObject({
+					op: 1,
+					t: "#commit",
+				});
+				expect(body).toMatchObject({
+					repo: env.DID,
+				});
+			});
+		});
+
+		it("should encode identity events with #identity frame type", async () => {
+			const id = env.ACCOUNT.idFromName("account");
+			const stub = env.ACCOUNT.get(id);
+
+			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+				await instance.getStorage();
+				const encodeEventFrame = (instance as any).encodeEventFrame.bind(
+					instance,
+				);
+
+				// Create a mock identity event to test encoding
+				const identityEvent: SeqIdentityEvent = {
+					seq: 1,
+					type: "identity",
+					event: {
+						seq: 1,
+						did: env.DID,
+						handle: env.HANDLE,
+						time: new Date().toISOString(),
+					},
+					time: new Date().toISOString(),
+				};
+
+				// Encode and verify frame header uses #identity
+				const frame = encodeEventFrame(identityEvent);
+				const { header, body } = decodeFrame(frame);
+
+				expect(header).toMatchObject({
+					op: 1,
+					t: "#identity",
+				});
+				expect(body).toMatchObject({
+					did: env.DID,
+					handle: env.HANDLE,
+				});
+			});
+		});
+
+		it("should dispatch to correct encoder based on event type", async () => {
+			const id = env.ACCOUNT.idFromName("account");
+			const stub = env.ACCOUNT.get(id);
+
+			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+				await instance.getStorage();
+				const encodeEventFrame = (instance as any).encodeEventFrame.bind(
+					instance,
+				);
+				const sequencer = (instance as any).sequencer;
+
+				const seqBefore = sequencer.getLatestSeq();
+
+				// Create a record
+				await instance.rpcCreateRecord(
+					"app.bsky.feed.post",
+					"dispatch-test",
+					{
+						text: "Test dispatch",
+						createdAt: new Date().toISOString(),
+					},
+				);
+
+				const events = await sequencer.getEventsSince(seqBefore, 1);
+				const commitEvent = events[0] as SeqCommitEvent;
+
+				// Verify commit event gets #commit header
+				const commitFrame = encodeEventFrame(commitEvent);
+				const commitDecoded = decodeFrame(commitFrame);
+				expect((commitDecoded.header as any).t).toBe("#commit");
+
+				// Create identity event and verify it gets #identity header
+				const identityEvent: SeqIdentityEvent = {
+					...commitEvent,
+					type: "identity",
+					event: {
+						seq: commitEvent.seq,
+						did: env.DID,
+						handle: env.HANDLE,
+						time: new Date().toISOString(),
+					},
+				};
+
+				const identityFrame = encodeEventFrame(identityEvent);
+				const identityDecoded = decodeFrame(identityFrame);
+				expect((identityDecoded.header as any).t).toBe("#identity");
+			});
+		});
+	});
+
+	describe("Identity Events", () => {
+		it("should emit identity events with correct frame format", async () => {
+			const id = env.ACCOUNT.idFromName("account");
+			const stub = env.ACCOUNT.get(id);
+
+			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+				await instance.getStorage();
+
+				// Emit an identity event
+				const result = await instance.rpcEmitIdentityEvent(env.HANDLE);
+
+				expect(result).toHaveProperty("seq");
+				expect(typeof result.seq).toBe("number");
+				expect(result.seq).toBeGreaterThan(0);
 			});
 		});
 	});

@@ -9,6 +9,8 @@ import {
 	type FetchHandler,
 } from "@atcute/client";
 import type { Did } from "@atcute/lexicons";
+// These imports augment @atcute/client with typed XRPC method signatures.
+// Without them, the client's .get() and .post() methods lack type information.
 import type {} from "@atcute/atproto";
 import type {} from "@atcute/bluesky";
 
