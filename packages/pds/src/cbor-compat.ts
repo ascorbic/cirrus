@@ -33,7 +33,7 @@ function isAtprotoCid(value: unknown): value is CID {
 /**
  * Convert @atproto CID to @atcute CidLink.
  */
-export function atprotoCidToCidLink(cid: CID): CidLink {
+function atprotoCidToCidLink(cid: CID): CidLink {
 	return toCidLink(fromString(cid.toString()));
 }
 
