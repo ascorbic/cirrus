@@ -136,8 +136,8 @@ export const activateCommand = defineCommand({
 			if (relayPinged) {
 				spinner.stop("Relay notified");
 			} else {
-				spinner.stop("Could not reach relay (will retry automatically)");
-				p.log.warn("The relay will discover your PDS through normal federation.");
+				spinner.stop("Could not notify relay");
+				p.log.warn("The relay will discover your PDS when other users interact with you.");
 			}
 		}
 
