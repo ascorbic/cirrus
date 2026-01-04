@@ -18,7 +18,13 @@ import { now as tidNow } from "@atcute/tid";
 import { encode as cborEncode } from "./cbor-compat";
 import { SqliteRepoStorage } from "./storage";
 import { SqliteOAuthStorage } from "./oauth-storage";
-import { Sequencer, type SeqEvent, type CommitData } from "./sequencer";
+import {
+	Sequencer,
+	type SeqEvent,
+	type SeqCommitEvent,
+	type SeqIdentityEvent,
+	type CommitData,
+} from "./sequencer";
 import { BlobStore, type BlobRef } from "./blobs";
 import type { PDSEnv } from "./types";
 
@@ -855,9 +861,27 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	/**
 	 * Encode a commit event frame.
 	 */
-	private encodeCommitFrame(event: SeqEvent): Uint8Array {
+	private encodeCommitFrame(event: SeqCommitEvent): Uint8Array {
 		const header = { op: 1, t: "#commit" };
 		return this.encodeFrame(header, event.event);
+	}
+
+	/**
+	 * Encode an identity event frame.
+	 */
+	private encodeIdentityFrame(event: SeqIdentityEvent): Uint8Array {
+		const header = { op: 1, t: "#identity" };
+		return this.encodeFrame(header, event.event);
+	}
+
+	/**
+	 * Encode any event frame based on its type.
+	 */
+	private encodeEventFrame(event: SeqEvent): Uint8Array {
+		if (event.type === "identity") {
+			return this.encodeIdentityFrame(event);
+		}
+		return this.encodeCommitFrame(event);
 	}
 
 	/**
@@ -894,7 +918,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		const events = await this.sequencer.getEventsSince(cursor, 1000);
 
 		for (const event of events) {
-			const frame = this.encodeCommitFrame(event);
+			const frame = this.encodeEventFrame(event);
 			ws.send(frame);
 		}
 
@@ -913,7 +937,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * Broadcast a commit event to all connected firehose clients.
 	 */
 	private async broadcastCommit(event: SeqEvent): Promise<void> {
-		const frame = this.encodeCommitFrame(event);
+		const frame = this.encodeEventFrame(event);
 
 		for (const ws of this.ctx.getWebSockets()) {
 			try {
@@ -1081,7 +1105,10 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcListMissingBlobs(
 		limit: number = 500,
 		cursor?: string,
-	): Promise<{ blobs: Array<{ cid: string; recordUri: string }>; cursor?: string }> {
+	): Promise<{
+		blobs: Array<{ cid: string; recordUri: string }>;
+		cursor?: string;
+	}> {
 		const storage = await this.getStorage();
 		return storage.listMissingBlobs(limit, cursor);
 	}
