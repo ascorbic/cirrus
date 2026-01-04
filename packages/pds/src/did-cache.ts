@@ -2,9 +2,54 @@
  * DID cache using Cloudflare Workers Cache API
  */
 
-import type { DidCache, CacheResult, DidDocument } from "@atproto/identity";
-import { check, didDocument } from "@atproto/common-web";
+import type { DidDocument } from "@atcute/identity";
 import { waitUntil } from "cloudflare:workers";
+
+/**
+ * Cache result from checking the DID cache.
+ */
+export interface CacheResult {
+	did: string;
+	doc: DidDocument;
+	updatedAt: number;
+	stale: boolean;
+	expired: boolean;
+}
+
+/**
+ * Interface for DID document caching.
+ */
+export interface DidCache {
+	cacheDid(
+		did: string,
+		doc: DidDocument,
+		prevResult?: CacheResult,
+	): Promise<void>;
+	checkCache(did: string): Promise<CacheResult | null>;
+	refreshCache(
+		did: string,
+		getDoc: () => Promise<DidDocument | null>,
+		prevResult?: CacheResult,
+	): Promise<void>;
+	clearEntry(did: string): Promise<void>;
+	clear(): Promise<void>;
+}
+
+/**
+ * Basic runtime check for DID document structure.
+ * Documents from our resolver are already validated; this is for cached data.
+ */
+function isValidDidDocument(doc: unknown): doc is DidDocument {
+	if (doc === null || typeof doc !== "object") {
+		return false;
+	}
+	const obj = doc as Record<string, unknown>;
+	return (
+		typeof obj.id === "string" &&
+		obj.id.startsWith("did:") &&
+		Array.isArray(obj["@context"])
+	);
+}
 
 const STALE_TTL = 60 * 60 * 1000; // 1 hour - serve from cache but refresh in background
 const MAX_TTL = 24 * 60 * 60 * 1000; // 24 hours - must refresh
@@ -53,7 +98,7 @@ export class WorkersDidCache implements DidCache {
 		const doc = await response.json();
 
 		// Validate cached document schema
-		if (!check.is(doc, didDocument) || doc.id !== did) {
+		if (!isValidDidDocument(doc) || doc.id !== did) {
 			await this.clearEntry(did);
 			return null;
 		}

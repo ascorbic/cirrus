@@ -38,7 +38,7 @@ importers:
     devDependencies:
       '@cloudflare/vite-plugin':
         specifier: ^1.17.0
-        version: 1.17.0(vite@6.4.1(@types/node@24.10.4)(jiti@2.6.1)(tsx@4.21.0))(workerd@1.20251219.0)(wrangler@4.54.0(@cloudflare/workers-types@4.20251225.0))
+        version: 1.17.0(vite@6.4.1(@types/node@24.10.4)(jiti@2.6.1)(tsx@4.21.0))(workerd@1.20251210.0)(wrangler@4.54.0(@cloudflare/workers-types@4.20251225.0))
       vite:
         specifier: ^6.4.1
         version: 6.4.1(@types/node@24.10.4)(jiti@2.6.1)(tsx@4.21.0)
@@ -109,6 +109,12 @@ importers:
       '@atcute/crypto':
         specifier: ^2.3.0
         version: 2.3.0
+      '@atcute/identity':
+        specifier: ^1.1.3
+        version: 1.1.3
+      '@atcute/identity-resolver':
+        specifier: ^1.2.2
+        version: 1.2.2(@atcute/identity@1.1.3)
       '@atcute/tid':
         specifier: ^1.1.1
         version: 1.1.1
@@ -121,9 +127,6 @@ importers:
       '@atproto/crypto':
         specifier: ^0.4.5
         version: 0.4.5
-      '@atproto/identity':
-        specifier: ^0.4.10
-        version: 0.4.10
       '@atproto/lex-cbor':
         specifier: ^0.0.3
         version: 0.0.3
@@ -169,7 +172,7 @@ importers:
         version: 0.18.9
       '@cloudflare/vite-plugin':
         specifier: ^1.17.0
-        version: 1.17.0(vite@6.4.1(@types/node@24.10.4)(jiti@2.6.1)(tsx@4.21.0))(workerd@1.20251210.0)(wrangler@4.54.0(@cloudflare/workers-types@4.20251225.0))
+        version: 1.17.0(vite@6.4.1(@types/node@24.10.4)(jiti@2.6.1)(tsx@4.21.0))(workerd@1.20251219.0)(wrangler@4.54.0(@cloudflare/workers-types@4.20251225.0))
       '@cloudflare/vitest-pool-workers':
         specifier: https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632
         version: https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632(@cloudflare/workers-types@4.20251225.0)(@vitest/runner@4.0.16)(@vitest/snapshot@4.0.16)(vitest@4.0.16(@types/node@24.10.4)(jiti@2.6.1)(tsx@4.21.0))
@@ -230,6 +233,17 @@ packages:
   '@atcute/crypto@2.3.0':
     resolution: {integrity: sha512-w5pkJKCjbNMQu+F4JRHbR3ROQyhi1wbn+GSC6WDQamcYHkZmEZk1/eoI354bIQOOfkEM6aFLv718iskrkon4GQ==}
 
+  '@atcute/identity-resolver@1.2.2':
+    resolution: {integrity: sha512-eUh/UH4bFvuXS0X7epYCeJC/kj4rbBXfSRumLEH4smMVwNOgTo7cL/0Srty+P/qVPoZEyXdfEbS0PHJyzoXmHw==}
+    peerDependencies:
+      '@atcute/identity': ^1.0.0
+
+  '@atcute/identity@1.1.3':
+    resolution: {integrity: sha512-oIqPoI8TwWeQxvcLmFEZLdN2XdWcaLVtlm8pNk0E72As9HNzzD9pwKPrLr3rmTLRIoULPPFmq9iFNsTeCIU9ng==}
+
+  '@atcute/lexicons@1.2.6':
+    resolution: {integrity: sha512-s76UQd8D+XmHIzrjD9CJ9SOOeeLPHc+sMmcj7UFakAW/dDFXc579fcRdRfuUKvXBL5v1Gs2VgDdlh/IvvQZAwA==}
+
   '@atcute/multibase@1.1.6':
     resolution: {integrity: sha512-HBxuCgYLKPPxETV0Rot4VP9e24vKl8JdzGCZOVsDaOXJgbRZoRIF67Lp0H/OgnJeH/Xpva8Z5ReoTNJE5dn3kg==}
 
@@ -241,6 +255,12 @@ packages:
 
   '@atcute/uint8array@1.0.6':
     resolution: {integrity: sha512-ucfRBQc7BFT8n9eCyGOzDHEMKF/nZwhS2pPao4Xtab1ML3HdFYcX2DM1tadCzas85QTGxHe5urnUAAcNKGRi9A==}
+
+  '@atcute/util-fetch@1.0.5':
+    resolution: {integrity: sha512-qjHj01BGxjSjIFdPiAjSARnodJIIyKxnCMMEcXMESo9TAyND6XZQqrie5fia+LlYWVXdpsTds8uFQwc9jdKTig==}
+
+  '@atcute/util-text@0.0.1':
+    resolution: {integrity: sha512-t1KZqvn0AYy+h2KcJyHnKF9aEqfRfMUmyY8j1ELtAEIgqN9CxINAjxnoRCJIFUlvWzb+oY3uElQL/Vyk3yss0g==}
 
   '@atproto-labs/handle-resolver@0.3.4':
     resolution: {integrity: sha512-wsNopfzfgO3uPvfnFDgNeXgDufXxSXhjBjp2WEiSzEiLrMy0Jodnqggw4OzD9MJKf0a4Iu2/ydd537qdy91LrQ==}
@@ -270,10 +290,6 @@ packages:
 
   '@atproto/did@0.2.3':
     resolution: {integrity: sha512-VI8JJkSizvM2cHYJa37WlbzeCm5tWpojyc1/Zy8q8OOjyoy6X4S4BEfoP941oJcpxpMTObamibQIXQDo7tnIjg==}
-
-  '@atproto/identity@0.4.10':
-    resolution: {integrity: sha512-nQbzDLXOhM8p/wo0cTh5DfMSOSHzj6jizpodX37LJ4S1TZzumSxAjHEZa5Rev3JaoD5uSWMVE0MmKEGWkPPvfQ==}
-    engines: {node: '>=18.7.0'}
 
   '@atproto/jwk@0.6.0':
     resolution: {integrity: sha512-bDoJPvt7TrQVi/rBfBrSSpGykhtIriKxeYCYQTiPRKFfyRhbgpElF0wPXADjIswnbzZdOwbY63az4E/CFVT3Tw==}
@@ -333,6 +349,10 @@ packages:
   '@babel/types@7.28.5':
     resolution: {integrity: sha512-qQ5m48eI/MFLQ5PxQj4PFaprjyCTLI37ElWMmNs0K8Lk3dVeOdNpB3ks8jc7yM5CDmVC73eMVk/trk3fgmrUpA==}
     engines: {node: '>=6.9.0'}
+
+  '@badrap/valita@0.4.6':
+    resolution: {integrity: sha512-4kdqcjyxo/8RQ8ayjms47HCWZIF5981oE5nIenbfThKDxWXtEHKipAOWlflpPJzZx9y/JWYQkp18Awr7VuepFg==}
+    engines: {node: '>= 18'}
 
   '@braidai/lang@1.0.0':
     resolution: {integrity: sha512-Ckpah5j8iAzDfc4YEP4uqnxyUznuAt6hRR093JSEYUgh2trQjCibQ2pfxHxzfz7y9vkUn9/rBxjFpGY+SPudHA==}
@@ -1710,6 +1730,9 @@ packages:
     resolution: {integrity: sha512-ErCHMCae19vR8vQGe50xIsVomy19rg6gFu3+r3jkEO46suLMWBksvVyoGgQV+jOfl84ZSOSlmv6Gxa89PmTGmA==}
     engines: {node: '>=6'}
 
+  esm-env@1.2.2:
+    resolution: {integrity: sha512-Epxrv+Nr/CaL4ZcFGPJIYLWFom+YeV1DqMLHJoEd9SYRxNbaFruBwfEX/kkHUJf55j2+TUbmDcmuilbP1TmXHA==}
+
   esprima@4.0.1:
     resolution: {integrity: sha512-eGuFFw7Upda+g4p+QHvnW0RyTX/SVeJBDM/gCtMARO0cLuT2HcEKnTPvhjV6aGeqrCB/sbNop0Kszm0jsaWU4A==}
     engines: {node: '>=4'}
@@ -2766,6 +2789,25 @@ snapshots:
       '@atcute/uint8array': 1.0.6
       '@noble/secp256k1': 3.0.0
 
+  '@atcute/identity-resolver@1.2.2(@atcute/identity@1.1.3)':
+    dependencies:
+      '@atcute/identity': 1.1.3
+      '@atcute/lexicons': 1.2.6
+      '@atcute/util-fetch': 1.0.5
+      '@badrap/valita': 0.4.6
+
+  '@atcute/identity@1.1.3':
+    dependencies:
+      '@atcute/lexicons': 1.2.6
+      '@badrap/valita': 0.4.6
+
+  '@atcute/lexicons@1.2.6':
+    dependencies:
+      '@atcute/uint8array': 1.0.6
+      '@atcute/util-text': 0.0.1
+      '@standard-schema/spec': 1.1.0
+      esm-env: 1.2.2
+
   '@atcute/multibase@1.1.6':
     dependencies:
       '@atcute/uint8array': 1.0.6
@@ -2780,6 +2822,14 @@ snapshots:
       node-gyp-build: 4.8.4
 
   '@atcute/uint8array@1.0.6': {}
+
+  '@atcute/util-fetch@1.0.5':
+    dependencies:
+      '@badrap/valita': 0.4.6
+
+  '@atcute/util-text@0.0.1':
+    dependencies:
+      unicode-segmenter: 0.14.4
 
   '@atproto-labs/handle-resolver@0.3.4':
     dependencies:
@@ -2836,11 +2886,6 @@ snapshots:
   '@atproto/did@0.2.3':
     dependencies:
       zod: 3.25.76
-
-  '@atproto/identity@0.4.10':
-    dependencies:
-      '@atproto/common-web': 0.4.7
-      '@atproto/crypto': 0.4.5
 
   '@atproto/jwk@0.6.0':
     dependencies:
@@ -2936,6 +2981,8 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
+
+  '@badrap/valita@0.4.6': {}
 
   '@braidai/lang@1.0.0': {}
 
@@ -4138,6 +4185,8 @@ snapshots:
       '@esbuild/win32-x64': 0.27.0
 
   escalade@3.1.2: {}
+
+  esm-env@1.2.2: {}
 
   esprima@4.0.1: {}
 
