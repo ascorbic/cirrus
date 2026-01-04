@@ -271,6 +271,122 @@ describe("XRPC Service Proxying", () => {
 	});
 
 	describe("Fallback behavior", () => {
+		it("should proxy getRecord with foreign DID to AppView", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn((url: string) => {
+					if (url.includes("api.bsky.app")) {
+						return Promise.resolve(
+							new Response(
+								JSON.stringify({
+									uri: "at://did:plc:foreign/app.bsky.feed.post/abc123",
+									cid: "bafyreiabc123",
+									value: { text: "test post" },
+								}),
+								{
+									status: 200,
+									headers: { "Content-Type": "application/json" },
+								},
+							),
+						);
+					}
+					return originalFetch(url);
+				}),
+			);
+
+			const response = await worker.fetch(
+				new Request(
+					"http://pds.test/xrpc/com.atproto.repo.getRecord?repo=did:plc:foreign&collection=app.bsky.feed.post&rkey=abc123",
+				),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+			const data = await response.json();
+			expect(data).toMatchObject({
+				uri: "at://did:plc:foreign/app.bsky.feed.post/abc123",
+				value: { text: "test post" },
+			});
+		});
+
+		it("should proxy listRecords with foreign DID to AppView", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn((url: string) => {
+					if (url.includes("api.bsky.app")) {
+						return Promise.resolve(
+							new Response(
+								JSON.stringify({
+									records: [
+										{
+											uri: "at://did:plc:foreign/app.bsky.feed.post/abc123",
+											cid: "bafyreiabc123",
+											value: { text: "test post" },
+										},
+									],
+								}),
+								{
+									status: 200,
+									headers: { "Content-Type": "application/json" },
+								},
+							),
+						);
+					}
+					return originalFetch(url);
+				}),
+			);
+
+			const response = await worker.fetch(
+				new Request(
+					"http://pds.test/xrpc/com.atproto.repo.listRecords?repo=did:plc:foreign&collection=app.bsky.feed.post",
+				),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+			const data = await response.json();
+			expect(data.records).toHaveLength(1);
+			expect(data.records[0].uri).toBe(
+				"at://did:plc:foreign/app.bsky.feed.post/abc123",
+			);
+		});
+
+		it("should proxy describeRepo with foreign DID to AppView", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn((url: string) => {
+					if (url.includes("api.bsky.app")) {
+						return Promise.resolve(
+							new Response(
+								JSON.stringify({
+									handle: "foreign.bsky.social",
+									did: "did:plc:foreign",
+									collections: ["app.bsky.feed.post"],
+								}),
+								{
+									status: 200,
+									headers: { "Content-Type": "application/json" },
+								},
+							),
+						);
+					}
+					return originalFetch(url);
+				}),
+			);
+
+			const response = await worker.fetch(
+				new Request(
+					"http://pds.test/xrpc/com.atproto.repo.describeRepo?repo=did:plc:foreign",
+				),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+			const data = await response.json();
+			expect(data.did).toBe("did:plc:foreign");
+			expect(data.handle).toBe("foreign.bsky.social");
+		});
+
 		it("should proxy to Bluesky AppView when no proxy header present", async () => {
 			// Mock fetch to verify request goes to api.bsky.app
 			vi.stubGlobal(

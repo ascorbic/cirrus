@@ -210,16 +210,30 @@ app.get("/xrpc/com.atproto.sync.subscribeRepos", async (c) => {
 	return accountDO.fetch(c.req.raw);
 });
 
-// Repository operations
-app.get("/xrpc/com.atproto.repo.describeRepo", (c) =>
-	repo.describeRepo(c, getAccountDO(c.env)),
-);
-app.get("/xrpc/com.atproto.repo.getRecord", (c) =>
-	repo.getRecord(c, getAccountDO(c.env)),
-);
-app.get("/xrpc/com.atproto.repo.listRecords", (c) =>
-	repo.listRecords(c, getAccountDO(c.env)),
-);
+// Repository operations - handle local repo directly, proxy foreign DIDs to AppView
+app.use("/xrpc/com.atproto.repo.describeRepo", async (c, next) => {
+	const requestedRepo = c.req.query("repo");
+	if (!requestedRepo || requestedRepo === c.env.DID) {
+		return repo.describeRepo(c, getAccountDO(c.env));
+	}
+	await next();
+});
+
+app.use("/xrpc/com.atproto.repo.getRecord", async (c, next) => {
+	const requestedRepo = c.req.query("repo");
+	if (!requestedRepo || requestedRepo === c.env.DID) {
+		return repo.getRecord(c, getAccountDO(c.env));
+	}
+	await next();
+});
+
+app.use("/xrpc/com.atproto.repo.listRecords", async (c, next) => {
+	const requestedRepo = c.req.query("repo");
+	if (!requestedRepo || requestedRepo === c.env.DID) {
+		return repo.listRecords(c, getAccountDO(c.env));
+	}
+	await next();
+});
 
 // Write operations require authentication
 app.post("/xrpc/com.atproto.repo.createRecord", requireAuth, (c) =>
