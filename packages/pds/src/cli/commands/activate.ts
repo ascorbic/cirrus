@@ -85,8 +85,32 @@ export const activateCommand = defineCommand({
 
 		// Check if already active
 		if (status.active) {
-			p.log.warn("Your account is already active!");
-			p.log.info("No action needed - you're live in the Atmosphere. 🦋");
+			p.log.info("Your account is already active.");
+
+			// Offer to ping the relay
+			const pdsHostname = config.PDS_HOSTNAME;
+			if (pdsHostname && !isDev) {
+				const pingRelay = await p.confirm({
+					message: "Notify the relay? (useful if posts aren't being indexed)",
+					initialValue: false,
+				});
+
+				if (p.isCancel(pingRelay)) {
+					p.cancel("Cancelled.");
+					process.exit(0);
+				}
+
+				if (pingRelay) {
+					spinner.start("Notifying relay...");
+					const relayPinged = await client.requestCrawl(pdsHostname);
+					if (relayPinged) {
+						spinner.stop("Relay notified");
+					} else {
+						spinner.stop("Could not notify relay");
+					}
+				}
+			}
+
 			p.outro("All good!");
 			return;
 		}
@@ -126,6 +150,19 @@ export const activateCommand = defineCommand({
 			);
 			p.outro("Activation failed.");
 			process.exit(1);
+		}
+
+		// Ping the relay to request crawl
+		const pdsHostname = config.PDS_HOSTNAME;
+		if (pdsHostname && !isDev) {
+			spinner.start("Notifying relay...");
+			const relayPinged = await client.requestCrawl(pdsHostname);
+			if (relayPinged) {
+				spinner.stop("Relay notified");
+			} else {
+				spinner.stop("Could not notify relay");
+				p.log.warn("Run 'pds activate' again later to retry notifying the relay.");
+			}
 		}
 
 		p.log.success("Welcome to the Atmosphere! 🦋");
