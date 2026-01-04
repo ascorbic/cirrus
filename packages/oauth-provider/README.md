@@ -1,9 +1,5 @@
 # @getcirrus/oauth-provider
 
-> **🚨 This package has been renamed to `@getcirrus/oauth-provider`**
->
-> This package is deprecated and will no longer receive updates. Please migrate to [`@getcirrus/oauth-provider`](https://www.npmjs.com/package/@getcirrus/oauth-provider) for the latest features and bug fixes.
-
 AT Protocol OAuth 2.1 Authorization Server for Cloudflare Workers.
 
 A complete OAuth 2.1 provider implementation that enables "Login with Bluesky" functionality for your PDS. Built specifically for Cloudflare Workers with Durable Objects.
