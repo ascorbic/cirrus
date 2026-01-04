@@ -32,14 +32,6 @@
 			"bucket_name": "pds-blobs"
 		}
 	],
-	// Custom domain routing (set by `pds init`)
-	// Cloudflare will automatically configure DNS and SSL
-	// "routes": [
-	// 	{
-	// 		"pattern": "pds.example.com",
-	// 		"custom_domain": true
-	// 	}
-	// ],
 	// Environment variables (public config)
 	// These are set by `pds init` or can be edited manually
 	"vars": {

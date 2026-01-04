@@ -92,14 +92,6 @@ export function setCustomDomain(hostname: string): void {
 }
 
 /**
- * Get current routes from wrangler config
- */
-export function getRoutes(): Array<{ pattern: string; custom_domain?: boolean }> {
-	const { rawConfig } = experimental_readRawConfig({});
-	return (rawConfig.routes as Array<{ pattern: string; custom_domain?: boolean }>) || [];
-}
-
-/**
  * Set a secret using wrangler secret put
  */
 export async function setSecret(
