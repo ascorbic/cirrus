@@ -18,7 +18,7 @@ import {
 	isTokenValid,
 	AUTH_CODE_TTL,
 } from "./tokens.js";
-import { renderConsentUI, renderErrorPage, CONSENT_UI_CSP } from "./ui.js";
+import { renderConsentUI, renderErrorPage, getConsentUICSP } from "./ui.js";
 
 /**
  * OAuth provider configuration
@@ -218,7 +218,7 @@ export class ATProtoOAuthProvider {
 			status: 200,
 			headers: {
 				"Content-Type": "text/html; charset=utf-8",
-				"Content-Security-Policy": CONSENT_UI_CSP,
+				"Content-Security-Policy": getConsentUICSP(this.issuer),
 				"Cache-Control": "no-store",
 			},
 		});
@@ -289,7 +289,7 @@ export class ATProtoOAuthProvider {
 				status: 401,
 				headers: {
 					"Content-Type": "text/html; charset=utf-8",
-					"Content-Security-Policy": CONSENT_UI_CSP,
+					"Content-Security-Policy": getConsentUICSP(this.issuer),
 					"Cache-Control": "no-store",
 				},
 			});
@@ -666,7 +666,7 @@ export class ATProtoOAuthProvider {
 			status: 400,
 			headers: {
 				"Content-Type": "text/html; charset=utf-8",
-				"Content-Security-Policy": CONSENT_UI_CSP,
+				"Content-Security-Policy": getConsentUICSP(this.issuer),
 				"Cache-Control": "no-store",
 			},
 		});
