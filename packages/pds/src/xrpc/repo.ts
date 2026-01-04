@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { AtUri, ensureValidDid } from "@atproto/syntax";
+import { isDid } from "@atcute/lexicons/syntax";
 import { AccountDurableObject } from "../account-do";
 import type { AppEnv, AuthedAppEnv } from "../types";
 import { validator } from "../validation";
@@ -60,14 +60,9 @@ export async function describeRepo(
 	}
 
 	// Validate DID format
-	try {
-		ensureValidDid(repo);
-	} catch (err) {
+	if (!isDid(repo)) {
 		return c.json(
-			{
-				error: "InvalidRequest",
-				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
-			},
+			{ error: "InvalidRequest", message: "Invalid DID format" },
 			400,
 		);
 	}
@@ -124,14 +119,9 @@ export async function getRecord(
 	}
 
 	// Validate DID format
-	try {
-		ensureValidDid(repo);
-	} catch (err) {
+	if (!isDid(repo)) {
 		return c.json(
-			{
-				error: "InvalidRequest",
-				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
-			},
+			{ error: "InvalidRequest", message: "Invalid DID format" },
 			400,
 		);
 	}
@@ -159,7 +149,7 @@ export async function getRecord(
 	}
 
 	return c.json({
-		uri: AtUri.make(repo, collection, rkey).toString(),
+		uri: `at://${repo}/${collection}/${rkey}`,
 		cid: result.cid,
 		value: result.record,
 	});
@@ -186,14 +176,9 @@ export async function listRecords(
 	}
 
 	// Validate DID format
-	try {
-		ensureValidDid(repo);
-	} catch (err) {
+	if (!isDid(repo)) {
 		return c.json(
-			{
-				error: "InvalidRequest",
-				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
-			},
+			{ error: "InvalidRequest", message: "Invalid DID format" },
 			400,
 		);
 	}

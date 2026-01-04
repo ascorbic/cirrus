@@ -108,8 +108,8 @@ The PDS package TypeScript configuration:
 
 Required environment variables (validated at module load using `cloudflare:workers` env import):
 
-- `DID` - The account's DID (did:web:...) - validated with `ensureValidDid()`
-- `HANDLE` - The account's handle - validated with `ensureValidHandle()`
+- `DID` - The account's DID (did:web:...) - validated with `isDid()`
+- `HANDLE` - The account's handle - validated with `isHandle()`
 - `PDS_HOSTNAME` - Public hostname
 - `AUTH_TOKEN` - Bearer token for write operations (simple auth)
 - `SIGNING_KEY` - Private key for signing commits
@@ -128,41 +128,44 @@ Required environment variables (validated at module load using `cloudflare:worke
 
 ### Protocol Helpers and Dependencies
 
-**CRITICAL: Always use @atproto libraries instead of low-level dependencies where available.**
+**CRITICAL: Prefer @atcute packages over @atproto where available.**
 
-The codebase uses official @atproto packages for all protocol operations. When implementing new features:
+The codebase uses @atcute packages for most protocol operations, with @atproto packages only where no equivalent exists.
 
-- **Always prefer @atproto packages** over direct use of `multiformats`, `uint8arrays`, `cborg`, etc.
-- **Reference the atproto monorepo** at `~/Repos/atproto` to understand available functions and patterns
-- The @atproto packages provide stable, tested abstractions over low-level primitives
+**@atcute packages (preferred):**
 
-**Encoding and Data Structures:**
+- `@atcute/cbor` - CBOR encoding/decoding (via `src/cbor-compat.ts` compatibility layer)
+- `@atcute/cid` - CID creation with `create()`, `toString()`, `CODEC_RAW`
+- `@atcute/tid` - TID generation with `now()`
+- `@atcute/lexicons/syntax` - `isDid()`, `isHandle()`, `parseResourceUri()`, `Did` type
+- `@atcute/lexicons/validations` - `parse()`, `ValidationError` for schema validation
+- `@atcute/bluesky` - Pre-compiled Bluesky lexicon schemas (e.g., `AppBskyFeedPost.mainSchema`)
+- `@atcute/identity` - `defs.didDocument` validator, `DidDocument` type, `getAtprotoServiceEndpoint()`
+- `@atcute/identity-resolver` - DID resolution (`CompositeDidDocumentResolver`, `PlcDidDocumentResolver`, `WebDidDocumentResolver`), handle resolution (`DohJsonHandleResolver`)
+- `@atcute/client` - Type-safe XRPC client with `get()`, `post()`, `ok()` helper
+- `@atcute/atproto` - Type definitions for `com.atproto.*` endpoints
 
-- `@atproto/lex-cbor` - CBOR encoding/decoding with `encode()`, `cidForCbor()`, `cidForRawBytes()`
-- `@atproto/lex-data` - CID operations via stable interface wrapping multiformats
-- `@atproto/repo` - Repository operations, `BlockMap`, `blocksToCarFile()`, `readCarWithRoot()`
+**@atproto packages (required for repo operations):**
 
-**Protocol Utilities:**
-
-- `@atproto/common-web` - `TID.nextStr()` for record key generation
-- `@atproto/syntax` - `AtUri.make()`, `ensureValidDid()`, `ensureValidHandle()`
-- `@atproto/crypto` - `Secp256k1Keypair` for signing operations, `sha256()` for hashing
-- `@atproto/lexicon` - Schema validation and type definitions
+- `@atproto/repo` - Repository operations, `BlockMap`, `blocksToCarFile()`, `readCarWithRoot()` - no atcute equivalent for write operations
+- `@atproto/crypto` - `Secp256k1Keypair` for signing - required by @atproto/repo
+- `@atproto/lex-data` - `CID`, `asCid()`, `isBlobRef()` - required for @atproto/repo interop
 
 **Important Notes:**
 
-- Never manually construct AT URIs - use `AtUri.make(did, collection, rkey).toString()`
-- Never manually generate record keys - use `TID.nextStr()`
-- Always validate DIDs and handles using `ensureValidDid()` / `ensureValidHandle()`
-- Use `cidForRawBytes()` from `@atproto/lex-cbor` for blob CID generation
-- Use `@atproto/lex-cbor` for test fixtures instead of direct `@ipld/dag-cbor`
+- Construct AT URIs with template strings: `` `at://${did}/${collection}/${rkey}` ``
+- Generate record keys with `now()` from `@atcute/tid`
+- Validate DIDs/handles with `isDid()` / `isHandle()` (return boolean, don't throw)
+- Parse AT URIs with `parseResourceUri()` which returns a Result object
+- Use `create(CODEC_RAW, bytes)` from `@atcute/cid` for blob CID generation
+- CBOR encoding uses `src/cbor-compat.ts` which wraps @atcute/cbor for @atproto interop
 - CAR file export uses `blocksToCarFile()` from `@atproto/repo`
 
 ### Vitest Configuration Notes
 
 - **Module Shimming**: Uses `resolve: { conditions: ["node", "require"] }` to force CJS builds for multiformats
 - **BlockMap/CidSet**: Access internal Map/Set via `(blocks as unknown as { map: Map<...> }).map` when iterating
-- **Test Count**: 112 tests across 9 test files (16 storage, 32 XRPC, 15 session, 9 migration, 8 firehose, 10 blob, 8 validation, 3 service-auth, 11 bluesky-validation)
+- **Test Count**: 170 unit tests across 13 test files, 31 CLI tests across 3 test files
 
 ### Firehose Implementation
 
@@ -186,12 +189,12 @@ The PDS implements the WebSocket-based firehose for real-time federation:
 
 ### Lexicon Validation
 
-Records are validated against official Bluesky lexicon schemas:
+Records are validated against official Bluesky lexicon schemas from `@atcute/bluesky`:
 
 - **RecordValidator**: Class in `src/validation.ts` for record validation
-- **Vendored Schemas**: JSON lexicons in `src/lexicons/` (posts, profiles, follows, etc.)
+- **Pre-compiled Schemas**: Uses `@atcute/bluesky` package (e.g., `AppBskyFeedPost.mainSchema`)
 - **Optimistic Validation**: Fail-open for unknown schemas - records with no loaded schema are accepted
-- **Vite Glob Import**: Schemas loaded dynamically via `import.meta.glob("./lexicons/*.json", { eager: true })`
+- **Schema Validation**: Uses `parse()` from `@atcute/lexicons/validations`
 
 **Usage:**
 
@@ -200,9 +203,9 @@ import { validator } from "./validation";
 validator.validateRecord("app.bsky.feed.post", record); // throws on invalid
 ```
 
-**Updating Lexicons:**
+**Adding New Record Types:**
 
-Run `packages/pds/scripts/update-lexicons.sh` to sync schemas from the atproto monorepo.
+Import the schema from `@atcute/bluesky` and add to `recordSchemas` map in `validation.ts`.
 
 ### Session Authentication
 

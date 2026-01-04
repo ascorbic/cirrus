@@ -9,7 +9,6 @@ export default defineConfig({
 		alias: {
 			// Help vitest find packages in node_modules
 			"@atproto/api": resolve(__dirname, "node_modules/@atproto/api"),
-			"@atproto/syntax": resolve(__dirname, "node_modules/@atproto/syntax"),
 			"@ipld/car": resolve(__dirname, "node_modules/@ipld/car"),
 			ws: resolve(__dirname, "node_modules/ws"),
 		},

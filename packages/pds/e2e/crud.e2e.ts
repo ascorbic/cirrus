@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { AtpAgent } from "@atproto/api";
-import { AtUri } from "@atproto/syntax";
+import { parseResourceUri } from "@atcute/lexicons/syntax";
 import {
 	createAgent,
 	TEST_DID,
@@ -52,8 +52,9 @@ describe("CRUD Operations", () => {
 			});
 
 			expect(result.success).toBe(true);
-			const uri = new AtUri(result.data.uri);
-			expect(uri.rkey).toBe(rkey);
+			const parsed = parseResourceUri(result.data.uri);
+			expect(parsed.ok).toBe(true);
+			if (parsed.ok) expect(parsed.value.rkey).toBe(rkey);
 		});
 	});
 
@@ -125,9 +126,12 @@ describe("CRUD Operations", () => {
 			expect(result.data.records.length).toBeGreaterThanOrEqual(3);
 
 			// Verify our records are in the list
-			const uris = result.data.records.map((r) => new AtUri(r.uri).rkey);
+			const recordRkeys = result.data.records
+				.map((r) => parseResourceUri(r.uri))
+				.filter((p) => p.ok)
+				.map((p) => (p as { ok: true; value: { rkey: string } }).value.rkey);
 			for (const rkey of rkeys) {
-				expect(uris).toContain(rkey);
+				expect(recordRkeys).toContain(rkey);
 			}
 		});
 

@@ -1,11 +1,11 @@
 /**
  * Utilities for resolving AT Protocol handles to DIDs
  */
-import { AtprotoDohHandleResolver } from "@atproto-labs/handle-resolver";
+import { DohJsonHandleResolver } from "@atcute/identity-resolver";
 
 // Use Cloudflare DNS-over-HTTPS for reliable resolution
-const resolver = new AtprotoDohHandleResolver({
-	dohEndpoint: "https://cloudflare-dns.com/dns-query",
+const resolver = new DohJsonHandleResolver({
+	dohUrl: "https://cloudflare-dns.com/dns-query",
 });
 
 /**
@@ -20,7 +20,7 @@ export async function resolveHandleToDid(
 			signal: AbortSignal.timeout(10000),
 		});
 		return did;
-	} catch (err) {
+	} catch {
 		// Resolution failed
 		return null;
 	}

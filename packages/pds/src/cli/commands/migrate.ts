@@ -7,7 +7,8 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { getVars } from "../utils/wrangler.js";
 import { readDevVars } from "../utils/dotenv.js";
-import { PDSClient, PDSClientError } from "../utils/pds-client.js";
+import { ClientResponseError } from "@atcute/client";
+import { PDSClient } from "../utils/pds-client.js";
 import { DidResolver } from "../../did-resolver.js";
 
 import {
@@ -17,7 +18,7 @@ import {
 	formatCommand,
 	type PackageManager,
 } from "../utils/cli-helpers.js";
-import { getPdsEndpoint } from "@atproto/common-web";
+import { getPdsEndpoint } from "@atcute/identity";
 
 // Helper to override clack's dim styling in notes
 const brightNote = (lines: string[]) =>
@@ -342,8 +343,8 @@ export const migrateCommand = defineCommand({
 			spinner.stop("Authenticated successfully");
 		} catch (err) {
 			spinner.stop("Login failed");
-			if (err instanceof PDSClientError) {
-				p.log.error(`Authentication failed: ${err.message}`);
+			if (err instanceof ClientResponseError) {
+				p.log.error(`Authentication failed: ${err.description ?? err.message}`);
 			} else {
 				p.log.error(
 					err instanceof Error ? err.message : "Authentication failed",

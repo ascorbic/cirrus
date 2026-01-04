@@ -1,18 +1,13 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { RecordValidator } from "../src/validation";
+import { describe, it, expect } from "vitest";
+import { RecordValidator, validator } from "../src/validation";
 
 describe("RecordValidator", () => {
 	describe("optimistic validation (default)", () => {
-		let validator: RecordValidator;
-
-		beforeEach(() => {
-			validator = new RecordValidator({ strict: false });
-		});
-
 		it("allows records for unknown schemas", () => {
+			const v = new RecordValidator({ strict: false });
 			// Should not throw for unknown collection
 			expect(() => {
-				validator.validateRecord("com.example.unknown", {
+				v.validateRecord("com.example.unknown", {
 					text: "test",
 					createdAt: new Date().toISOString(),
 				});
@@ -20,137 +15,60 @@ describe("RecordValidator", () => {
 		});
 
 		it("validates records when schema is loaded", () => {
-			// Add a simple schema
-			validator.addSchema({
-				lexicon: 1,
-				id: "com.example.post",
-				defs: {
-					main: {
-						type: "record",
-						key: "tid",
-						record: {
-							type: "object",
-							required: ["text"],
-							properties: {
-								text: {
-									type: "string",
-									maxLength: 100,
-								},
-							},
-						},
-					},
-				},
-			});
-
-			// Valid record should pass
+			const v = new RecordValidator({ strict: false });
+			// Valid post should pass
 			expect(() => {
-				validator.validateRecord("com.example.post", {
-					$type: "com.example.post",
+				v.validateRecord("app.bsky.feed.post", {
+					$type: "app.bsky.feed.post",
 					text: "Hello world",
+					createdAt: new Date().toISOString(),
 				});
 			}).not.toThrow();
 
-			// Invalid record should fail
+			// Invalid post (missing createdAt) should fail
 			expect(() => {
-				validator.validateRecord("com.example.post", {
-					$type: "com.example.post",
-					// Missing required 'text' field
+				v.validateRecord("app.bsky.feed.post", {
+					$type: "app.bsky.feed.post",
+					text: "Hello world",
 				});
 			}).toThrow(/validation failed/i);
 		});
 
 		it("checks if schema is loaded", () => {
-			validator.addSchema({
-				lexicon: 1,
-				id: "com.example.test",
-				defs: {
-					main: {
-						type: "record",
-						key: "tid",
-						record: {
-							type: "object",
-							properties: {},
-						},
-					},
-				},
-			});
-
-			expect(validator.hasSchema("com.example.test")).toBe(true);
-			expect(validator.hasSchema("com.example.unknown")).toBe(false);
+			const v = new RecordValidator();
+			expect(v.hasSchema("app.bsky.feed.post")).toBe(true);
+			expect(v.hasSchema("app.bsky.actor.profile")).toBe(true);
+			expect(v.hasSchema("com.example.unknown")).toBe(false);
 		});
 
 		it("lists loaded schemas", () => {
-			validator.addSchema({
-				lexicon: 1,
-				id: "com.example.schema1",
-				defs: {
-					main: {
-						type: "record",
-						key: "tid",
-						record: { type: "object", properties: {} },
-					},
-				},
-			});
-
-			validator.addSchema({
-				lexicon: 1,
-				id: "com.example.schema2",
-				defs: {
-					main: {
-						type: "record",
-						key: "tid",
-						record: { type: "object", properties: {} },
-					},
-				},
-			});
-
-			const schemas = validator.getLoadedSchemas();
-			expect(schemas).toContain("com.example.schema1");
-			expect(schemas).toContain("com.example.schema2");
+			const v = new RecordValidator();
+			const schemas = v.getLoadedSchemas();
+			expect(schemas).toContain("app.bsky.feed.post");
+			expect(schemas).toContain("app.bsky.actor.profile");
+			expect(schemas).toContain("app.bsky.graph.follow");
+			expect(schemas.length).toBeGreaterThanOrEqual(10);
 		});
 	});
 
 	describe("strict mode", () => {
-		let validator: RecordValidator;
-
-		beforeEach(() => {
-			validator = new RecordValidator({ strict: true });
-		});
-
 		it("rejects records for unknown schemas", () => {
+			const v = new RecordValidator({ strict: true });
 			expect(() => {
-				validator.validateRecord("com.example.unknown", {
+				v.validateRecord("com.example.unknown", {
 					text: "test",
 				});
 			}).toThrow(/no lexicon schema loaded/i);
 		});
 
 		it("validates records when schema is loaded", () => {
-			validator.addSchema({
-				lexicon: 1,
-				id: "com.example.post",
-				defs: {
-					main: {
-						type: "record",
-						key: "tid",
-						record: {
-							type: "object",
-							required: ["text"],
-							properties: {
-								text: {
-									type: "string",
-								},
-							},
-						},
-					},
-				},
-			});
-
+			const v = new RecordValidator({ strict: true });
 			// Valid record should pass
 			expect(() => {
-				validator.validateRecord("com.example.post", {
-					$type: "com.example.post",
+				v.validateRecord("app.bsky.feed.post", {
+					$type: "app.bsky.feed.post",
 					text: "Hello world",
+					createdAt: new Date().toISOString(),
 				});
 			}).not.toThrow();
 		});
@@ -158,41 +76,24 @@ describe("RecordValidator", () => {
 
 	describe("maxLength validation", () => {
 		it("rejects strings exceeding maxLength", () => {
-			const validator = new RecordValidator();
-			validator.addSchema({
-				lexicon: 1,
-				id: "com.example.shortpost",
-				defs: {
-					main: {
-						type: "record",
-						key: "tid",
-						record: {
-							type: "object",
-							required: ["text"],
-							properties: {
-								text: {
-									type: "string",
-									maxLength: 10,
-								},
-							},
-						},
-					},
-				},
-			});
+			const v = new RecordValidator();
+			const longText = "x".repeat(3001); // post maxLength is 3000
 
 			// Short text should pass
 			expect(() => {
-				validator.validateRecord("com.example.shortpost", {
-					$type: "com.example.shortpost",
+				v.validateRecord("app.bsky.feed.post", {
+					$type: "app.bsky.feed.post",
 					text: "short",
+					createdAt: new Date().toISOString(),
 				});
 			}).not.toThrow();
 
 			// Long text should fail
 			expect(() => {
-				validator.validateRecord("com.example.shortpost", {
-					$type: "com.example.shortpost",
-					text: "this text is way too long for the limit",
+				v.validateRecord("app.bsky.feed.post", {
+					$type: "app.bsky.feed.post",
+					text: longText,
+					createdAt: new Date().toISOString(),
 				});
 			}).toThrow(/validation failed/i);
 		});
@@ -200,48 +101,31 @@ describe("RecordValidator", () => {
 
 	describe("required fields validation", () => {
 		it("rejects records missing required fields", () => {
-			const validator = new RecordValidator();
-			validator.addSchema({
-				lexicon: 1,
-				id: "com.example.requiredfields",
-				defs: {
-					main: {
-						type: "record",
-						key: "tid",
-						record: {
-							type: "object",
-							required: ["text", "createdAt"],
-							properties: {
-								text: {
-									type: "string",
-								},
-								createdAt: {
-									type: "string",
-									format: "datetime",
-								},
-							},
-						},
-					},
-				},
-			});
+			const v = new RecordValidator();
 
 			// Complete record should pass
 			expect(() => {
-				validator.validateRecord("com.example.requiredfields", {
-					$type: "com.example.requiredfields",
-					text: "test",
+				v.validateRecord("app.bsky.graph.follow", {
+					$type: "app.bsky.graph.follow",
+					subject: "did:plc:abc123",
 					createdAt: new Date().toISOString(),
 				});
 			}).not.toThrow();
 
-			// Incomplete record should fail
+			// Incomplete record should fail (missing subject)
 			expect(() => {
-				validator.validateRecord("com.example.requiredfields", {
-					$type: "com.example.requiredfields",
-					text: "test",
-					// Missing createdAt
+				v.validateRecord("app.bsky.graph.follow", {
+					$type: "app.bsky.graph.follow",
+					createdAt: new Date().toISOString(),
 				});
 			}).toThrow(/validation failed/i);
+		});
+	});
+
+	describe("shared validator instance", () => {
+		it("exports a shared validator instance", () => {
+			expect(validator).toBeInstanceOf(RecordValidator);
+			expect(validator.hasSchema("app.bsky.feed.post")).toBe(true);
 		});
 	});
 });

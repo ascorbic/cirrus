@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { ensureValidDid } from "@atproto/syntax";
+import { isDid } from "@atcute/lexicons/syntax";
 import type { AccountDurableObject } from "../account-do.js";
 import type { AppEnv } from "../types";
 
@@ -20,14 +20,9 @@ export async function getRepo(
 	}
 
 	// Validate DID format
-	try {
-		ensureValidDid(did);
-	} catch (err) {
+	if (!isDid(did)) {
 		return c.json(
-			{
-				error: "InvalidRequest",
-				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
-			},
+			{ error: "InvalidRequest", message: "Invalid DID format" },
 			400,
 		);
 	}
@@ -70,14 +65,9 @@ export async function getRepoStatus(
 	}
 
 	// Validate DID format
-	try {
-		ensureValidDid(did);
-	} catch (err) {
+	if (!isDid(did)) {
 		return c.json(
-			{
-				error: "InvalidRequest",
-				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
-			},
+			{ error: "InvalidRequest", message: "Invalid DID format" },
 			400,
 		);
 	}
@@ -138,14 +128,9 @@ export async function listBlobs(
 	}
 
 	// Validate DID format
-	try {
-		ensureValidDid(did);
-	} catch (err) {
+	if (!isDid(did)) {
 		return c.json(
-			{
-				error: "InvalidRequest",
-				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
-			},
+			{ error: "InvalidRequest", message: "Invalid DID format" },
 			400,
 		);
 	}
@@ -216,14 +201,9 @@ export async function getBlocks(
 	}
 
 	// Validate DID format
-	try {
-		ensureValidDid(did);
-	} catch (err) {
+	if (!isDid(did)) {
 		return c.json(
-			{
-				error: "InvalidRequest",
-				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
-			},
+			{ error: "InvalidRequest", message: "Invalid DID format" },
 			400,
 		);
 	}
@@ -267,14 +247,9 @@ export async function getBlob(
 	}
 
 	// Validate DID format
-	try {
-		ensureValidDid(did);
-	} catch (err) {
+	if (!isDid(did)) {
 		return c.json(
-			{
-				error: "InvalidRequest",
-				message: `Invalid DID format: ${err instanceof Error ? err.message : String(err)}`,
-			},
+			{ error: "InvalidRequest", message: "Invalid DID format" },
 			400,
 		);
 	}

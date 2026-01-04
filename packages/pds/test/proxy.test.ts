@@ -2,8 +2,10 @@ import { describe, it, expect, beforeAll, vi, afterEach } from "vitest";
 import { env, worker } from "./helpers";
 
 // Mock DID documents for testing
+// Note: @context is required by @atcute/identity-resolver validation
 const mockDidDocuments: Record<string, any> = {
 	"did:web:labeler.example.com": {
+		"@context": ["https://www.w3.org/ns/did/v1"],
 		id: "did:web:labeler.example.com",
 		service: [
 			{
@@ -14,6 +16,7 @@ const mockDidDocuments: Record<string, any> = {
 		],
 	},
 	"did:web:api.bsky.app": {
+		"@context": ["https://www.w3.org/ns/did/v1"],
 		id: "did:web:api.bsky.app",
 		service: [
 			{
@@ -118,7 +121,7 @@ describe("XRPC Service Proxying", () => {
 			const data = await response.json();
 			expect(data).toMatchObject({
 				error: "InvalidRequest",
-				message: expect.stringContaining("Failed to resolve service"),
+				message: expect.stringContaining("DID not found"),
 			});
 		});
 
@@ -164,13 +167,16 @@ describe("XRPC Service Proxying", () => {
 
 		it("should reject non-HTTPS service endpoints", async () => {
 			// Mock DID document with HTTP endpoint
+			// Note: @atcute/identity-resolver passes URL objects, not strings
 			vi.stubGlobal(
 				"fetch",
-				vi.fn((url: string) => {
-					if (url === "https://insecure.example.com/.well-known/did.json") {
+				vi.fn((url: string | URL) => {
+					const urlStr = url.toString();
+					if (urlStr === "https://insecure.example.com/.well-known/did.json") {
 						return Promise.resolve(
 							new Response(
 								JSON.stringify({
+									"@context": ["https://www.w3.org/ns/did/v1"],
 									id: "did:web:insecure.example.com",
 									service: [
 										{
@@ -187,7 +193,7 @@ describe("XRPC Service Proxying", () => {
 							),
 						);
 					}
-					return originalFetch(url);
+					return originalFetch(urlStr);
 				}),
 			);
 

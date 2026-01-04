@@ -5,7 +5,7 @@
 
 import type { Context } from "hono";
 import { DidResolver } from "./did-resolver";
-import { getServiceEndpoint } from "@atproto/common-web";
+import { getAtprotoServiceEndpoint } from "@atcute/identity";
 import { createServiceJwt } from "./service-auth";
 import { verifyAccessToken } from "./session";
 import { getProvider } from "./oauth";
@@ -92,7 +92,7 @@ export async function handleXrpcProxy(
 			const serviceId = parsed.serviceId.startsWith("#")
 				? parsed.serviceId
 				: `#${parsed.serviceId}`;
-			const endpoint = getServiceEndpoint(didDoc, { id: serviceId });
+			const endpoint = getAtprotoServiceEndpoint(didDoc, { id: serviceId as `#${string}` });
 
 			if (!endpoint) {
 				return c.json(

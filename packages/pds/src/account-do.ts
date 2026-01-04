@@ -10,12 +10,12 @@ import {
 	type RecordDeleteOp,
 	type RecordWriteOp,
 } from "@atproto/repo";
-import type { RepoRecord } from "@atproto/lexicon";
+/** Record type compatible with @atproto/repo operations */
+type RepoRecord = Record<string, unknown>;
 import { Secp256k1Keypair } from "@atproto/crypto";
-import { CID, isCid, asCid, isBlobRef } from "@atproto/lex-data";
-import { TID } from "@atproto/common-web";
-import { AtUri } from "@atproto/syntax";
-import { encode as cborEncode } from "@atproto/lex-cbor";
+import { CID, asCid, isBlobRef } from "@atproto/lex-data";
+import { now as tidNow } from "@atcute/tid";
+import { encode as cborEncode } from "./cbor-compat";
 import { SqliteRepoStorage } from "./storage";
 import { SqliteOAuthStorage } from "./oauth-storage";
 import { Sequencer, type SeqEvent, type CommitData } from "./sequencer";
@@ -246,7 +246,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			}
 
 			records.push({
-				uri: AtUri.make(repo.did, record.collection, record.rkey).toString(),
+				uri: `at://${repo.did}/${record.collection}/${record.rkey}`,
 				cid: record.cid.toString(),
 				value: serializeRecord(record.record),
 			});
@@ -283,7 +283,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		const repo = await this.getRepo();
 		const keypair = await this.getKeypair();
 
-		const actualRkey = rkey || TID.nextStr();
+		const actualRkey = rkey || tidNow();
 		const createOp: RecordCreateOp = {
 			action: WriteOpAction.Create,
 			collection,
@@ -337,7 +337,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		}
 
 		return {
-			uri: AtUri.make(this.repo.did, collection, actualRkey).toString(),
+			uri: `at://${this.repo.did}/${collection}/${actualRkey}`,
 			cid: recordCid.toString(),
 			commit: {
 				cid: this.repo.cid.toString(),
@@ -487,7 +487,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		}
 
 		return {
-			uri: AtUri.make(this.repo.did, collection, rkey).toString(),
+			uri: `at://${this.repo.did}/${collection}/${rkey}`,
 			cid: recordCid.toString(),
 			commit: {
 				cid: this.repo.cid.toString(),
@@ -534,7 +534,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		for (const write of writes) {
 			if (write.$type === "com.atproto.repo.applyWrites#create") {
-				const rkey = write.rkey || TID.nextStr();
+				const rkey = write.rkey || tidNow();
 				const op: RecordCreateOp = {
 					action: WriteOpAction.Create,
 					collection: write.collection,
@@ -614,11 +614,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 				const recordCid = await this.repo.data.get(dataKey);
 				finalResults.push({
 					$type: result.$type,
-					uri: AtUri.make(
-						this.repo.did,
-						result.collection,
-						result.rkey,
-					).toString(),
+					uri: `at://${this.repo.did}/${result.collection}/${result.rkey}`,
 					cid: recordCid?.toString(),
 					validationStatus: "valid",
 				});
@@ -770,7 +766,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		const { root: rootCid, blocks } = await readCarWithRoot(carBytes);
 
 		// Import all blocks into storage using putMany (more efficient than individual putBlock)
-		const importRev = TID.nextStr();
+		const importRev = tidNow();
 		await this.storage!.putMany(blocks, importRev);
 
 		// Load the repo to verify it's valid and get the actual revision
@@ -795,11 +791,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		for await (const record of this.repo.walkRecords()) {
 			const blobCids = extractBlobCids(record.record);
 			if (blobCids.length > 0) {
-				const uri = AtUri.make(
-					this.repo.did,
-					record.collection,
-					record.rkey,
-				).toString();
+				const uri = `at://${this.repo.did}/${record.collection}/${record.rkey}`;
 				this.storage!.addRecordBlobs(uri, blobCids);
 			}
 		}
@@ -843,9 +835,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		if (!this.blobStore) {
 			throw new Error("Blob storage not configured");
 		}
-
-		const cid = CID.parse(cidStr);
-		return this.blobStore.getBlob(cid);
+		return this.blobStore.getBlob(cidStr);
 	}
 
 	/**
@@ -1160,12 +1150,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			handle,
 		};
 
-		const headerBytes = cborEncode(
-			header as unknown as import("@atproto/lex-cbor").LexValue,
-		);
-		const bodyBytes = cborEncode(
-			body as unknown as import("@atproto/lex-cbor").LexValue,
-		);
+		const headerBytes = cborEncode(header);
+		const bodyBytes = cborEncode(body);
 		const frame = new Uint8Array(headerBytes.length + bodyBytes.length);
 		frame.set(headerBytes, 0);
 		frame.set(bodyBytes, headerBytes.length);

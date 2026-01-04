@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { env as _env } from "cloudflare:workers";
 import { Secp256k1Keypair } from "@atproto/crypto";
-import { ensureValidDid, ensureValidHandle } from "@atproto/syntax";
+import { isDid, isHandle } from "@atcute/lexicons/syntax";
 import { requireAuth } from "./middleware/auth";
 import { DidResolver } from "./did-resolver";
 import { WorkersDidCache } from "./did-cache";
@@ -41,13 +41,11 @@ for (const key of required) {
 }
 
 // Validate DID and handle formats
-try {
-	ensureValidDid(env.DID);
-	ensureValidHandle(env.HANDLE);
-} catch (err) {
-	throw new Error(
-		`Invalid DID or handle: ${err instanceof Error ? err.message : String(err)}`,
-	);
+if (!isDid(env.DID)) {
+	throw new Error(`Invalid DID format: ${env.DID}`);
+}
+if (!isHandle(env.HANDLE)) {
+	throw new Error(`Invalid handle format: ${env.HANDLE}`);
 }
 
 const didResolver = new DidResolver({

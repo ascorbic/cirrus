@@ -1,5 +1,4 @@
-import { CID } from "@atproto/lex-data";
-import { cidForRawBytes } from "@atproto/lex-cbor";
+import { create as createCid, CODEC_RAW, toString as cidToString } from "@atcute/cid";
 
 export interface BlobRef {
 	$type: "blob";
@@ -23,35 +22,36 @@ export class BlobStore {
 	 */
 	async putBlob(bytes: Uint8Array, mimeType: string): Promise<BlobRef> {
 		// Compute CID using SHA-256 (RAW codec)
-		const cid = await cidForRawBytes(bytes);
+		const cidObj = await createCid(CODEC_RAW, bytes);
+		const cidStr = cidToString(cidObj);
 
 		// Store in R2 with DID prefix for isolation
-		const key = `${this.did}/${cid.toString()}`;
+		const key = `${this.did}/${cidStr}`;
 		await this.r2.put(key, bytes, {
 			httpMetadata: { contentType: mimeType },
 		});
 
 		return {
 			$type: "blob",
-			ref: { $link: cid.toString() },
+			ref: { $link: cidStr },
 			mimeType,
 			size: bytes.length,
 		};
 	}
 
 	/**
-	 * Retrieve a blob from R2 by CID.
+	 * Retrieve a blob from R2 by CID string.
 	 */
-	async getBlob(cid: CID): Promise<R2ObjectBody | null> {
-		const key = `${this.did}/${cid.toString()}`;
+	async getBlob(cid: string): Promise<R2ObjectBody | null> {
+		const key = `${this.did}/${cid}`;
 		return this.r2.get(key);
 	}
 
 	/**
 	 * Check if a blob exists in R2.
 	 */
-	async hasBlob(cid: CID): Promise<boolean> {
-		const key = `${this.did}/${cid.toString()}`;
+	async hasBlob(cid: string): Promise<boolean> {
+		const key = `${this.did}/${cid}`;
 		const head = await this.r2.head(key);
 		return head !== null;
 	}
