@@ -128,6 +128,19 @@ export const activateCommand = defineCommand({
 			process.exit(1);
 		}
 
+		// Ping the relay to request crawl
+		const pdsHostname = config.PDS_HOSTNAME;
+		if (pdsHostname && !isDev) {
+			spinner.start("Notifying relay...");
+			const relayPinged = await client.requestCrawl(pdsHostname);
+			if (relayPinged) {
+				spinner.stop("Relay notified");
+			} else {
+				spinner.stop("Could not reach relay (will retry automatically)");
+				p.log.warn("The relay will discover your PDS through normal federation.");
+			}
+		}
+
 		p.log.success("Welcome to the Atmosphere! 🦋");
 		p.log.info("Your account is now live and accepting writes.");
 		p.outro("All set!");

@@ -544,4 +544,29 @@ export class PDSClient {
 			return null;
 		}
 	}
+
+	// ============================================
+	// Relay Operations
+	// ============================================
+
+	/**
+	 * Request the relay to crawl this PDS.
+	 * This notifies the Bluesky relay that the PDS is active and ready for federation.
+	 */
+	async requestCrawl(
+		pdsHostname: string,
+		relayUrl: string = "https://bsky.network",
+	): Promise<boolean> {
+		try {
+			const url = new URL("/xrpc/com.atproto.sync.requestCrawl", relayUrl);
+			const res = await fetch(url.toString(), {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ hostname: pdsHostname }),
+			});
+			return res.ok;
+		} catch {
+			return false;
+		}
+	}
 }
