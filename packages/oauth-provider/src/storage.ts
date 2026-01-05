@@ -48,6 +48,24 @@ export interface TokenData {
 }
 
 /**
+ * JSON Web Key for client authentication
+ */
+export interface JWK {
+	kty: string;
+	use?: string;
+	key_ops?: string[];
+	alg?: string;
+	kid?: string;
+	// EC key parameters
+	crv?: string;
+	x?: string;
+	y?: string;
+	// RSA key parameters (not used for ATProto but included for completeness)
+	n?: string;
+	e?: string;
+}
+
+/**
  * OAuth client metadata (discovered from DID document)
  */
 export interface ClientMetadata {
@@ -61,6 +79,12 @@ export interface ClientMetadata {
 	logoUri?: string;
 	/** Client homepage URI (optional) */
 	clientUri?: string;
+	/** Token endpoint auth method ("none" for public, "private_key_jwt" for confidential) */
+	tokenEndpointAuthMethod?: "none" | "private_key_jwt";
+	/** JSON Web Key Set for confidential client authentication */
+	jwks?: { keys: JWK[] };
+	/** URI to fetch JWKS from (alternative to inline jwks) */
+	jwksUri?: string;
 	/** When the metadata was cached (Unix ms) */
 	cachedAt?: number;
 }

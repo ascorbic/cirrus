@@ -15,6 +15,7 @@ export type {
 	TokenData,
 	ClientMetadata,
 	PARData,
+	JWK,
 } from "./storage.js";
 
 // PKCE
@@ -50,3 +51,13 @@ export type { GeneratedTokens, GenerateTokensOptions } from "./tokens.js";
 // UI
 export { renderConsentUI, renderErrorPage, CONSENT_UI_CSP } from "./ui.js";
 export type { ConsentUIOptions } from "./ui.js";
+
+// Client authentication
+export {
+	authenticateClient,
+	verifyClientAssertion,
+	parseClientAssertion,
+	ClientAuthError,
+	JWT_BEARER_ASSERTION_TYPE,
+} from "./client-auth.js";
+export type { ClientAuthResult, ClientAuthOptions } from "./client-auth.js";

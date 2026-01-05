@@ -142,3 +142,87 @@ export async function generateCodeChallenge(verifier: string): Promise<string> {
 	const hash = await crypto.subtle.digest("SHA-256", data);
 	return base64url.encode(new Uint8Array(hash));
 }
+
+// ============================================
+// Client Assertion (private_key_jwt) Test Helpers
+// ============================================
+
+/**
+ * Create a client assertion JWT for private_key_jwt authentication
+ * @param privateKey The signing key (CryptoKey)
+ * @param claims The JWT claims
+ * @param publicJwk Optional public JWK for kid lookup
+ * @param alg The algorithm (default: ES256)
+ * @returns The signed JWT
+ */
+export async function createClientAssertion(
+	privateKey: CryptoKey,
+	claims: {
+		iss: string;
+		sub: string;
+		aud: string | string[];
+		jti?: string;
+		iat?: number;
+		exp?: number;
+	},
+	publicJwk?: JsonWebKey,
+	alg: string = "ES256"
+): Promise<string> {
+	const header: Record<string, unknown> = {
+		typ: "JWT",
+		alg,
+	};
+
+	// Add kid if public JWK has one
+	if (publicJwk?.kid) {
+		header.kid = publicJwk.kid;
+	}
+
+	const now = Math.floor(Date.now() / 1000);
+	const payload = {
+		iss: claims.iss,
+		sub: claims.sub,
+		aud: claims.aud,
+		jti: claims.jti ?? base64url.encode(crypto.getRandomValues(new Uint8Array(16))),
+		iat: claims.iat ?? now,
+		exp: claims.exp ?? now + 300, // 5 minutes default
+	};
+
+	const headerB64 = base64url.encode(new TextEncoder().encode(JSON.stringify(header)));
+	const payloadB64 = base64url.encode(new TextEncoder().encode(JSON.stringify(payload)));
+
+	const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+	const params = getAlgorithmParams(alg);
+	if (!params) {
+		throw new Error(`Unsupported algorithm: ${alg}`);
+	}
+
+	const signParams =
+		params.name === "ECDSA" ? { name: params.name, hash: params.hash } : { name: params.name };
+
+	const signature = await crypto.subtle.sign(signParams, privateKey, data);
+	const signatureB64 = base64url.encode(new Uint8Array(signature));
+
+	return `${headerB64}.${payloadB64}.${signatureB64}`;
+}
+
+/**
+ * Generate a key pair for client authentication testing
+ * Returns the key pair and a JWK suitable for including in client metadata
+ * @param alg The algorithm (default: ES256)
+ * @param kid Optional key ID
+ * @returns The key pair and public JWK with optional kid
+ */
+export async function generateClientKeyPair(
+	alg: string = "ES256",
+	kid?: string
+): Promise<{ privateKey: CryptoKey; publicKey: CryptoKey; publicJwk: JsonWebKey }> {
+	const result = await generateDpopKeyPair(alg);
+
+	// Add kid if provided
+	if (kid) {
+		result.publicJwk.kid = kid;
+	}
+
+	return result;
+}

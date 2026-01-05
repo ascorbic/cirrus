@@ -107,12 +107,11 @@ describe("OAuth Flow", () => {
 			const location = response.headers.get("Location");
 			expect(location).toBeDefined();
 
-			// Default response_mode is fragment, so check hash
+			// Default response_mode is query for authorization code flow
 			const redirectUrl = new URL(location!);
-			const hashParams = new URLSearchParams(redirectUrl.hash.slice(1));
-			expect(hashParams.has("code")).toBe(true);
-			expect(hashParams.get("state")).toBe("test-state");
-			expect(hashParams.get("iss")).toBe("https://pds.example.com");
+			expect(redirectUrl.searchParams.has("code")).toBe(true);
+			expect(redirectUrl.searchParams.get("state")).toBe("test-state");
+			expect(redirectUrl.searchParams.get("iss")).toBe("https://pds.example.com");
 		});
 
 		it("redirects with error after consent denial", async () => {
@@ -140,9 +139,8 @@ describe("OAuth Flow", () => {
 			expect(response.status).toBe(302);
 			const location = response.headers.get("Location");
 			const redirectUrl = new URL(location!);
-			// Default response_mode is fragment
-			const hashParams = new URLSearchParams(redirectUrl.hash.slice(1));
-			expect(hashParams.get("error")).toBe("access_denied");
+			// Default response_mode is query for authorization code flow
+			expect(redirectUrl.searchParams.get("error")).toBe("access_denied");
 		});
 	});
 
@@ -171,9 +169,8 @@ describe("OAuth Flow", () => {
 			const response = await provider.handleAuthorize(request);
 			const location = response.headers.get("Location")!;
 			const redirectUrl = new URL(location);
-			// Default response_mode is fragment
-			const hashParams = new URLSearchParams(redirectUrl.hash.slice(1));
-			const code = hashParams.get("code")!;
+			// Default response_mode is query for authorization code flow
+			const code = redirectUrl.searchParams.get("code")!;
 
 			return { code, challenge };
 		}
@@ -421,8 +418,8 @@ describe("OAuth Flow", () => {
 			});
 			const authResponse = await provider.handleAuthorize(authRequest);
 			const location = authResponse.headers.get("Location")!;
-			const hashParams = new URLSearchParams(new URL(location).hash.slice(1));
-			const code = hashParams.get("code")!;
+			const redirectUrl = new URL(location);
+			const code = redirectUrl.searchParams.get("code")!;
 
 			const dpopProof1 = await createDpopProof(
 				keyPair.privateKey,
@@ -507,8 +504,8 @@ describe("OAuth Flow", () => {
 			});
 			const authResponse = await provider.handleAuthorize(authRequest);
 			const location = authResponse.headers.get("Location")!;
-			const hashParams = new URLSearchParams(new URL(location).hash.slice(1));
-			const code = hashParams.get("code")!;
+			const redirectUrl = new URL(location);
+			const code = redirectUrl.searchParams.get("code")!;
 
 			const dpopProof1 = await createDpopProof(
 				keyPair1.privateKey,

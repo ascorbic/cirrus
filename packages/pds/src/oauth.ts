@@ -178,6 +178,27 @@ export function createOAuthApp(
 		return provider.handlePAR(c.req.raw);
 	});
 
+	// UserInfo endpoint (OpenID Connect)
+	// Returns user claims for the authenticated user
+	oauth.get("/oauth/userinfo", async (c) => {
+		const provider = getProvider(c.env);
+		const tokenData = await provider.verifyAccessToken(c.req.raw);
+
+		if (!tokenData) {
+			return c.json(
+				{ error: "invalid_token", error_description: "Invalid or expired token" },
+				401,
+			);
+		}
+
+		// Return OpenID Connect userinfo response
+		// sub is required, we also include preferred_username (handle)
+		return c.json({
+			sub: tokenData.sub,
+			preferred_username: c.env.HANDLE,
+		});
+	});
+
 	// Token revocation endpoint
 	oauth.post("/oauth/revoke", async (c) => {
 		// Parse the token from the request
