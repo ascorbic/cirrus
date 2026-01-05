@@ -1,5 +1,40 @@
 # @getcirrus/pds
 
+## 0.4.0
+
+### Minor Changes
+
+- [#74](https://github.com/ascorbic/cirrus/pull/74) [`0d4813e`](https://github.com/ascorbic/cirrus/commit/0d4813ea326cc16623c42213d3020dbc9a1d93aa) Thanks [@ascorbic](https://github.com/ascorbic)! - Add pre-activation checks and emit-identity command
+
+  **activate command improvements:**
+  - Run identity checks before activation (handle resolution, DID document, repo status)
+  - Display clear results table with pass/fail status
+  - Require confirmation if checks fail (skip with `--yes`)
+  - Verify activation succeeded after calling the endpoint
+  - Offer to emit identity event if all checks passed
+  - Add `--yes` / `-y` flag to skip confirmation prompts
+
+  **deactivate command improvements:**
+  - Run identity checks to inform user of current state before deactivating
+  - Add `--yes` / `-y` flag to skip confirmation prompts
+
+  **New emit-identity command:**
+  - Standalone `pds emit-identity` command to notify relays to refresh handle verification
+  - Useful after migration or handle changes
+
+  **Internal changes:**
+  - Moved emit identity endpoint from `/admin/emit-identity` to XRPC namespace `gg.mk.experimental.emitIdentityEvent`
+
+### Patch Changes
+
+- [#67](https://github.com/ascorbic/cirrus/pull/67) [`a633fb7`](https://github.com/ascorbic/cirrus/commit/a633fb77893bb28a1fbf8d38e8c5a009357db3fd) Thanks [@JackDallas](https://github.com/JackDallas)! - Create user's bsky profile as part of the activate script
+
+- [#76](https://github.com/ascorbic/cirrus/pull/76) [`d6c2eb5`](https://github.com/ascorbic/cirrus/commit/d6c2eb5f3ddbaf4f9db6e0bdf5c36d49b084d728) Thanks [@ascorbic](https://github.com/ascorbic)! - Add relay status check to `pds status` command
+  - Added `getRelayHostStatus` method to PDSClient that calls `com.atproto.sync.getHostStatus` on the relay
+  - Status command now shows relay status (active/idle/offline/throttled/banned) and account count
+  - Shows relay seq number when available
+  - Suggests running `emit-identity` or requesting crawl when relay shows idle/offline
+
 ## 0.3.1
 
 ### Patch Changes
