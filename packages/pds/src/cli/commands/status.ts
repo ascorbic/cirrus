@@ -251,12 +251,24 @@ export const statusCommand = defineCommand({
 					console.log(`  ${INFO} Relay seq: ${relayStatus.seq}`);
 				}
 				if (relayStatus.status === "idle" || relayStatus.status === "offline") {
-					console.log(pc.dim("      Run 'pds emit-identity' or request crawl to notify the relay"));
+					console.log(pc.dim("      Requesting crawl to notify the relay..."));
+					const crawlOk = await client.requestCrawl(pdsHostname);
+					if (crawlOk) {
+						console.log(`  ${CHECK} Crawl requested`);
+					} else {
+						console.log(`  ${WARN} Failed to request crawl`);
+					}
 				}
 			} else {
-				console.log(`  ${WARN} Could not reach relay (not crawled yet?)`);
-				console.log(pc.dim("      Run 'pds request-crawl' to notify the relay"));
-				hasWarnings = true;
+				console.log(`  ${WARN} Relay has not crawled this PDS yet`);
+				console.log(pc.dim("      Requesting crawl..."));
+				const crawlOk = await client.requestCrawl(pdsHostname);
+				if (crawlOk) {
+					console.log(`  ${CHECK} Crawl requested`);
+				} else {
+					console.log(`  ${WARN} Failed to request crawl`);
+					hasWarnings = true;
+				}
 			}
 		}
 
