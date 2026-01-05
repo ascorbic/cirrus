@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { env, worker } from "./helpers";
 
-describe("gg.mk.pds.emitIdentityEvent", () => {
+describe("gg.mk.experimental.emitIdentityEvent", () => {
 	// Ensure account is activated after each test to prevent state leakage
 	afterEach(async () => {
 		await worker.fetch(
@@ -17,7 +17,7 @@ describe("gg.mk.pds.emitIdentityEvent", () => {
 
 	it("requires authentication", async () => {
 		const response = await worker.fetch(
-			new Request(`http://pds.test/xrpc/gg.mk.pds.emitIdentityEvent`, {
+			new Request(`http://pds.test/xrpc/gg.mk.experimental.emitIdentityEvent`, {
 				method: "POST",
 			}),
 			env,
@@ -51,7 +51,7 @@ describe("gg.mk.pds.emitIdentityEvent", () => {
 		);
 
 		const response = await worker.fetch(
-			new Request(`http://pds.test/xrpc/gg.mk.pds.emitIdentityEvent`, {
+			new Request(`http://pds.test/xrpc/gg.mk.experimental.emitIdentityEvent`, {
 				method: "POST",
 				headers: {
 					Authorization: `Bearer ${env.AUTH_TOKEN}`,
@@ -69,7 +69,7 @@ describe("gg.mk.pds.emitIdentityEvent", () => {
 	it("can be called multiple times", async () => {
 		// First call
 		const response1 = await worker.fetch(
-			new Request(`http://pds.test/xrpc/gg.mk.pds.emitIdentityEvent`, {
+			new Request(`http://pds.test/xrpc/gg.mk.experimental.emitIdentityEvent`, {
 				method: "POST",
 				headers: {
 					Authorization: `Bearer ${env.AUTH_TOKEN}`,
@@ -83,7 +83,7 @@ describe("gg.mk.pds.emitIdentityEvent", () => {
 
 		// Second call - should get a higher sequence number
 		const response2 = await worker.fetch(
-			new Request(`http://pds.test/xrpc/gg.mk.pds.emitIdentityEvent`, {
+			new Request(`http://pds.test/xrpc/gg.mk.experimental.emitIdentityEvent`, {
 				method: "POST",
 				headers: {
 					Authorization: `Bearer ${env.AUTH_TOKEN}`,
