@@ -4,9 +4,10 @@
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
 import type { Did } from "@atcute/lexicons";
+import pc from "picocolors";
 import { getVars } from "../utils/wrangler.js";
 import { readDevVars } from "../utils/dotenv.js";
-import { PDSClient } from "../utils/pds-client.js";
+import { PDSClient, type MigrationStatus } from "../utils/pds-client.js";
 import {
 	getTargetUrl,
 	getDomain,
@@ -14,6 +15,59 @@ import {
 	formatCommand,
 	promptText,
 } from "../utils/cli-helpers.js";
+import {
+	checkHandleResolution,
+	checkDidDocument,
+	checkRepoComplete,
+	type CheckResult,
+} from "../utils/checks.js";
+
+interface Check {
+	name: string;
+	ok: boolean;
+	message: string;
+	detail?: string;
+}
+
+/**
+ * Run pre-activation checks
+ */
+async function runChecks(
+	handle: string,
+	did: string,
+	pdsUrl: string,
+	status: MigrationStatus,
+): Promise<Check[]> {
+	const checks: Check[] = [];
+
+	// Check 1: Handle resolves to correct DID
+	p.log.step("Checking handle resolution...");
+	const handleResult = await checkHandleResolution(handle, did);
+	checks.push({ name: "Handle", ...handleResult });
+
+	// Check 2: DID document points to this PDS
+	p.log.step("Checking DID document...");
+	const didResult = await checkDidDocument(did, pdsUrl);
+	checks.push({ name: "DID", ...didResult });
+
+	// Check 3: Repo is complete (has records and all blobs imported)
+	p.log.step("Checking repo status...");
+	const repoResult = checkRepoComplete(status);
+	checks.push({ name: "Repo", ...repoResult });
+
+	return checks;
+}
+
+function logCheck(check: Check): void {
+	const icon = check.ok ? pc.green("✓") : pc.red("✗");
+	const name = pc.bold(check.name.padEnd(8));
+	console.log(`  ${icon} ${name} ${check.message}`);
+	if (check.detail && !check.ok) {
+		for (const line of check.detail.split("\n")) {
+			console.log(`             ${pc.dim(line)}`);
+		}
+	}
+}
 
 /**
  * Prompt user to create a profile if one doesn't exist
@@ -88,10 +142,17 @@ export const activateCommand = defineCommand({
 			description: "Target local development server instead of production",
 			default: false,
 		},
+		yes: {
+			type: "boolean",
+			alias: "y",
+			description: "Skip confirmation prompts",
+			default: false,
+		},
 	},
 	async run({ args }) {
 		const pm = detectPackageManager();
 		const isDev = args.dev;
+		const skipConfirm = args.yes;
 
 		p.intro("🦋 Activate Account");
 
@@ -115,9 +176,16 @@ export const activateCommand = defineCommand({
 
 		const authToken = config.AUTH_TOKEN;
 		const handle = config.HANDLE;
+		const did = config.DID;
 
 		if (!authToken) {
 			p.log.error("No AUTH_TOKEN found. Run 'pds init' first.");
+			p.outro("Activation cancelled.");
+			process.exit(1);
+		}
+
+		if (!handle || !did) {
+			p.log.error("No HANDLE or DID found. Run 'pds init' first.");
 			p.outro("Activation cancelled.");
 			process.exit(1);
 		}
@@ -187,27 +255,53 @@ export const activateCommand = defineCommand({
 			return;
 		}
 
-		// Show confirmation
-		p.note(
-			[
-				`@${handle || "your-handle"}`,
-				"",
-				"This will enable writes and make your account live.",
-				"Make sure you've:",
-				"  ✓ Updated your DID document to point here",
-				"  ✓ Completed email verification (if required)",
-			].join("\n"),
-			"Ready to go live?",
-		);
+		// Run pre-activation checks
+		p.log.info("");
+		p.log.info(pc.bold("Pre-activation checks:"));
+		const checks = await runChecks(handle, did, targetUrl, status);
 
-		const confirm = await p.confirm({
-			message: "Activate account?",
-			initialValue: true,
-		});
+		// Display results
+		console.log("");
+		for (const check of checks) {
+			logCheck(check);
+		}
+		console.log("");
 
-		if (p.isCancel(confirm) || !confirm) {
-			p.cancel("Activation cancelled.");
-			process.exit(0);
+		const hasFailures = checks.some((c) => !c.ok);
+
+		// Handle failures
+		if (hasFailures) {
+			p.log.warn(
+				pc.yellow("Some checks failed. Activating now may cause issues."),
+			);
+			p.log.info("");
+
+			if (skipConfirm) {
+				p.log.info("Proceeding anyway (--yes flag)");
+			} else {
+				const proceed = await p.confirm({
+					message: "Proceed with activation anyway?",
+					initialValue: false,
+				});
+
+				if (p.isCancel(proceed) || !proceed) {
+					p.cancel("Activation cancelled. Fix the issues above and try again.");
+					process.exit(0);
+				}
+			}
+		} else {
+			// All checks passed
+			if (!skipConfirm) {
+				const confirm = await p.confirm({
+					message: "Activate account?",
+					initialValue: true,
+				});
+
+				if (p.isCancel(confirm) || !confirm) {
+					p.cancel("Activation cancelled.");
+					process.exit(0);
+				}
+			}
 		}
 
 		// Activate
@@ -229,6 +323,17 @@ export const activateCommand = defineCommand({
 		if (did) {
 			await promptCreateProfile(client, did as Did, handle);
 		}
+		// Verify activation worked
+		spinner.start("Verifying activation...");
+		const postStatus = await client.getAccountStatus();
+		if (!postStatus.active) {
+			spinner.stop("Verification failed");
+			p.log.error("Account was activated but is not showing as active.");
+			p.log.info("Try running 'pds status' to check the current state.");
+			p.outro("Activation may have failed.");
+			process.exit(1);
+		}
+		spinner.stop("Account is active");
 
 		// Ping the relay to request crawl
 		const pdsHostname = config.PDS_HOSTNAME;
@@ -247,6 +352,45 @@ export const activateCommand = defineCommand({
 
 		p.log.success("Welcome to the Atmosphere! 🦋");
 		p.log.info("Your account is now live and accepting writes.");
+
+		// Offer to emit identity if checks passed
+		if (!hasFailures) {
+			p.log.info("");
+			let shouldEmit = skipConfirm;
+			if (!skipConfirm) {
+				const emitConfirm = await p.confirm({
+					message: "Emit identity event to notify relays?",
+					initialValue: true,
+				});
+				shouldEmit = !p.isCancel(emitConfirm) && emitConfirm;
+			}
+
+			if (shouldEmit) {
+				spinner.start("Emitting identity event...");
+				try {
+					const result = await client.emitIdentity();
+					spinner.stop(`Identity event emitted (seq: ${result.seq})`);
+				} catch (err) {
+					spinner.stop("Failed to emit identity event");
+					p.log.warn(
+						err instanceof Error ? err.message : "Could not emit identity",
+					);
+					p.log.info("You can try again later with: pds emit-identity");
+				}
+			} else {
+				p.log.info("To notify relays later, run: pds emit-identity");
+			}
+		} else {
+			p.log.info("");
+			p.log.info(
+				"Some checks failed, so identity was not emitted automatically.",
+			);
+			p.log.info(
+				"Once your handle and DID are configured correctly, run:",
+			);
+			p.log.info("  pds emit-identity");
+		}
+
 		p.outro("All set!");
 	},
 });

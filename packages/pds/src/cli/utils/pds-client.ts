@@ -440,6 +440,30 @@ export class PDSClient {
 		);
 	}
 
+	/**
+	 * Emit identity event to notify relays to refresh handle verification
+	 */
+	async emitIdentity(): Promise<{ seq: number }> {
+		const url = new URL("/xrpc/gg.mk.experimental.emitIdentityEvent", this.baseUrl);
+		const headers: Record<string, string> = {};
+		if (this.authToken) {
+			headers["Authorization"] = `Bearer ${this.authToken}`;
+		}
+		const res = await fetch(url.toString(), {
+			method: "POST",
+			headers,
+		});
+		if (!res.ok) {
+			const errorBody = (await res.json().catch(() => ({}))) as {
+				message?: string;
+			};
+			throw new Error(
+				errorBody.message ?? `Request failed: ${res.status}`,
+			);
+		}
+		return res.json() as Promise<{ seq: number }>;
+	}
+
 	// ============================================
 	// Health Check
 	// ============================================
