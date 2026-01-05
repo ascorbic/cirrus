@@ -689,31 +689,56 @@ export class PDSClient {
 	// Relay Operations
 	// ============================================
 
+	static RELAY_URLS = [
+		"https://relay1.us-west.bsky.network",
+		"https://relay1.us-east.bsky.network",
+	];
+
 	/**
-	 * Get relay's view of this PDS host status.
+	 * Get relay's view of this PDS host status from a single relay.
 	 * Calls com.atproto.sync.getHostStatus on the relay.
 	 */
 	async getRelayHostStatus(
 		pdsHostname: string,
-		relayUrl: string = "https://bsky.network",
+		relayUrl: string,
 	): Promise<{
 		status: "active" | "idle" | "offline" | "throttled" | "banned";
 		accountCount?: number;
 		seq?: number;
+		relay: string;
 	} | null> {
 		try {
 			const url = new URL("/xrpc/com.atproto.sync.getHostStatus", relayUrl);
 			url.searchParams.set("hostname", pdsHostname);
 			const res = await fetch(url.toString());
 			if (!res.ok) return null;
-			return res.json() as Promise<{
+			const data = await res.json() as {
 				status: "active" | "idle" | "offline" | "throttled" | "banned";
 				accountCount?: number;
 				seq?: number;
-			}>;
+			};
+			return { ...data, relay: relayUrl };
 		} catch {
 			return null;
 		}
+	}
+
+	/**
+	 * Get relay status from all known relays.
+	 * Returns results from each relay that responds.
+	 */
+	async getAllRelayHostStatus(
+		pdsHostname: string,
+	): Promise<Array<{
+		status: "active" | "idle" | "offline" | "throttled" | "banned";
+		accountCount?: number;
+		seq?: number;
+		relay: string;
+	}>> {
+		const results = await Promise.all(
+			PDSClient.RELAY_URLS.map((url) => this.getRelayHostStatus(pdsHostname, url)),
+		);
+		return results.filter((r) => r !== null);
 	}
 
 	/**
@@ -722,7 +747,7 @@ export class PDSClient {
 	 */
 	async requestCrawl(
 		pdsHostname: string,
-		relayUrl: string = "https://bsky.network",
+		relayUrl: string,
 	): Promise<boolean> {
 		try {
 			const url = new URL("/xrpc/com.atproto.sync.requestCrawl", relayUrl);
@@ -735,5 +760,15 @@ export class PDSClient {
 		} catch {
 			return false;
 		}
+	}
+
+	/**
+	 * Request all known relays to crawl this PDS.
+	 */
+	async requestCrawlAll(pdsHostname: string): Promise<boolean> {
+		const results = await Promise.all(
+			PDSClient.RELAY_URLS.map((url) => this.requestCrawl(pdsHostname, url)),
+		);
+		return results.some((ok) => ok);
 	}
 }

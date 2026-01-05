@@ -234,35 +234,38 @@ export const statusCommand = defineCommand({
 			}
 		}
 
-		// Relay status
+		// Relay status - check both relays
 		if (pdsHostname) {
-			const relayStatus = await client.getRelayHostStatus(pdsHostname);
-			if (relayStatus) {
-				const statusIcon =
-					relayStatus.status === "active"
-						? CHECK
-						: relayStatus.status === "banned"
-							? CROSS
-							: WARN;
-				console.log(
-					`  ${statusIcon} Relay status: ${relayStatus.status}${relayStatus.accountCount !== undefined ? ` (${relayStatus.accountCount} accounts)` : ""}`,
-				);
-				if (relayStatus.seq !== undefined) {
-					console.log(`  ${INFO} Relay seq: ${relayStatus.seq}`);
-				}
-				if (relayStatus.status === "idle" || relayStatus.status === "offline") {
-					console.log(pc.dim("      Requesting crawl to notify the relay..."));
-					const crawlOk = await client.requestCrawl(pdsHostname);
-					if (crawlOk) {
-						console.log(`  ${CHECK} Crawl requested`);
-					} else {
-						console.log(`  ${WARN} Failed to request crawl`);
-					}
-				}
+			const relayStatuses = await client.getAllRelayHostStatus(pdsHostname);
+			const hasActiveRelay = relayStatuses.some((r) => r.status === "active");
+			const hasBannedRelay = relayStatuses.some((r) => r.status === "banned");
+			const needsCrawl = relayStatuses.length === 0 ||
+				relayStatuses.every((r) => r.status === "idle" || r.status === "offline");
+
+			if (relayStatuses.length === 0) {
+				console.log(`  ${WARN} No relays have crawled this PDS yet`);
 			} else {
-				console.log(`  ${WARN} Relay has not crawled this PDS yet`);
-				console.log(pc.dim("      Requesting crawl..."));
-				const crawlOk = await client.requestCrawl(pdsHostname);
+				for (const relayStatus of relayStatuses) {
+					const relayName = relayStatus.relay.includes("us-west") ? "us-west" : "us-east";
+					const statusIcon =
+						relayStatus.status === "active"
+							? CHECK
+							: relayStatus.status === "banned"
+								? CROSS
+								: WARN;
+					console.log(
+						`  ${statusIcon} Relay ${relayName}: ${relayStatus.status}${relayStatus.accountCount !== undefined ? ` (${relayStatus.accountCount} accounts, seq: ${relayStatus.seq ?? "none"})` : ""}`,
+					);
+				}
+			}
+
+			// Only warn if ALL relays are problematic
+			if (hasBannedRelay && !hasActiveRelay) {
+				console.log(`  ${CROSS} PDS is banned from all relays`);
+				hasErrors = true;
+			} else if (needsCrawl) {
+				console.log(pc.dim("      Requesting crawl from all relays..."));
+				const crawlOk = await client.requestCrawlAll(pdsHostname);
 				if (crawlOk) {
 					console.log(`  ${CHECK} Crawl requested`);
 				} else {
