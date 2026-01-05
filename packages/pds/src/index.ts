@@ -324,8 +324,8 @@ app.get("/xrpc/app.bsky.ageassurance.getState", requireAuth, (c) => {
 	});
 });
 
-// Admin: Emit identity event to refresh handle verification
-app.post("/admin/emit-identity", requireAuth, async (c) => {
+// Emit identity event to refresh handle verification with relays
+app.post("/xrpc/gg.mk.experimental.emitIdentityEvent", requireAuth, async (c) => {
 	const accountDO = getAccountDO(c.env);
 	const result = await accountDO.rpcEmitIdentityEvent(c.env.HANDLE);
 	return c.json(result);
