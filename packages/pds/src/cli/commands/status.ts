@@ -7,6 +7,13 @@ import { getVars } from "../utils/wrangler.js";
 import { readDevVars } from "../utils/dotenv.js";
 import { PDSClient } from "../utils/pds-client.js";
 import { getTargetUrl } from "../utils/cli-helpers.js";
+import {
+	checkHandleResolutionDetailed,
+	checkDidResolution,
+	checkRepoInitialised,
+	checkBlobsImported,
+	checkAppViewIndexing,
+} from "../utils/checks.js";
 
 const CHECK = pc.green("✓");
 const CROSS = pc.red("✗");
@@ -110,19 +117,20 @@ export const statusCommand = defineCommand({
 		// ============================================
 		console.log(pc.bold("Repository"));
 
-		if (status.repoCommit && status.indexedRecords > 0) {
+		const repoCheck = checkRepoInitialised(status);
+		if (repoCheck.ok) {
 			const shortCid =
-				status.repoCommit.slice(0, 12) + "..." + status.repoCommit.slice(-4);
+				status.repoCommit!.slice(0, 12) + "..." + status.repoCommit!.slice(-4);
 			const shortRev = status.repoRev
 				? status.repoRev.slice(0, 8) + "..."
 				: "none";
 			console.log(`  ${CHECK} Initialized: ${pc.dim(shortCid)} (rev: ${shortRev})`);
-			console.log(
-				`  ${INFO} ${status.repoBlocks.toLocaleString()} blocks, ${status.indexedRecords.toLocaleString()} records`,
-			);
+			console.log(`  ${INFO} ${repoCheck.message}`);
 		} else {
-			console.log(`  ${WARN} Repository empty (no records)`);
-			console.log(pc.dim("      Run 'pds migrate' to import from another PDS"));
+			console.log(`  ${WARN} ${repoCheck.message}`);
+			if (repoCheck.detail) {
+				console.log(pc.dim(`      ${repoCheck.detail}`));
+			}
 			hasWarnings = true;
 		}
 		console.log();
@@ -143,27 +151,15 @@ export const statusCommand = defineCommand({
 
 		// Check DID resolution
 		if (did) {
-			const resolved = await client.resolveDid(did);
-			const resolveMethod = did.startsWith("did:plc:")
-				? "plc.directory"
-				: did.startsWith("did:web:")
-					? "/.well-known/did.json"
-					: "unknown";
-
-			if (resolved.pdsEndpoint) {
-				const expectedEndpoint = `https://${pdsHostname}`;
-				if (
-					resolved.pdsEndpoint === expectedEndpoint ||
-					resolved.pdsEndpoint === pdsHostname
-				) {
-					console.log(`  ${CHECK} DID resolves to this PDS (via ${resolveMethod})`);
-				} else {
-					console.log(`  ${CROSS} DID resolves to different PDS`);
-					console.log(pc.dim(`      Resolved via: ${resolveMethod}`));
-					console.log(pc.dim(`      Expected: ${expectedEndpoint}`));
-					console.log(pc.dim(`      Got: ${resolved.pdsEndpoint}`));
-					hasErrors = true;
-				}
+			const didCheck = await checkDidResolution(client, did, pdsHostname!);
+			if (didCheck.ok) {
+				console.log(`  ${CHECK} DID resolves to this PDS (via ${didCheck.resolveMethod})`);
+			} else if (didCheck.pdsEndpoint) {
+				console.log(`  ${CROSS} DID resolves to different PDS`);
+				console.log(pc.dim(`      Resolved via: ${didCheck.resolveMethod}`));
+				console.log(pc.dim(`      Expected: https://${pdsHostname}`));
+				console.log(pc.dim(`      Got: ${didCheck.pdsEndpoint}`));
+				hasErrors = true;
 			} else {
 				console.log(`  ${WARN} Could not resolve DID`);
 				if (did.startsWith("did:plc:")) {
@@ -180,24 +176,14 @@ export const statusCommand = defineCommand({
 
 		// Check handle resolution with method details
 		if (handle) {
-			const [httpDid, dnsDid] = await Promise.all([
-				client.checkHandleViaHttp(handle),
-				client.checkHandleViaDns(handle),
-			]);
-
-			const httpValid = httpDid === did;
-			const dnsValid = dnsDid === did;
-
-			if (httpValid || dnsValid) {
-				const methods: string[] = [];
-				if (dnsValid) methods.push("DNS");
-				if (httpValid) methods.push("HTTP");
-				console.log(`  ${CHECK} Handle verified via ${methods.join(" + ")}`);
-			} else if (httpDid || dnsDid) {
+			const handleCheck = await checkHandleResolutionDetailed(client, handle, did!);
+			if (handleCheck.ok) {
+				console.log(`  ${CHECK} Handle verified via ${handleCheck.methods.join(" + ")}`);
+			} else if (handleCheck.httpDid || handleCheck.dnsDid) {
 				console.log(`  ${CROSS} Handle resolves to different DID`);
 				console.log(pc.dim(`      Expected: ${did}`));
-				if (httpDid) console.log(pc.dim(`      HTTP well-known: ${httpDid}`));
-				if (dnsDid) console.log(pc.dim(`      DNS TXT: ${dnsDid}`));
+				if (handleCheck.httpDid) console.log(pc.dim(`      HTTP well-known: ${handleCheck.httpDid}`));
+				if (handleCheck.dnsDid) console.log(pc.dim(`      DNS TXT: ${handleCheck.dnsDid}`));
 				hasErrors = true;
 			} else {
 				console.log(`  ${WARN} Handle not resolving`);
@@ -216,10 +202,9 @@ export const statusCommand = defineCommand({
 		// ============================================
 		if (status.expectedBlobs > 0) {
 			console.log(pc.bold("Blobs"));
-			if (status.importedBlobs === status.expectedBlobs) {
-				console.log(
-					`  ${CHECK} ${status.importedBlobs}/${status.expectedBlobs} blobs imported`,
-				);
+			const blobCheck = checkBlobsImported(status);
+			if (blobCheck.ok) {
+				console.log(`  ${CHECK} ${blobCheck.message}`);
 			} else {
 				const missing = status.expectedBlobs - status.importedBlobs;
 				console.log(
@@ -237,12 +222,14 @@ export const statusCommand = defineCommand({
 
 		// Check AppView indexing
 		if (did) {
-			const isIndexed = await client.checkAppViewIndexing(did);
-			if (isIndexed) {
-				console.log(`  ${CHECK} Profile indexed by AppView`);
+			const appViewCheck = await checkAppViewIndexing(client, did);
+			if (appViewCheck.ok) {
+				console.log(`  ${CHECK} ${appViewCheck.message}`);
 			} else {
-				console.log(`  ${WARN} Profile not found on AppView`);
-				console.log(pc.dim("      This may be normal for new accounts"));
+				console.log(`  ${WARN} ${appViewCheck.message}`);
+				if (appViewCheck.detail) {
+					console.log(pc.dim(`      ${appViewCheck.detail}`));
+				}
 				hasWarnings = true;
 			}
 		}

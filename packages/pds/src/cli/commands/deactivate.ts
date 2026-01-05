@@ -13,10 +13,45 @@ import {
 	detectPackageManager,
 	formatCommand,
 } from "../utils/cli-helpers.js";
+import {
+	checkHandleResolution,
+	checkDidDocument,
+	type CheckResult,
+} from "../utils/checks.js";
 
 // Helper to override clack's dim styling in notes
 const brightNote = (lines: string[]) => lines.map((l) => `\x1b[0m${l}`).join("\n");
 const bold = (text: string) => pc.bold(text);
+
+interface IdentityCheck {
+	name: string;
+	ok: boolean;
+	message: string;
+	detail?: string;
+}
+
+/**
+ * Run identity verification checks - for deactivate, we just inform the user
+ */
+async function runIdentityChecks(
+	handle: string,
+	did: string,
+	pdsUrl: string,
+): Promise<IdentityCheck[]> {
+	const checks: IdentityCheck[] = [];
+
+	// Check 1: Handle resolution
+	p.log.step("Checking handle resolution...");
+	const handleResult = await checkHandleResolution(handle, did);
+	checks.push({ name: "Handle resolution", ...handleResult });
+
+	// Check 2: DID document
+	p.log.step("Checking DID document...");
+	const didResult = await checkDidDocument(did, pdsUrl);
+	checks.push({ name: "DID document", ...didResult });
+
+	return checks;
+}
 
 export const deactivateCommand = defineCommand({
 	meta: {
@@ -29,10 +64,17 @@ export const deactivateCommand = defineCommand({
 			description: "Target local development server instead of production",
 			default: false,
 		},
+		yes: {
+			type: "boolean",
+			alias: "y",
+			description: "Skip confirmation prompts",
+			default: false,
+		},
 	},
 	async run({ args }) {
 		const pm = detectPackageManager();
 		const isDev = args.dev;
+		const skipConfirm = args.yes;
 
 		p.intro("🦋 Deactivate Account");
 
@@ -56,9 +98,16 @@ export const deactivateCommand = defineCommand({
 
 		const authToken = config.AUTH_TOKEN;
 		const handle = config.HANDLE;
+		const did = config.DID;
 
 		if (!authToken) {
 			p.log.error("No AUTH_TOKEN found. Run 'pds init' first.");
+			p.outro("Deactivation cancelled.");
+			process.exit(1);
+		}
+
+		if (!handle || !did) {
+			p.log.error("No HANDLE or DID found. Run 'pds init' first.");
 			p.outro("Deactivation cancelled.");
 			process.exit(1);
 		}
@@ -96,10 +145,28 @@ export const deactivateCommand = defineCommand({
 			return;
 		}
 
+		// Run identity checks to inform the user of current state
+		p.log.info("");
+		p.log.info(pc.bold("Current identity status:"));
+		const checks = await runIdentityChecks(handle, did, targetUrl);
+
+		// Display results
+		for (const check of checks) {
+			if (check.ok) {
+				p.log.success(`${check.name}: ${check.message}`);
+			} else {
+				p.log.warn(`${check.name}: ${check.message}`);
+				if (check.detail) {
+					p.log.info(`  ${check.detail}`);
+				}
+			}
+		}
+		p.log.info("");
+
 		// Show warning
 		p.note(
 			brightNote([
-				bold(`⚠️  WARNING: This will disable writes for @${handle || "your-handle"}`),
+				bold(`⚠️  WARNING: This will disable writes for @${handle}`),
 				"",
 				"Your account will:",
 				"  • Stop accepting new posts, follows, and other writes",
@@ -111,14 +178,16 @@ export const deactivateCommand = defineCommand({
 			"Deactivate Account",
 		);
 
-		const confirm = await p.confirm({
-			message: "Are you sure you want to deactivate?",
-			initialValue: false,
-		});
+		if (!skipConfirm) {
+			const confirm = await p.confirm({
+				message: "Are you sure you want to deactivate?",
+				initialValue: false,
+			});
 
-		if (p.isCancel(confirm) || !confirm) {
-			p.cancel("Deactivation cancelled.");
-			process.exit(0);
+			if (p.isCancel(confirm) || !confirm) {
+				p.cancel("Deactivation cancelled.");
+				process.exit(0);
+			}
 		}
 
 		// Deactivate
