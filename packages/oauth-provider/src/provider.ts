@@ -19,6 +19,7 @@ import {
 	AUTH_CODE_TTL,
 } from "./tokens.js";
 import { renderConsentUI, renderErrorPage, CONSENT_UI_CSP } from "./ui.js";
+import { authenticateClient, ClientAuthError } from "./client-auth.js";
 
 /**
  * OAuth provider configuration
@@ -238,7 +239,8 @@ export class ATProtoOAuthProvider {
 
 		const redirectUri = params.redirect_uri!;
 		const state = params.state!;
-		const responseMode = params.response_mode ?? "fragment";
+		// Default response_mode is "query" for authorization code flow per RFC 6749
+		const responseMode = params.response_mode ?? "query";
 
 		// Handle deny
 		if (action === "deny") {
@@ -368,6 +370,32 @@ export class ATProtoOAuthProvider {
 			}
 		}
 
+		// Authenticate client (validates private_key_jwt for confidential clients)
+		try {
+			await authenticateClient(
+				params,
+				async (clientId) => {
+					if (this.clientResolver) {
+						try {
+							return await this.clientResolver.resolveClient(clientId);
+						} catch {
+							return null;
+						}
+					}
+					return this.storage.getClient(clientId);
+				},
+				{
+					tokenEndpoint: `${this.issuer}/oauth/token`,
+					checkJti: async (jti) => this.storage.checkAndSaveNonce(jti),
+				}
+			);
+		} catch (e) {
+			if (e instanceof ClientAuthError) {
+				return oauthError(e.code, e.message);
+			}
+			return oauthError("invalid_client", "Client authentication failed");
+		}
+
 		// Get authorization code data
 		const codeData = await this.storage.getAuthCode(params.code!);
 		if (!codeData) {
@@ -487,6 +515,34 @@ export class ATProtoOAuthProvider {
 			return oauthError("invalid_request", "Missing refresh_token parameter");
 		}
 
+		// Authenticate client if client_id is provided
+		if (params.client_id) {
+			try {
+				await authenticateClient(
+					params,
+					async (clientId) => {
+						if (this.clientResolver) {
+							try {
+								return await this.clientResolver.resolveClient(clientId);
+							} catch {
+								return null;
+							}
+						}
+						return this.storage.getClient(clientId);
+					},
+					{
+						tokenEndpoint: `${this.issuer}/oauth/token`,
+						checkJti: async (jti) => this.storage.checkAndSaveNonce(jti),
+					}
+				);
+			} catch (e) {
+				if (e instanceof ClientAuthError) {
+					return oauthError(e.code, e.message);
+				}
+				return oauthError("invalid_client", "Client authentication failed");
+			}
+		}
+
 		// Get token data
 		const existingData = await this.storage.getTokenByRefresh(refreshToken);
 		if (!existingData) {
@@ -564,22 +620,23 @@ export class ATProtoOAuthProvider {
 			issuer: this.issuer,
 			authorization_endpoint: `${this.issuer}/oauth/authorize`,
 			token_endpoint: `${this.issuer}/oauth/token`,
+			userinfo_endpoint: `${this.issuer}/oauth/userinfo`,
 			response_types_supported: ["code"],
 			response_modes_supported: ["fragment", "query"],
 			grant_types_supported: ["authorization_code", "refresh_token"],
 			code_challenge_methods_supported: ["S256"],
-			token_endpoint_auth_methods_supported: ["none"],
+			token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
 			scopes_supported: ["atproto", "transition:generic", "transition:chat.bsky"],
 			subject_types_supported: ["public"],
 			authorization_response_iss_parameter_supported: true,
 			client_id_metadata_document_supported: true,
+			token_endpoint_auth_signing_alg_values_supported: ["ES256"],
 			...(this.enablePAR && {
 				pushed_authorization_request_endpoint: `${this.issuer}/oauth/par`,
 				require_pushed_authorization_requests: false,
 			}),
 			...(this.dpopRequired && {
 				dpop_signing_alg_values_supported: ["ES256"],
-				token_endpoint_auth_signing_alg_values_supported: ["ES256"],
 			}),
 		} as OAuthAuthorizationServerMetadata;
 
