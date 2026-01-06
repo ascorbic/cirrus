@@ -155,8 +155,14 @@ export class ATProtoOAuthProvider {
 					return this.renderError("invalid_request", "Invalid or expired request_uri");
 				}
 				params = parParams;
+			} else if (this.enablePAR) {
+				// PAR is required when enabled - reject direct authorization requests
+				return this.renderError(
+					"invalid_request",
+					"Pushed Authorization Request required. Use the PAR endpoint first."
+				);
 			} else {
-				// Parse query parameters
+				// Parse query parameters (only when PAR is not enabled)
 				params = Object.fromEntries(url.searchParams.entries());
 			}
 		}
@@ -635,7 +641,7 @@ export class ATProtoOAuthProvider {
 			token_endpoint_auth_signing_alg_values_supported: ["ES256"],
 			...(this.enablePAR && {
 				pushed_authorization_request_endpoint: `${this.issuer}/oauth/par`,
-				require_pushed_authorization_requests: false,
+				require_pushed_authorization_requests: true,
 			}),
 			...(this.dpopRequired && {
 				dpop_signing_alg_values_supported: ["ES256"],
