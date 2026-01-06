@@ -59,7 +59,46 @@ describe("OAuth Flow", () => {
 	});
 
 	describe("Authorization Endpoint", () => {
-		it("returns consent UI for GET request", async () => {
+		it("returns consent UI for GET request via PAR", async () => {
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+
+			// First, submit a PAR request
+			const parBody = new URLSearchParams({
+				client_id: testClient.clientId,
+				redirect_uri: testClient.redirectUris[0]!,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "test-state",
+			});
+
+			const parRequest = new Request("https://pds.example.com/oauth/par", {
+				method: "POST",
+				headers: { "Content-Type": "application/x-www-form-urlencoded" },
+				body: parBody.toString(),
+			});
+			const parResponse = await provider.handlePAR(parRequest);
+			expect(parResponse.status).toBe(201);
+			const parData = await parResponse.json();
+			expect(parData.request_uri).toBeDefined();
+
+			// Then use the request_uri to call the authorization endpoint
+			const url = new URL("https://pds.example.com/oauth/authorize");
+			url.searchParams.set("client_id", testClient.clientId);
+			url.searchParams.set("request_uri", parData.request_uri);
+
+			const request = new Request(url.toString(), { method: "GET" });
+			const response = await provider.handleAuthorize(request);
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get("Content-Type")).toContain("text/html");
+
+			const html = await response.text();
+			expect(html).toContain(testClient.clientName);
+		});
+
+		it("rejects direct authorization requests when PAR is required", async () => {
 			const verifier = generateCodeVerifier();
 			const challenge = await generateCodeChallenge(verifier);
 
@@ -74,11 +113,9 @@ describe("OAuth Flow", () => {
 			const request = new Request(url.toString(), { method: "GET" });
 			const response = await provider.handleAuthorize(request);
 
-			expect(response.status).toBe(200);
-			expect(response.headers.get("Content-Type")).toContain("text/html");
-
+			expect(response.status).toBe(400);
 			const html = await response.text();
-			expect(html).toContain(testClient.clientName);
+			expect(html).toContain("Pushed Authorization Request required");
 		});
 
 		it("redirects with code after consent approval", async () => {
