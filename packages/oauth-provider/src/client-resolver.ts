@@ -116,7 +116,11 @@ export class ClientResolver {
 
 		if (this.storage) {
 			const cached = await this.storage.getClient(clientId);
-			if (cached && cached.cachedAt && Date.now() - cached.cachedAt < this.cacheTtl) {
+			// Check cache validity: must have timestamp, not expired, and have auth method set
+			// (entries without tokenEndpointAuthMethod are from before we added that field)
+			if (cached && cached.cachedAt &&
+				Date.now() - cached.cachedAt < this.cacheTtl &&
+				cached.tokenEndpointAuthMethod !== undefined) {
 				return cached;
 			}
 		}
