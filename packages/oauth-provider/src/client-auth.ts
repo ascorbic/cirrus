@@ -3,7 +3,7 @@
  * Implements RFC 7523 (JWT Bearer Client Authentication)
  */
 
-import { jwtVerify, createRemoteJWKSet, importJWK, errors } from "jose";
+import { jwtVerify, createRemoteJWKSet, importJWK, errors, customFetch } from "jose";
 import type { JWTPayload } from "jose";
 import type { ClientMetadata, JWK } from "./storage.js";
 
@@ -41,6 +41,8 @@ export interface ClientAuthResult {
 export interface ClientAuthOptions {
 	/** Token endpoint URL (for audience validation) */
 	tokenEndpoint: string;
+	/** Issuer URL (also accepted as audience per RFC 7523) */
+	issuer: string;
 	/** Fetch function for fetching remote JWKS (for testing) */
 	fetch?: typeof globalThis.fetch;
 	/** Check if a JTI has been used (for replay prevention) */
@@ -73,7 +75,7 @@ export async function verifyClientAssertion(
 	client: ClientMetadata,
 	options: ClientAuthOptions
 ): Promise<JWTPayload> {
-	const { tokenEndpoint, fetch: fetchFn = globalThis.fetch.bind(globalThis), checkJti } = options;
+	const { tokenEndpoint, issuer, fetch: fetchFn = globalThis.fetch.bind(globalThis), checkJti } = options;
 
 	// Get the key resolver
 	let keyResolver: Parameters<typeof jwtVerify>[1];
@@ -103,7 +105,7 @@ export async function verifyClientAssertion(
 	} else if (client.jwksUri) {
 		// Use remote JWKS
 		keyResolver = createRemoteJWKSet(new URL(client.jwksUri), {
-			[Symbol.for("fetch")]: fetchFn,
+			[customFetch]: fetchFn,
 		});
 	} else {
 		throw new ClientAuthError("Client has no JWKS configured", "invalid_client");
@@ -145,11 +147,12 @@ export async function verifyClientAssertion(
 		);
 	}
 
-	// aud (audience) must include the token endpoint
+	// aud (audience) must include the token endpoint or the issuer
+	// Per RFC 7523, audience identifies the authorization server - both formats are valid
 	const aud = Array.isArray(payload.aud) ? payload.aud : payload.aud ? [payload.aud] : [];
-	if (!aud.includes(tokenEndpoint)) {
+	if (!aud.includes(tokenEndpoint) && !aud.includes(issuer)) {
 		throw new ClientAuthError(
-			`JWT audience must include token endpoint: ${tokenEndpoint}`,
+			`JWT audience must include token endpoint (${tokenEndpoint}) or issuer (${issuer})`,
 			"invalid_client"
 		);
 	}

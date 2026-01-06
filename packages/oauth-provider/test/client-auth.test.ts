@@ -10,7 +10,8 @@ import type { ClientMetadata, JWK } from "../src/storage.js";
 import { generateClientKeyPair, createClientAssertion } from "./helpers.js";
 
 describe("Client Authentication", () => {
-	const tokenEndpoint = "https://pds.example.com/oauth/token";
+	const issuer = "https://pds.example.com";
+	const tokenEndpoint = `${issuer}/oauth/token`;
 	const usedNonces = new Set<string>();
 
 	function checkJti(jti: string): Promise<boolean> {
@@ -76,11 +77,34 @@ describe("Client Authentication", () => {
 
 			const payload = await verifyClientAssertion(assertion, confidentialClient, {
 				tokenEndpoint,
+				issuer,
 				checkJti,
 			});
 
 			expect(payload.iss).toBe(confidentialClient.clientId);
 			expect(payload.sub).toBe(confidentialClient.clientId);
+		});
+
+		it("accepts issuer URL as audience (not just token endpoint)", async () => {
+			// Some clients (like leaflet.pub) send the issuer as audience instead of token endpoint
+			const assertion = await createClientAssertion(
+				clientKeyPair.privateKey,
+				{
+					iss: confidentialClient.clientId,
+					sub: confidentialClient.clientId,
+					aud: issuer, // Just the issuer, not the token endpoint
+				},
+				clientKeyPair.publicJwk
+			);
+
+			const payload = await verifyClientAssertion(assertion, confidentialClient, {
+				tokenEndpoint,
+				issuer,
+				checkJti,
+			});
+
+			expect(payload.iss).toBe(confidentialClient.clientId);
+			expect(payload.aud).toBe(issuer);
 		});
 
 		it("rejects assertion with wrong issuer", async () => {
@@ -97,6 +121,7 @@ describe("Client Authentication", () => {
 			await expect(
 				verifyClientAssertion(assertion, confidentialClient, {
 					tokenEndpoint,
+					issuer,
 					checkJti,
 				})
 			).rejects.toThrow(ClientAuthError);
@@ -116,6 +141,7 @@ describe("Client Authentication", () => {
 			await expect(
 				verifyClientAssertion(assertion, confidentialClient, {
 					tokenEndpoint,
+					issuer,
 					checkJti,
 				})
 			).rejects.toThrow(ClientAuthError);
@@ -135,6 +161,7 @@ describe("Client Authentication", () => {
 			await expect(
 				verifyClientAssertion(assertion, confidentialClient, {
 					tokenEndpoint,
+					issuer,
 					checkJti,
 				})
 			).rejects.toThrow(ClientAuthError);
@@ -153,6 +180,7 @@ describe("Client Authentication", () => {
 
 			const payload = await verifyClientAssertion(assertion, confidentialClient, {
 				tokenEndpoint,
+				issuer,
 				checkJti,
 			});
 
@@ -176,6 +204,7 @@ describe("Client Authentication", () => {
 			// First use should succeed
 			await verifyClientAssertion(assertion, confidentialClient, {
 				tokenEndpoint,
+				issuer,
 				checkJti,
 			});
 
@@ -183,6 +212,7 @@ describe("Client Authentication", () => {
 			await expect(
 				verifyClientAssertion(assertion, confidentialClient, {
 					tokenEndpoint,
+					issuer,
 					checkJti,
 				})
 			).rejects.toThrow(/replay/i);
@@ -204,6 +234,7 @@ describe("Client Authentication", () => {
 			await expect(
 				verifyClientAssertion(assertion, confidentialClient, {
 					tokenEndpoint,
+					issuer,
 					checkJti,
 				})
 			).rejects.toThrow(ClientAuthError);
@@ -229,6 +260,7 @@ describe("Client Authentication", () => {
 			await expect(
 				verifyClientAssertion(assertion, clientWithoutJwks, {
 					tokenEndpoint,
+					issuer,
 					checkJti,
 				})
 			).rejects.toThrow(/JWKS/i);
@@ -271,7 +303,7 @@ describe("Client Authentication", () => {
 			const result = await authenticateClient(
 				{ client_id: publicClient.clientId },
 				getClient,
-				{ tokenEndpoint, checkJti }
+				{ tokenEndpoint, issuer, checkJti }
 			);
 
 			expect(result.authenticated).toBe(false);
@@ -297,7 +329,7 @@ describe("Client Authentication", () => {
 						client_assertion: assertion,
 					},
 					getClient,
-					{ tokenEndpoint, checkJti }
+					{ tokenEndpoint, issuer, checkJti }
 				)
 			).rejects.toThrow(/not expected/i);
 		});
@@ -307,7 +339,7 @@ describe("Client Authentication", () => {
 				authenticateClient(
 					{ client_id: confidentialClient.clientId },
 					getClient,
-					{ tokenEndpoint, checkJti }
+					{ tokenEndpoint, issuer, checkJti }
 				)
 			).rejects.toThrow(/required/i);
 		});
@@ -330,7 +362,7 @@ describe("Client Authentication", () => {
 					client_assertion: assertion,
 				},
 				getClient,
-				{ tokenEndpoint, checkJti }
+				{ tokenEndpoint, issuer, checkJti }
 			);
 
 			expect(result.authenticated).toBe(true);
@@ -356,7 +388,7 @@ describe("Client Authentication", () => {
 						client_assertion: assertion,
 					},
 					getClient,
-					{ tokenEndpoint, checkJti }
+					{ tokenEndpoint, issuer, checkJti }
 				)
 			).rejects.toThrow(/Unsupported assertion type/i);
 		});
@@ -366,14 +398,14 @@ describe("Client Authentication", () => {
 				authenticateClient(
 					{ client_id: "did:web:unknown.example.com" },
 					getClient,
-					{ tokenEndpoint, checkJti }
+					{ tokenEndpoint, issuer, checkJti }
 				)
 			).rejects.toThrow(/Unknown client/i);
 		});
 
 		it("requires client_id", async () => {
 			await expect(
-				authenticateClient({}, getClient, { tokenEndpoint, checkJti })
+				authenticateClient({}, getClient, { tokenEndpoint, issuer, checkJti })
 			).rejects.toThrow(/Missing client_id/i);
 		});
 	});

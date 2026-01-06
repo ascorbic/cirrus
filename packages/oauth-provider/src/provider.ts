@@ -386,6 +386,7 @@ export class ATProtoOAuthProvider {
 				},
 				{
 					tokenEndpoint: `${this.issuer}/oauth/token`,
+					issuer: this.issuer,
 					checkJti: async (jti) => this.storage.checkAndSaveNonce(jti),
 				}
 			);
@@ -532,6 +533,7 @@ export class ATProtoOAuthProvider {
 					},
 					{
 						tokenEndpoint: `${this.issuer}/oauth/token`,
+						issuer: this.issuer,
 						checkJti: async (jti) => this.storage.checkAndSaveNonce(jti),
 					}
 				);
