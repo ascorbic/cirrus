@@ -345,7 +345,7 @@ const main = defineCommand({
 		p.note(
 			[
 				`cd ${projectName}`,
-				`${pm} dev`,
+				`${pm}${pm === "npm" ? " run" : ""} dev`,
 				"",
 				"Your PDS will be running at http://localhost:5173",
 			].join("\n"),
