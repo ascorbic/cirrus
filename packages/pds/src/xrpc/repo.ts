@@ -427,8 +427,8 @@ export async function uploadBlob(
 		c.req.header("Content-Type") || "application/octet-stream";
 	const bytes = new Uint8Array(await c.req.arrayBuffer());
 
-	// Size limit check (5MB)
-	const MAX_BLOB_SIZE = 5 * 1024 * 1024;
+	// Size limit check (60MB)
+	const MAX_BLOB_SIZE = 60 * 1024 * 1024;
 	if (bytes.length > MAX_BLOB_SIZE) {
 		return c.json(
 			{

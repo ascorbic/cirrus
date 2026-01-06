@@ -817,8 +817,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			throw new Error("Blob storage not configured");
 		}
 
-		// Enforce size limit (5MB)
-		const MAX_BLOB_SIZE = 5 * 1024 * 1024;
+		// Enforce size limit (60MB)
+		const MAX_BLOB_SIZE = 60 * 1024 * 1024;
 		if (bytes.length > MAX_BLOB_SIZE) {
 			throw new Error(
 				`Blob too large: ${bytes.length} bytes (max ${MAX_BLOB_SIZE})`,

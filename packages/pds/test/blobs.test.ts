@@ -34,9 +34,9 @@ describe("Blob Storage", () => {
 			});
 		});
 
-		it("should reject blob larger than 5MB", async () => {
-			// Create a blob larger than 5MB
-			const largeBlob = new Uint8Array(6 * 1024 * 1024); // 6MB
+		it("should reject blob larger than 60MB", async () => {
+			// Create a blob larger than 60MB
+			const largeBlob = new Uint8Array(61 * 1024 * 1024); // 61MB
 
 			const response = await worker.fetch(
 				new Request("http://pds.test/xrpc/com.atproto.repo.uploadBlob", {
