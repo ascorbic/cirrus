@@ -689,6 +689,116 @@ export class PDSClient {
 	// Relay Operations
 	// ============================================
 
+	// ============================================
+	// Passkey Operations
+	// ============================================
+
+	/**
+	 * Initialize passkey registration
+	 * Returns a URL for the user to visit on their device
+	 */
+	async initPasskeyRegistration(name?: string): Promise<{
+		token: string;
+		url: string;
+		expiresAt: number;
+	}> {
+		const url = new URL("/passkey/init", this.baseUrl);
+		const headers: Record<string, string> = {
+			"Content-Type": "application/json",
+		};
+		if (this.authToken) {
+			headers["Authorization"] = `Bearer ${this.authToken}`;
+		}
+		const res = await fetch(url.toString(), {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ name }),
+		});
+		if (!res.ok) {
+			const errorBody = (await res.json().catch(() => ({}))) as {
+				error?: string;
+				message?: string;
+			};
+			throw new ClientResponseError({
+				status: res.status,
+				headers: res.headers,
+				data: { error: errorBody.error ?? "Unknown", message: errorBody.message },
+			});
+		}
+		return res.json() as Promise<{ token: string; url: string; expiresAt: number }>;
+	}
+
+	/**
+	 * List all registered passkeys
+	 */
+	async listPasskeys(): Promise<{
+		passkeys: Array<{
+			id: string;
+			name: string | null;
+			createdAt: string;
+			lastUsedAt: string | null;
+		}>;
+	}> {
+		const url = new URL("/passkey/list", this.baseUrl);
+		const headers: Record<string, string> = {};
+		if (this.authToken) {
+			headers["Authorization"] = `Bearer ${this.authToken}`;
+		}
+		const res = await fetch(url.toString(), {
+			method: "GET",
+			headers,
+		});
+		if (!res.ok) {
+			const errorBody = (await res.json().catch(() => ({}))) as {
+				error?: string;
+				message?: string;
+			};
+			throw new ClientResponseError({
+				status: res.status,
+				headers: res.headers,
+				data: { error: errorBody.error ?? "Unknown", message: errorBody.message },
+			});
+		}
+		return res.json() as Promise<{
+			passkeys: Array<{
+				id: string;
+				name: string | null;
+				createdAt: string;
+				lastUsedAt: string | null;
+			}>;
+		}>;
+	}
+
+	/**
+	 * Delete a passkey by credential ID
+	 */
+	async deletePasskey(credentialId: string): Promise<{ success: boolean }> {
+		const url = new URL("/passkey/delete", this.baseUrl);
+		const headers: Record<string, string> = {
+			"Content-Type": "application/json",
+		};
+		if (this.authToken) {
+			headers["Authorization"] = `Bearer ${this.authToken}`;
+		}
+		const res = await fetch(url.toString(), {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ id: credentialId }),
+		});
+		if (!res.ok) {
+			const errorBody = (await res.json().catch(() => ({}))) as {
+				error?: string;
+				message?: string;
+			};
+			throw new ClientResponseError({
+				status: res.status,
+				headers: res.headers,
+				data: { error: errorBody.error ?? "Unknown", message: errorBody.message },
+			});
+		}
+		return res.json() as Promise<{ success: boolean }>;
+	}
+
 	static RELAY_URLS = [
 		"https://relay1.us-west.bsky.network",
 		"https://relay1.us-east.bsky.network",

@@ -79,6 +79,23 @@ export class SqliteRepoStorage
 				mimeType TEXT,
 				createdAt TEXT NOT NULL DEFAULT (datetime('now'))
 			);
+
+			-- Passkey credentials (WebAuthn)
+			CREATE TABLE IF NOT EXISTS passkeys (
+				credential_id TEXT PRIMARY KEY,
+				public_key BLOB NOT NULL,
+				counter INTEGER NOT NULL DEFAULT 0,
+				name TEXT,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				last_used_at TEXT
+			);
+
+			-- Passkey registration tokens (short-lived, 10 min TTL)
+			CREATE TABLE IF NOT EXISTS passkey_tokens (
+				token TEXT PRIMARY KEY,
+				challenge TEXT NOT NULL,
+				expires_at INTEGER NOT NULL
+			);
 		`);
 	}
 
@@ -438,5 +455,165 @@ export class SqliteRepoStorage
 	clearBlobTracking(): void {
 		this.sql.exec("DELETE FROM record_blob");
 		this.sql.exec("DELETE FROM imported_blobs");
+	}
+
+	// ============================================
+	// Passkey Methods
+	// ============================================
+
+	/**
+	 * Save a passkey credential.
+	 */
+	savePasskey(
+		credentialId: string,
+		publicKey: Uint8Array,
+		counter: number,
+		name?: string,
+	): void {
+		this.sql.exec(
+			`INSERT INTO passkeys (credential_id, public_key, counter, name)
+			 VALUES (?, ?, ?, ?)`,
+			credentialId,
+			publicKey,
+			counter,
+			name ?? null,
+		);
+	}
+
+	/**
+	 * Get a passkey by credential ID.
+	 */
+	getPasskey(credentialId: string): {
+		credentialId: string;
+		publicKey: Uint8Array;
+		counter: number;
+		name: string | null;
+		createdAt: string;
+		lastUsedAt: string | null;
+	} | null {
+		const rows = this.sql
+			.exec(
+				`SELECT credential_id, public_key, counter, name, created_at, last_used_at
+				 FROM passkeys WHERE credential_id = ?`,
+				credentialId,
+			)
+			.toArray();
+
+		if (rows.length === 0) return null;
+
+		const row = rows[0]!;
+		return {
+			credentialId: row.credential_id as string,
+			publicKey: new Uint8Array(row.public_key as ArrayBuffer),
+			counter: row.counter as number,
+			name: row.name as string | null,
+			createdAt: row.created_at as string,
+			lastUsedAt: row.last_used_at as string | null,
+		};
+	}
+
+	/**
+	 * List all passkeys.
+	 */
+	listPasskeys(): Array<{
+		credentialId: string;
+		name: string | null;
+		createdAt: string;
+		lastUsedAt: string | null;
+	}> {
+		const rows = this.sql
+			.exec(
+				`SELECT credential_id, name, created_at, last_used_at
+				 FROM passkeys ORDER BY created_at DESC`,
+			)
+			.toArray();
+
+		return rows.map((row) => ({
+			credentialId: row.credential_id as string,
+			name: row.name as string | null,
+			createdAt: row.created_at as string,
+			lastUsedAt: row.last_used_at as string | null,
+		}));
+	}
+
+	/**
+	 * Delete a passkey.
+	 */
+	deletePasskey(credentialId: string): boolean {
+		const before = this.sql.exec("SELECT COUNT(*) as c FROM passkeys").one();
+		this.sql.exec("DELETE FROM passkeys WHERE credential_id = ?", credentialId);
+		const after = this.sql.exec("SELECT COUNT(*) as c FROM passkeys").one();
+		return (before.c as number) > (after.c as number);
+	}
+
+	/**
+	 * Update passkey counter after successful authentication.
+	 */
+	updatePasskeyCounter(credentialId: string, counter: number): void {
+		this.sql.exec(
+			`UPDATE passkeys SET counter = ?, last_used_at = datetime('now')
+			 WHERE credential_id = ?`,
+			counter,
+			credentialId,
+		);
+	}
+
+	/**
+	 * Check if any passkeys exist (for conditional UI).
+	 */
+	hasPasskeys(): boolean {
+		const result = this.sql.exec("SELECT COUNT(*) as c FROM passkeys").one();
+		return (result.c as number) > 0;
+	}
+
+	// ============================================
+	// Passkey Registration Token Methods
+	// ============================================
+
+	/**
+	 * Save a registration token with challenge.
+	 */
+	savePasskeyToken(token: string, challenge: string, expiresAt: number): void {
+		this.sql.exec(
+			`INSERT INTO passkey_tokens (token, challenge, expires_at) VALUES (?, ?, ?)`,
+			token,
+			challenge,
+			expiresAt,
+		);
+	}
+
+	/**
+	 * Get and consume a registration token.
+	 */
+	consumePasskeyToken(token: string): { challenge: string } | null {
+		const rows = this.sql
+			.exec(
+				`SELECT challenge, expires_at FROM passkey_tokens WHERE token = ?`,
+				token,
+			)
+			.toArray();
+
+		if (rows.length === 0) return null;
+
+		const row = rows[0]!;
+		const expiresAt = row.expires_at as number;
+
+		// Delete the token (single-use)
+		this.sql.exec("DELETE FROM passkey_tokens WHERE token = ?", token);
+
+		// Check if expired
+		if (Date.now() > expiresAt) return null;
+
+		return { challenge: row.challenge as string };
+	}
+
+	/**
+	 * Clean up expired tokens.
+	 */
+	cleanupPasskeyTokens(): void {
+		this.sql.exec(
+			"DELETE FROM passkey_tokens WHERE expires_at < ?",
+			Date.now(),
+		);
 	}
 }

@@ -1334,6 +1334,84 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		return storage.checkAndSaveNonce(nonce);
 	}
 
+	// ============================================
+	// Passkey RPC Methods
+	// ============================================
+
+	/** Save a passkey credential */
+	async rpcSavePasskey(
+		credentialId: string,
+		publicKey: Uint8Array,
+		counter: number,
+		name?: string,
+	): Promise<void> {
+		const storage = await this.getStorage();
+		storage.savePasskey(credentialId, publicKey, counter, name);
+	}
+
+	/** Get a passkey by credential ID */
+	async rpcGetPasskey(credentialId: string): Promise<{
+		credentialId: string;
+		publicKey: Uint8Array;
+		counter: number;
+		name: string | null;
+		createdAt: string;
+		lastUsedAt: string | null;
+	} | null> {
+		const storage = await this.getStorage();
+		return storage.getPasskey(credentialId);
+	}
+
+	/** List all passkeys */
+	async rpcListPasskeys(): Promise<Array<{
+		credentialId: string;
+		name: string | null;
+		createdAt: string;
+		lastUsedAt: string | null;
+	}>> {
+		const storage = await this.getStorage();
+		return storage.listPasskeys();
+	}
+
+	/** Delete a passkey */
+	async rpcDeletePasskey(credentialId: string): Promise<boolean> {
+		const storage = await this.getStorage();
+		return storage.deletePasskey(credentialId);
+	}
+
+	/** Update passkey counter after authentication */
+	async rpcUpdatePasskeyCounter(
+		credentialId: string,
+		counter: number,
+	): Promise<void> {
+		const storage = await this.getStorage();
+		storage.updatePasskeyCounter(credentialId, counter);
+	}
+
+	/** Check if passkeys exist */
+	async rpcHasPasskeys(): Promise<boolean> {
+		const storage = await this.getStorage();
+		return storage.hasPasskeys();
+	}
+
+	/** Save a registration token */
+	async rpcSavePasskeyToken(
+		token: string,
+		challenge: string,
+		expiresAt: number,
+	): Promise<void> {
+		const storage = await this.getStorage();
+		storage.savePasskeyToken(token, challenge, expiresAt);
+	}
+
+	/** Consume a registration token */
+	async rpcConsumePasskeyToken(
+		token: string,
+	): Promise<{ challenge: string } | null> {
+		const storage = await this.getStorage();
+		return storage.consumePasskeyToken(token);
+	}
+
 	/**
 	 * HTTP fetch handler for WebSocket upgrades.
 	 * This is used instead of RPC to avoid WebSocket serialization errors.

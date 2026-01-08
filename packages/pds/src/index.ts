@@ -15,6 +15,12 @@ import { createOAuthApp } from "./oauth";
 import * as sync from "./xrpc/sync";
 import * as repo from "./xrpc/repo";
 import * as server from "./xrpc/server";
+import * as passkey from "./passkey";
+import {
+	renderPasskeyRegistrationPage,
+	renderPasskeyErrorPage,
+	PASSKEY_UI_CSP,
+} from "./passkey-ui";
 import type { PDSEnv } from "./types";
 
 import { version } from "../package.json" with { type: "json" };
@@ -340,6 +346,108 @@ app.get(
 		return c.json(await accountDO.rpcGetFirehoseStatus());
 	},
 );
+
+// ============================================
+// Passkey Routes
+// ============================================
+
+// Initialize passkey registration (authenticated)
+app.post("/passkey/init", requireAuth, async (c) => {
+	const accountDO = getAccountDO(c.env);
+	const body = await c.req.json<{ name?: string }>().catch(() => ({} as { name?: string }));
+	const result = await passkey.initPasskeyRegistration(
+		accountDO,
+		c.env.PDS_HOSTNAME,
+		c.env.DID,
+		body.name,
+	);
+	return c.json(result);
+});
+
+// Passkey registration page (GET - renders UI)
+app.get("/passkey/register", async (c) => {
+	const token = c.req.query("token");
+	if (!token) {
+		return c.html(
+			renderPasskeyErrorPage("missing_token", "No registration token provided."),
+			400,
+			{ "Content-Security-Policy": PASSKEY_UI_CSP },
+		);
+	}
+
+	const accountDO = getAccountDO(c.env);
+	const options = await passkey.getRegistrationOptions(
+		accountDO,
+		c.env.PDS_HOSTNAME,
+		c.env.DID,
+		token,
+	);
+
+	if (!options) {
+		return c.html(
+			renderPasskeyErrorPage("invalid_token", "Invalid or expired registration token."),
+			400,
+			{ "Content-Security-Policy": PASSKEY_UI_CSP },
+		);
+	}
+
+	return c.html(
+		renderPasskeyRegistrationPage({
+			options,
+			token,
+			handle: c.env.HANDLE,
+		}),
+		200,
+		{ "Content-Security-Policy": PASSKEY_UI_CSP },
+	);
+});
+
+// Complete passkey registration (POST - receives WebAuthn response)
+app.post("/passkey/register", async (c) => {
+	const body = await c.req.json<{
+		token: string;
+		response: any;
+		name?: string;
+	}>();
+
+	if (!body.token || !body.response) {
+		return c.json({ success: false, error: "Missing token or response" }, 400);
+	}
+
+	const accountDO = getAccountDO(c.env);
+	const result = await passkey.completePasskeyRegistration(
+		accountDO,
+		c.env.PDS_HOSTNAME,
+		body.token,
+		body.response,
+		body.name,
+	);
+
+	if (result.success) {
+		return c.json({ success: true });
+	} else {
+		return c.json({ success: false, error: result.error }, 400);
+	}
+});
+
+// List passkeys (authenticated)
+app.get("/passkey/list", requireAuth, async (c) => {
+	const accountDO = getAccountDO(c.env);
+	const passkeys = await passkey.listPasskeys(accountDO);
+	return c.json({ passkeys });
+});
+
+// Delete passkey (authenticated)
+app.post("/passkey/delete", requireAuth, async (c) => {
+	const body = await c.req.json<{ id: string }>();
+	if (!body.id) {
+		return c.json({ success: false, error: "Missing passkey ID" }, 400);
+	}
+
+	const accountDO = getAccountDO(c.env);
+	const deleted = await passkey.deletePasskey(accountDO, body.id);
+	return c.json({ success: deleted });
+});
 
 // OAuth 2.1 endpoints for "Login with Bluesky"
 const oauthApp = createOAuthApp(getAccountDO);

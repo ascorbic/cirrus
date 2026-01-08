@@ -4,6 +4,7 @@
  */
 import { defineCommand, runMain } from "citty";
 import { secretCommand } from "./commands/secret/index.js";
+import { passkeyCommand } from "./commands/passkey/index.js";
 import { initCommand } from "./commands/init.js";
 import { migrateCommand } from "./commands/migrate.js";
 import { activateCommand } from "./commands/activate.js";
@@ -20,6 +21,7 @@ const main = defineCommand({
 	subCommands: {
 		init: initCommand,
 		secret: secretCommand,
+		passkey: passkeyCommand,
 		migrate: migrateCommand,
 		activate: activateCommand,
 		deactivate: deactivateCommand,

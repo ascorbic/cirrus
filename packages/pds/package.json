@@ -37,6 +37,7 @@
 		"@atproto/repo": "^0.8.12",
 		"@clack/prompts": "^0.11.0",
 		"@getcirrus/oauth-provider": "workspace:*",
+		"@simplewebauthn/server": "^13.2.2",
 		"bcryptjs": "^3.0.3",
 		"citty": "^0.1.6",
 		"hono": "^4.11.3",
