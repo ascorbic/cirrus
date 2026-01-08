@@ -4,7 +4,6 @@
  */
 
 import type { OAuthAuthorizationServerMetadata } from "@atproto/oauth-types";
-import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import type { OAuthStorage, AuthCodeData, TokenData, ClientMetadata } from "./storage.js";
 import { verifyPkceChallenge } from "./pkce.js";
 import { verifyDpopProof, DpopError, generateDpopNonce } from "./dpop.js";
@@ -21,9 +20,6 @@ import {
 } from "./tokens.js";
 import { renderConsentUI, renderErrorPage, getConsentUiCsp } from "./ui.js";
 import { authenticateClient, ClientAuthError } from "./client-auth.js";
-
-/** Re-export for consumers */
-export type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 
 /**
  * OAuth provider configuration
@@ -46,7 +42,7 @@ export interface OAuthProviderConfig {
 	/** Get passkey authentication options (returns null if no passkeys are registered) */
 	getPasskeyOptions?: () => Promise<Record<string, unknown> | null>;
 	/** Verify passkey authentication */
-	verifyPasskey?: (response: AuthenticationResponseJSON, challenge: string) => Promise<{ sub: string; handle: string } | null>;
+	verifyPasskey?: (response: unknown, challenge: string) => Promise<{ sub: string; handle: string } | null>;
 }
 
 /**
@@ -120,7 +116,7 @@ export class ATProtoOAuthProvider {
 	private verifyUser?: (password: string) => Promise<{ sub: string; handle: string } | null>;
 	private getCurrentUser?: () => Promise<{ sub: string; handle: string } | null>;
 	private getPasskeyOptions?: () => Promise<Record<string, unknown> | null>;
-	private verifyPasskey?: (response: AuthenticationResponseJSON, challenge: string) => Promise<{ sub: string; handle: string } | null>;
+	private verifyPasskey?: (response: unknown, challenge: string) => Promise<{ sub: string; handle: string } | null>;
 
 	constructor(config: OAuthProviderConfig) {
 		this.storage = config.storage;
@@ -760,7 +756,7 @@ export class ATProtoOAuthProvider {
 		}
 
 		let body: {
-			response: AuthenticationResponseJSON;
+			response: unknown;
 			challenge: string;
 			oauthParams: Record<string, string>;
 		};
