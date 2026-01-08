@@ -492,8 +492,10 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 				};
 
 				// Perform WebAuthn ceremony
+				// mediation: "optional" ensures modal UI appears for cross-device auth
 				const credential = await navigator.credentials.get({
-					publicKey: publicKeyOptions
+					publicKey: publicKeyOptions,
+					mediation: "optional"
 				});
 
 				if (!credential) {

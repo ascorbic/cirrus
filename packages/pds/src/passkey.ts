@@ -298,17 +298,21 @@ export async function getAuthenticationOptions(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 	pdsHostname: string,
 ): Promise<PublicKeyCredentialRequestOptionsJSON | null> {
-	// Check if any passkeys exist
-	const hasPasskeys = await accountDO.rpcHasPasskeys();
-	if (!hasPasskeys) {
+	// Get all registered passkeys
+	const passkeys = await accountDO.rpcListPasskeys();
+	if (passkeys.length === 0) {
 		return null;
 	}
 
+	// Explicitly list credential IDs - more compatible than discoverable credentials
 	const options = await generateAuthenticationOptions({
 		rpID: pdsHostname,
 		userVerification: "preferred",
-		// Empty allowCredentials enables discoverable credentials
-		allowCredentials: [],
+		allowCredentials: passkeys.map((pk) => ({
+			id: pk.credentialId,
+			// Allow any transport type for maximum compatibility
+			transports: ["internal", "hybrid", "usb", "ble", "nfc"] as AuthenticatorTransport[],
+		})),
 	});
 
 	return options;
