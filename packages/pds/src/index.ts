@@ -19,7 +19,8 @@ import * as passkey from "./passkey";
 import {
 	renderPasskeyRegistrationPage,
 	renderPasskeyErrorPage,
-	PASSKEY_UI_CSP,
+	getPasskeyUiCsp,
+	PASSKEY_ERROR_CSP,
 } from "./passkey-ui";
 import type { PDSEnv } from "./types";
 
@@ -377,7 +378,7 @@ app.get("/passkey/register", async (c) => {
 		return c.html(
 			renderPasskeyErrorPage("missing_token", "No registration token provided."),
 			400,
-			{ "Content-Security-Policy": PASSKEY_UI_CSP },
+			{ "Content-Security-Policy": PASSKEY_ERROR_CSP },
 		);
 	}
 
@@ -393,10 +394,11 @@ app.get("/passkey/register", async (c) => {
 		return c.html(
 			renderPasskeyErrorPage("invalid_token", "Invalid or expired registration token."),
 			400,
-			{ "Content-Security-Policy": PASSKEY_UI_CSP },
+			{ "Content-Security-Policy": PASSKEY_ERROR_CSP },
 		);
 	}
 
+	const csp = await getPasskeyUiCsp();
 	return c.html(
 		renderPasskeyRegistrationPage({
 			options,
@@ -404,7 +406,7 @@ app.get("/passkey/register", async (c) => {
 			handle: c.env.HANDLE,
 		}),
 		200,
-		{ "Content-Security-Policy": PASSKEY_UI_CSP },
+		{ "Content-Security-Policy": csp },
 	);
 });
 

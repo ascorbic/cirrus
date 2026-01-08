@@ -6,6 +6,153 @@
 import type { ClientMetadata } from "./storage.js";
 
 /**
+ * The passkey authentication script (static, can be hashed).
+ * Dynamic data is passed via data attributes on the script element.
+ */
+const PASSKEY_AUTH_SCRIPT = `
+// Get dynamic data from script element
+const scriptEl = document.currentScript;
+const passkeyOptions = JSON.parse(scriptEl.dataset.passkeyOptions);
+const oauthParams = JSON.parse(scriptEl.dataset.oauthParams);
+
+// Convert base64url to ArrayBuffer
+function base64urlToBuffer(base64url) {
+	const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+	const padding = '='.repeat((4 - base64.length % 4) % 4);
+	const binary = atob(base64 + padding);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) {
+		bytes[i] = binary.charCodeAt(i);
+	}
+	return bytes.buffer;
+}
+
+// Convert ArrayBuffer to base64url
+function bufferToBase64url(buffer) {
+	const bytes = new Uint8Array(buffer);
+	let binary = '';
+	for (let i = 0; i < bytes.length; i++) {
+		binary += String.fromCharCode(bytes[i]);
+	}
+	return btoa(binary)
+		.replace(/\\+/g, '-')
+		.replace(/\\//g, '_')
+		.replace(/=/g, '');
+}
+
+async function authenticateWithPasskey() {
+	const btn = document.getElementById('passkey-btn');
+	const statusEl = document.querySelector('.passkey-status') || (() => {
+		const el = document.createElement('div');
+		el.className = 'passkey-status';
+		btn.parentNode.insertBefore(el, btn.nextSibling);
+		return el;
+	})();
+
+	btn.disabled = true;
+	btn.innerHTML = '<span class="passkey-icon">🔐</span> Authenticating...';
+	statusEl.textContent = '';
+	statusEl.className = 'passkey-status';
+
+	try {
+		// Convert options for WebAuthn API
+		const publicKeyOptions = {
+			challenge: base64urlToBuffer(passkeyOptions.challenge),
+			timeout: passkeyOptions.timeout,
+			rpId: passkeyOptions.rpId,
+			userVerification: passkeyOptions.userVerification,
+			allowCredentials: (passkeyOptions.allowCredentials || []).map(cred => ({
+				id: base64urlToBuffer(cred.id),
+				type: cred.type,
+				transports: cred.transports,
+			})),
+		};
+
+		// Perform WebAuthn ceremony
+		// mediation: "optional" ensures modal UI appears for cross-device auth
+		const credential = await navigator.credentials.get({
+			publicKey: publicKeyOptions,
+			mediation: "optional"
+		});
+
+		if (!credential) {
+			throw new Error('No credential returned');
+		}
+
+		// Prepare response for server
+		const response = {
+			id: credential.id,
+			rawId: bufferToBase64url(credential.rawId),
+			response: {
+				clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+				authenticatorData: bufferToBase64url(credential.response.authenticatorData),
+				signature: bufferToBase64url(credential.response.signature),
+				userHandle: credential.response.userHandle ? bufferToBase64url(credential.response.userHandle) : undefined,
+			},
+			type: credential.type,
+			clientExtensionResults: credential.getClientExtensionResults(),
+			authenticatorAttachment: credential.authenticatorAttachment,
+		};
+
+		// Submit to server
+		const result = await fetch('/oauth/passkey-auth', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				response,
+				challenge: passkeyOptions.challenge,
+				oauthParams,
+			}),
+		});
+
+		const data = await result.json();
+
+		if (data.redirectUrl) {
+			// Success - redirect to complete authorization
+			window.location.href = data.redirectUrl;
+		} else {
+			throw new Error(data.error || 'Authentication failed');
+		}
+	} catch (err) {
+		console.error('Passkey auth error:', err);
+		statusEl.textContent = err.name === 'NotAllowedError' ? 'Authentication cancelled' : (err.message || 'Authentication failed');
+		statusEl.className = 'passkey-status error';
+		btn.disabled = false;
+		btn.innerHTML = '<span class="passkey-icon">🔐</span> Sign in with Passkey';
+	}
+}
+
+document.getElementById('passkey-btn').addEventListener('click', authenticateWithPasskey);
+`;
+
+/**
+ * Compute SHA-256 hash for CSP script-src
+ */
+async function computeScriptHash(script: string): Promise<string> {
+	const encoder = new TextEncoder();
+	const data = encoder.encode(script);
+	const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+	const hashArray = Array.from(new Uint8Array(hashBuffer));
+	const base64Hash = btoa(String.fromCharCode(...hashArray));
+	return `'sha256-${base64Hash}'`;
+}
+
+// Pre-computed hash (computed at module load, will be a Promise)
+let passkeyAuthScriptHashPromise: Promise<string> | null = null;
+
+/**
+ * Get the script hash for the passkey auth script
+ */
+export async function getPasskeyAuthScriptHash(): Promise<string> {
+	if (!passkeyAuthScriptHashPromise) {
+		passkeyAuthScriptHashPromise = computeScriptHash(PASSKEY_AUTH_SCRIPT);
+	}
+	return passkeyAuthScriptHashPromise;
+}
+
+/**
  * Content Security Policy for the consent UI
  *
  * - default-src 'none': Deny all by default
@@ -21,8 +168,12 @@ import type { ClientMetadata } from "./storage.js";
  * use form-action without breaking the flow in Chrome.
  * See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/form-action
  */
-export const CONSENT_UI_CSP =
-	"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'";
+export async function getConsentUiCsp(includePasskeyScript: boolean): Promise<string> {
+	const scriptSrc = includePasskeyScript
+		? await getPasskeyAuthScriptHash()
+		: "'none'";
+	return `default-src 'none'; script-src ${scriptSrc}; style-src 'unsafe-inline'; img-src https: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'`;
+}
 
 /**
  * Escape HTML to prevent XSS
@@ -36,16 +187,6 @@ function escapeHtml(text: string): string {
 		.replace(/'/g, "&#039;");
 }
 
-/**
- * Safely embed JSON in a <script> tag to prevent XSS.
- * Escapes characters that could break out of the script context.
- */
-function safeJsonEmbed(obj: unknown): string {
-	return JSON.stringify(obj)
-		.replace(/</g, "\\u003c")
-		.replace(/>/g, "\\u003e")
-		.replace(/&/g, "\\u0026");
-}
 
 /**
  * Parse scope string into human-readable descriptions
@@ -445,121 +586,7 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 		<p class="info">You can revoke access anytime in your account settings.</p>
 	</div>
 	${passkeyAvailable && passkeyOptions ? `
-	<script>
-		const passkeyOptions = ${safeJsonEmbed(passkeyOptions)};
-		const oauthParams = ${safeJsonEmbed(oauthParams)};
-
-		// Convert base64url to ArrayBuffer
-		function base64urlToBuffer(base64url) {
-			const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
-			const padding = '='.repeat((4 - base64.length % 4) % 4);
-			const binary = atob(base64 + padding);
-			const bytes = new Uint8Array(binary.length);
-			for (let i = 0; i < binary.length; i++) {
-				bytes[i] = binary.charCodeAt(i);
-			}
-			return bytes.buffer;
-		}
-
-		// Convert ArrayBuffer to base64url
-		function bufferToBase64url(buffer) {
-			const bytes = new Uint8Array(buffer);
-			let binary = '';
-			for (let i = 0; i < bytes.length; i++) {
-				binary += String.fromCharCode(bytes[i]);
-			}
-			return btoa(binary)
-				.replace(/\\+/g, '-')
-				.replace(/\\//g, '_')
-				.replace(/=/g, '');
-		}
-
-		async function authenticateWithPasskey() {
-			const btn = document.getElementById('passkey-btn');
-			const statusEl = document.querySelector('.passkey-status') || (() => {
-				const el = document.createElement('div');
-				el.className = 'passkey-status';
-				btn.parentNode.insertBefore(el, btn.nextSibling);
-				return el;
-			})();
-
-			btn.disabled = true;
-			btn.innerHTML = '<span class="passkey-icon">🔐</span> Authenticating...';
-			statusEl.textContent = '';
-			statusEl.className = 'passkey-status';
-
-			try {
-				// Convert options for WebAuthn API
-				const publicKeyOptions = {
-					challenge: base64urlToBuffer(passkeyOptions.challenge),
-					timeout: passkeyOptions.timeout,
-					rpId: passkeyOptions.rpId,
-					userVerification: passkeyOptions.userVerification,
-					allowCredentials: (passkeyOptions.allowCredentials || []).map(cred => ({
-						id: base64urlToBuffer(cred.id),
-						type: cred.type,
-						transports: cred.transports,
-					})),
-				};
-
-				// Perform WebAuthn ceremony
-				// mediation: "optional" ensures modal UI appears for cross-device auth
-				const credential = await navigator.credentials.get({
-					publicKey: publicKeyOptions,
-					mediation: "optional"
-				});
-
-				if (!credential) {
-					throw new Error('No credential returned');
-				}
-
-				// Prepare response for server
-				const response = {
-					id: credential.id,
-					rawId: bufferToBase64url(credential.rawId),
-					response: {
-						clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
-						authenticatorData: bufferToBase64url(credential.response.authenticatorData),
-						signature: bufferToBase64url(credential.response.signature),
-						userHandle: credential.response.userHandle ? bufferToBase64url(credential.response.userHandle) : undefined,
-					},
-					type: credential.type,
-					clientExtensionResults: credential.getClientExtensionResults(),
-					authenticatorAttachment: credential.authenticatorAttachment,
-				};
-
-				// Submit to server
-				const result = await fetch('/oauth/passkey-auth', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-					},
-					body: JSON.stringify({
-						response,
-						challenge: passkeyOptions.challenge,
-						oauthParams,
-					}),
-				});
-
-				const data = await result.json();
-
-				if (data.redirectUrl) {
-					// Success - redirect to complete authorization
-					window.location.href = data.redirectUrl;
-				} else {
-					throw new Error(data.error || 'Authentication failed');
-				}
-			} catch (err) {
-				console.error('Passkey auth error:', err);
-				statusEl.textContent = err.name === 'NotAllowedError' ? 'Authentication cancelled' : (err.message || 'Authentication failed');
-				statusEl.className = 'passkey-status error';
-				btn.disabled = false;
-				btn.innerHTML = '<span class="passkey-icon">🔐</span> Sign in with Passkey';
-			}
-		}
-
-		document.getElementById('passkey-btn').addEventListener('click', authenticateWithPasskey);
-	</script>
+	<script data-passkey-options="${escapeHtml(JSON.stringify(passkeyOptions))}" data-oauth-params="${escapeHtml(JSON.stringify(oauthParams))}">${PASSKEY_AUTH_SCRIPT}</script>
 	` : ""}
 </body>
 </html>`;

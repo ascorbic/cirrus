@@ -18,7 +18,7 @@ import {
 	isTokenValid,
 	AUTH_CODE_TTL,
 } from "./tokens.js";
-import { renderConsentUI, renderErrorPage, CONSENT_UI_CSP } from "./ui.js";
+import { renderConsentUI, renderErrorPage, getConsentUiCsp } from "./ui.js";
 import { authenticateClient, ClientAuthError } from "./client-auth.js";
 
 /** Passkey authentication response from the browser */
@@ -171,16 +171,16 @@ export class ATProtoOAuthProvider {
 
 			if (requestUri && this.enablePAR) {
 				if (!clientId) {
-					return this.renderError("invalid_request", "client_id required with request_uri");
+					return await this.renderError("invalid_request", "client_id required with request_uri");
 				}
 				const parParams = await this.parHandler.retrieveParams(requestUri, clientId);
 				if (!parParams) {
-					return this.renderError("invalid_request", "Invalid or expired request_uri");
+					return await this.renderError("invalid_request", "Invalid or expired request_uri");
 				}
 				params = parParams;
 			} else if (this.enablePAR) {
 				// PAR is required when enabled - reject direct authorization requests
-				return this.renderError(
+				return await this.renderError(
 					"invalid_request",
 					"Pushed Authorization Request required. Use the PAR endpoint first."
 				);
@@ -194,18 +194,18 @@ export class ATProtoOAuthProvider {
 		const required = ["client_id", "redirect_uri", "response_type", "code_challenge", "state"];
 		for (const param of required) {
 			if (!params[param]) {
-				return this.renderError("invalid_request", `Missing required parameter: ${param}`);
+				return await this.renderError("invalid_request", `Missing required parameter: ${param}`);
 			}
 		}
 
 		// Validate response_type
 		if (params.response_type !== "code") {
-			return this.renderError("unsupported_response_type", "Only response_type=code is supported");
+			return await this.renderError("unsupported_response_type", "Only response_type=code is supported");
 		}
 
 		// Validate code_challenge_method
 		if (params.code_challenge_method && params.code_challenge_method !== "S256") {
-			return this.renderError("invalid_request", "Only code_challenge_method=S256 is supported");
+			return await this.renderError("invalid_request", "Only code_challenge_method=S256 is supported");
 		}
 
 		// Resolve client metadata
@@ -213,12 +213,12 @@ export class ATProtoOAuthProvider {
 		try {
 			client = await this.clientResolver.resolveClient(params.client_id!);
 		} catch (e) {
-			return this.renderError("invalid_client", `Failed to resolve client: ${e}`);
+			return await this.renderError("invalid_client", `Failed to resolve client: ${e}`);
 		}
 
 		// Validate redirect_uri
 		if (!client.redirectUris.includes(params.redirect_uri!)) {
-			return this.renderError("invalid_request", "Invalid redirect_uri for this client");
+			return await this.renderError("invalid_request", "Invalid redirect_uri for this client");
 		}
 
 		// Handle POST (form submission)
@@ -238,6 +238,8 @@ export class ATProtoOAuthProvider {
 			passkeyOptions = await this.getPasskeyOptions();
 		}
 
+		const passkeyAvailable = !user && !!passkeyOptions;
+
 		// Show consent UI
 		const scope = params.scope ?? "atproto";
 		const html = renderConsentUI({
@@ -248,15 +250,17 @@ export class ATProtoOAuthProvider {
 			oauthParams: params,
 			userHandle: user?.handle,
 			showLogin: !user && !!this.verifyUser,
-			passkeyAvailable: !user && !!passkeyOptions,
+			passkeyAvailable,
 			passkeyOptions: passkeyOptions ?? undefined,
 		});
+
+		const csp = await getConsentUiCsp(passkeyAvailable);
 
 		return new Response(html, {
 			status: 200,
 			headers: {
 				"Content-Type": "text/html; charset=utf-8",
-				"Content-Security-Policy": CONSENT_UI_CSP,
+				"Content-Security-Policy": csp,
 				"Cache-Control": "no-store",
 			},
 		});
@@ -324,11 +328,12 @@ export class ATProtoOAuthProvider {
 				showLogin: true,
 				error: "Invalid password",
 			});
+			const csp = await getConsentUiCsp(false);
 			return new Response(html, {
 				status: 401,
 				headers: {
 					"Content-Type": "text/html; charset=utf-8",
-					"Content-Security-Policy": CONSENT_UI_CSP,
+					"Content-Security-Policy": csp,
 					"Cache-Control": "no-store",
 				},
 			});
@@ -844,13 +849,14 @@ export class ATProtoOAuthProvider {
 	/**
 	 * Render an error page
 	 */
-	private renderError(error: string, description: string): Response {
+	private async renderError(error: string, description: string): Promise<Response> {
 		const html = renderErrorPage(error, description);
+		const csp = await getConsentUiCsp(false);
 		return new Response(html, {
 			status: 400,
 			headers: {
 				"Content-Type": "text/html; charset=utf-8",
-				"Content-Security-Policy": CONSENT_UI_CSP,
+				"Content-Security-Policy": csp,
 				"Cache-Control": "no-store",
 			},
 		});

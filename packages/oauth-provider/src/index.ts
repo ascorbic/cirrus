@@ -49,7 +49,7 @@ export {
 export type { GeneratedTokens, GenerateTokensOptions } from "./tokens.js";
 
 // UI
-export { renderConsentUI, renderErrorPage, CONSENT_UI_CSP } from "./ui.js";
+export { renderConsentUI, renderErrorPage, getConsentUiCsp, getPasskeyAuthScriptHash } from "./ui.js";
 export type { ConsentUIOptions } from "./ui.js";
 
 // Client authentication
