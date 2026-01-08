@@ -5,7 +5,7 @@
 
 // Core provider
 export { ATProtoOAuthProvider, parseRequestBody, RequestBodyError } from "./provider.js";
-export type { OAuthProviderConfig, PasskeyAuthResponse } from "./provider.js";
+export type { OAuthProviderConfig } from "./provider.js";
 
 // Storage interface and types
 export { InMemoryOAuthStorage } from "./storage.js";

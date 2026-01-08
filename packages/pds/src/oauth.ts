@@ -14,7 +14,6 @@ import type {
 	TokenData,
 	ClientMetadata,
 	PARData,
-	PasskeyAuthResponse,
 } from "@getcirrus/oauth-provider";
 import { compare } from "bcryptjs";
 import type { PDSEnv } from "./types";
@@ -121,10 +120,7 @@ export function getProvider(env: PDSEnv): ATProtoOAuthProvider {
 			return options;
 		},
 		// Passkey verification
-		verifyPasskey: async (
-			response: PasskeyAuthResponse,
-			challenge: string,
-		) => {
+		verifyPasskey: async (response, challenge: string) => {
 			const result = await verifyPasskeyAuthentication(
 				accountDO,
 				env.PDS_HOSTNAME,

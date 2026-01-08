@@ -21,20 +21,13 @@ import {
 import { renderConsentUI, renderErrorPage, getConsentUiCsp } from "./ui.js";
 import { authenticateClient, ClientAuthError } from "./client-auth.js";
 
-/** Passkey authentication response from the browser */
-export interface PasskeyAuthResponse {
-	id: string;
-	rawId: string;
-	response: {
-		clientDataJSON: string;
-		authenticatorData: string;
-		signature: string;
-		userHandle?: string;
-	};
-	type: string;
-	clientExtensionResults?: Record<string, unknown>;
-	authenticatorAttachment?: string;
-}
+/**
+ * Passkey authentication response from the browser.
+ * This is passed through to the verifyPasskey callback - the oauth-provider
+ * doesn't need to know its structure. The PDS (or other consumer) should
+ * cast this to AuthenticationResponseJSON from @simplewebauthn/server.
+ */
+export type PasskeyAuthResponse = unknown;
 
 /**
  * OAuth provider configuration
