@@ -150,9 +150,11 @@ let registrationScriptHashPromise: Promise<string> | null = null;
 /**
  * Get the script hash for the passkey registration script
  */
-export async function getPasskeyScriptHash(): Promise<string> {
+async function getPasskeyScriptHash(): Promise<string> {
 	if (!registrationScriptHashPromise) {
-		registrationScriptHashPromise = computeScriptHash(PASSKEY_REGISTRATION_SCRIPT);
+		registrationScriptHashPromise = computeScriptHash(
+			PASSKEY_REGISTRATION_SCRIPT,
+		);
 	}
 	return registrationScriptHashPromise;
 }
@@ -378,7 +380,10 @@ export function renderPasskeyRegistrationPage(opts: PasskeyUIOptions): string {
 /**
  * Render an error page
  */
-export function renderPasskeyErrorPage(error: string, description: string): string {
+export function renderPasskeyErrorPage(
+	error: string,
+	description: string,
+): string {
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
