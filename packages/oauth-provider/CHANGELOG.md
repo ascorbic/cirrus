@@ -1,5 +1,29 @@
 # @getcirrus/oauth-provider
 
+## 0.3.0
+
+### Minor Changes
+
+- [#88](https://github.com/ascorbic/cirrus/pull/88) [`356735e`](https://github.com/ascorbic/cirrus/commit/356735e92daff0354c8238728029c072a4b1952b) Thanks [@ascorbic](https://github.com/ascorbic)! - Add passkey (WebAuthn) support for passwordless authentication
+
+  **PDS package:**
+  - New CLI commands: `pds passkey add`, `pds passkey list`, `pds passkey remove`
+  - QR code display in terminal for easy mobile registration
+  - Passkey storage and management via Durable Object RPC
+
+  **OAuth provider:**
+  - Passkey login option on authorization page
+  - Cross-device authentication support (scan QR code from phone)
+  - Automatic passkey discovery for returning users
+
+### Patch Changes
+
+- [`7074a27`](https://github.com/ascorbic/cirrus/commit/7074a2707797c6e0d1aace48ab02ca783c43e85e) Thanks [@ascorbic](https://github.com/ascorbic)! - Require Pushed Authorization Requests (PAR) for OAuth authorization
+  - Set `require_pushed_authorization_requests: true` in server metadata (per ATProto spec)
+  - Reject direct authorization requests when PAR is enabled – clients must use `/oauth/par` first
+
+  Fixes #80 (login with tangled.org)
+
 ## 0.2.1
 
 ### Patch Changes
