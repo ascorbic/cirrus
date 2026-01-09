@@ -5,7 +5,7 @@
  * focusing on security properties like challenge verification,
  * token expiry, and replay protection.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { env, runInDurableObject } from "./helpers";
 import { AccountDurableObject } from "../src/account-do";
 
