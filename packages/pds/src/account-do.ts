@@ -84,8 +84,43 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 				this.oauthStorage.initSchema();
 				this.sequencer = new Sequencer(this.ctx.storage.sql);
 				this.storageInitialized = true;
+
+				// Run cleanup on initialization
+				this.runCleanup();
+
+				// Schedule periodic cleanup (run every hour)
+				const currentAlarm = await this.ctx.storage.getAlarm();
+				if (currentAlarm === null) {
+					await this.ctx.storage.setAlarm(Date.now() + 3600000); // 1 hour
+				}
 			});
 		}
+	}
+
+	/**
+	 * Run cleanup on storage to remove expired entries
+	 */
+	private runCleanup(): void {
+		if (this.storage) {
+			this.storage.cleanupPasskeyTokens();
+		}
+		if (this.oauthStorage) {
+			this.oauthStorage.cleanup();
+		}
+	}
+
+	/**
+	 * Alarm handler for periodic cleanup
+	 * Called by Cloudflare Workers when the alarm fires
+	 */
+	override async alarm(): Promise<void> {
+		await this.ensureStorageInitialized();
+
+		// Run cleanup
+		this.runCleanup();
+
+		// Schedule next cleanup in 1 hour
+		await this.ctx.storage.setAlarm(Date.now() + 3600000);
 	}
 
 	/**
@@ -1411,6 +1446,18 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	): Promise<{ challenge: string; name: string | null } | null> {
 		const storage = await this.getStorage();
 		return storage.consumePasskeyToken(token);
+	}
+
+	/** Save a WebAuthn challenge for passkey authentication */
+	async rpcSaveWebAuthnChallenge(challenge: string): Promise<void> {
+		const oauthStorage = await this.getOAuthStorage();
+		oauthStorage.saveWebAuthnChallenge(challenge);
+	}
+
+	/** Consume a WebAuthn challenge (single-use) */
+	async rpcConsumeWebAuthnChallenge(challenge: string): Promise<boolean> {
+		const oauthStorage = await this.getOAuthStorage();
+		return oauthStorage.consumeWebAuthnChallenge(challenge);
 	}
 
 	/**

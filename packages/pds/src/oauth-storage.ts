@@ -78,6 +78,14 @@ export class SqliteOAuthStorage implements OAuthStorage {
 			);
 
 			CREATE INDEX IF NOT EXISTS idx_nonces_created ON oauth_nonces(created_at);
+
+			-- WebAuthn challenges for passkey authentication (2 min TTL)
+			CREATE TABLE IF NOT EXISTS oauth_webauthn_challenges (
+				challenge TEXT PRIMARY KEY,
+				created_at INTEGER NOT NULL
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_challenges_created ON oauth_webauthn_challenges(created_at);
 		`);
 	}
 
@@ -95,6 +103,12 @@ export class SqliteOAuthStorage implements OAuthStorage {
 		// Nonces expire after 5 minutes
 		const nonceExpiry = now - 5 * 60 * 1000;
 		this.sql.exec("DELETE FROM oauth_nonces WHERE created_at < ?", nonceExpiry);
+		// WebAuthn challenges expire after 2 minutes
+		const challengeExpiry = now - 2 * 60 * 1000;
+		this.sql.exec(
+			"DELETE FROM oauth_webauthn_challenges WHERE created_at < ?",
+			challengeExpiry,
+		);
 	}
 
 	// ============================================
@@ -367,5 +381,49 @@ export class SqliteOAuthStorage implements OAuthStorage {
 		this.sql.exec("DELETE FROM oauth_clients");
 		this.sql.exec("DELETE FROM oauth_par_requests");
 		this.sql.exec("DELETE FROM oauth_nonces");
+		this.sql.exec("DELETE FROM oauth_webauthn_challenges");
+	}
+
+	// ============================================
+	// WebAuthn Challenges
+	// ============================================
+
+	/**
+	 * Save a WebAuthn challenge for later verification
+	 */
+	saveWebAuthnChallenge(challenge: string): void {
+		this.sql.exec(
+			"INSERT INTO oauth_webauthn_challenges (challenge, created_at) VALUES (?, ?)",
+			challenge,
+			Date.now(),
+		);
+	}
+
+	/**
+	 * Consume a WebAuthn challenge (single-use, deleted after retrieval)
+	 * @returns true if challenge was valid and consumed, false if not found or expired
+	 */
+	consumeWebAuthnChallenge(challenge: string): boolean {
+		// Check if challenge exists and is not expired (2 min TTL)
+		const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
+		const rows = this.sql
+			.exec(
+				"SELECT challenge FROM oauth_webauthn_challenges WHERE challenge = ? AND created_at > ?",
+				challenge,
+				twoMinutesAgo,
+			)
+			.toArray();
+
+		if (rows.length === 0) {
+			return false;
+		}
+
+		// Delete the challenge (single-use)
+		this.sql.exec(
+			"DELETE FROM oauth_webauthn_challenges WHERE challenge = ?",
+			challenge,
+		);
+
+		return true;
 	}
 }
