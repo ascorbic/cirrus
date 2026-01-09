@@ -1,5 +1,13 @@
 # create-pds
 
+## 0.0.9
+
+### Patch Changes
+
+- [#87](https://github.com/ascorbic/cirrus/pull/87) [`98a07df`](https://github.com/ascorbic/cirrus/commit/98a07df5d864133c9e76a7aae0f58a231ff1924f) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix npm command in next steps message
+
+  The CLI now correctly displays `npm run dev` instead of `npm dev` when npm is selected as the package manager. This ensures users receive valid commands that will actually work.
+
 ## 0.0.8
 
 ### Patch Changes
