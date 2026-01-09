@@ -3,7 +3,6 @@
  */
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
-import pc from "picocolors";
 import { getVars } from "../../utils/wrangler.js";
 import { readDevVars } from "../../utils/dotenv.js";
 import { PDSClient } from "../../utils/pds-client.js";
