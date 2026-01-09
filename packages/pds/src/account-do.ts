@@ -170,6 +170,32 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
+	 * Run cleanup on storage to remove expired entries
+	 */
+	private runCleanup(): void {
+		if (this.storage) {
+			this.storage.cleanupPasskeyTokens();
+		}
+		if (this.oauthStorage) {
+			this.oauthStorage.cleanup();
+		}
+	}
+
+	/**
+	 * Alarm handler for periodic cleanup
+	 * Called by Cloudflare Workers when the alarm fires
+	 */
+	async alarm(): Promise<void> {
+		await this.ensureStorageInitialized();
+		
+		// Run cleanup
+		this.runCleanup();
+		
+		// Schedule next cleanup in 1 hour
+		await this.ctx.storage.setAlarm(Date.now() + 3600000);
+	}
+
+	/**
 	 * Get the Repo instance for repository operations.
 	 */
 	async getRepo(): Promise<Repo> {
