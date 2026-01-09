@@ -88,10 +88,10 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 				// Run cleanup on initialization
 				this.runCleanup();
 
-				// Schedule periodic cleanup (run every hour)
+				// Schedule periodic cleanup (run every 24 hours)
 				const currentAlarm = await this.ctx.storage.getAlarm();
 				if (currentAlarm === null) {
-					await this.ctx.storage.setAlarm(Date.now() + 3600000); // 1 hour
+					await this.ctx.storage.setAlarm(Date.now() + 86400000); // 24 hours
 				}
 			});
 		}

@@ -124,7 +124,10 @@ async function authenticateWithPasskey() {
 	}
 }
 
-document.getElementById('passkey-btn').addEventListener('click', authenticateWithPasskey);
+const passkeyBtn = document.getElementById('passkey-btn');
+if (passkeyBtn) {
+	passkeyBtn.addEventListener('click', authenticateWithPasskey);
+}
 `;
 
 /**
