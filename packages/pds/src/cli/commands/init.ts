@@ -671,9 +671,6 @@ export const initCommand = defineCommand({
 				isProduction
 					? "Secrets deployed to Cloudflare ☁️"
 					: "Secrets saved to .dev.vars",
-				"",
-				"Auth token (save this!):",
-				"  " + authToken,
 			].join("\n"),
 			"Your New Home 🏠",
 		);

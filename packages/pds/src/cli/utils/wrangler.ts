@@ -166,16 +166,13 @@ export async function detectCloudflareAccounts(): Promise<CloudflareAccount[] | 
 }
 
 /**
- * List secret names currently deployed to Cloudflare
- * (Values cannot be retrieved - only names)
+ * Parse wrangler secret list output (JSON or table format)
+ * Exported for testing
  */
-export async function listSecrets(): Promise<string[]> {
-	const { stdout } = await runWranglerWithOutput(["secret", "list"]);
-
-	// Parse JSON output from wrangler secret list
-	// Returns array like [{"name":"AUTH_TOKEN","type":"secret_text"}, ...]
+export function parseSecretListOutput(output: string): string[] {
+	// Try JSON output first (array like [{"name":"AUTH_TOKEN","type":"secret_text"}, ...])
 	try {
-		const secrets = JSON.parse(stdout);
+		const secrets = JSON.parse(output);
 		if (Array.isArray(secrets)) {
 			return secrets.map((s: { name: string }) => s.name);
 		}
@@ -185,7 +182,7 @@ export async function listSecrets(): Promise<string[]> {
 		const names: string[] = [];
 		const regex = /│\s*(\w+)\s*│\s*secret_text\s*│/g;
 		let match;
-		while ((match = regex.exec(stdout)) !== null) {
+		while ((match = regex.exec(output)) !== null) {
 			const name = match[1];
 			if (name && name !== "Name") {
 				names.push(name);
@@ -194,6 +191,15 @@ export async function listSecrets(): Promise<string[]> {
 		return names;
 	}
 	return [];
+}
+
+/**
+ * List secret names currently deployed to Cloudflare
+ * (Values cannot be retrieved - only names)
+ */
+export async function listSecrets(): Promise<string[]> {
+	const { stdout } = await runWranglerWithOutput(["secret", "list"]);
+	return parseSecretListOutput(stdout);
 }
 
 /**

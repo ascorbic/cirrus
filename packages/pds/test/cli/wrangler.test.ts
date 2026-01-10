@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setVar, setVars, getVars } from "../../src/cli/utils/wrangler.js";
+import {
+	setVar,
+	setVars,
+	getVars,
+	parseSecretListOutput,
+} from "../../src/cli/utils/wrangler.js";
 
 describe("wrangler utilities", () => {
 	let tempDir: string;
@@ -144,5 +149,67 @@ describe("wrangler utilities", () => {
 				"No wrangler config found",
 			);
 		});
+	});
+});
+
+describe("parseSecretListOutput", () => {
+	it("parses JSON array format", () => {
+		const jsonOutput = JSON.stringify([
+			{ name: "AUTH_TOKEN", type: "secret_text" },
+			{ name: "SIGNING_KEY", type: "secret_text" },
+			{ name: "JWT_SECRET", type: "secret_text" },
+		]);
+
+		const result = parseSecretListOutput(jsonOutput);
+		expect(result).toEqual(["AUTH_TOKEN", "SIGNING_KEY", "JWT_SECRET"]);
+	});
+
+	it("handles empty JSON array", () => {
+		const result = parseSecretListOutput("[]");
+		expect(result).toEqual([]);
+	});
+
+	it("parses table format as fallback", () => {
+		// Wrangler sometimes outputs a table format
+		const tableOutput = `
+┌──────────────┬─────────────┐
+│ Name         │ Type        │
+├──────────────┼─────────────┤
+│ AUTH_TOKEN   │ secret_text │
+│ SIGNING_KEY  │ secret_text │
+└──────────────┴─────────────┘
+`;
+
+		const result = parseSecretListOutput(tableOutput);
+		expect(result).toEqual(["AUTH_TOKEN", "SIGNING_KEY"]);
+	});
+
+	it("excludes header row in table format", () => {
+		const tableOutput = `│ Name │ Type │\n│ MY_SECRET │ secret_text │`;
+
+		const result = parseSecretListOutput(tableOutput);
+		expect(result).toEqual(["MY_SECRET"]);
+		expect(result).not.toContain("Name");
+	});
+
+	it("returns empty array for invalid input", () => {
+		expect(parseSecretListOutput("not json")).toEqual([]);
+		expect(parseSecretListOutput("")).toEqual([]);
+		expect(parseSecretListOutput("{}")).toEqual([]);
+	});
+
+	it("returns empty array for non-array JSON", () => {
+		const result = parseSecretListOutput('{"name": "test"}');
+		expect(result).toEqual([]);
+	});
+
+	it("handles secrets with underscore names", () => {
+		const jsonOutput = JSON.stringify([
+			{ name: "PASSWORD_HASH", type: "secret_text" },
+			{ name: "SIGNING_KEY_PUBLIC", type: "secret_text" },
+		]);
+
+		const result = parseSecretListOutput(jsonOutput);
+		expect(result).toEqual(["PASSWORD_HASH", "SIGNING_KEY_PUBLIC"]);
 	});
 });
