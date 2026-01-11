@@ -496,7 +496,7 @@ function showNextSteps(pm: PackageManager, sourceDomain: string): void {
 			"Two more steps to go live:",
 			"",
 			pc.bold("1. Update your identity"),
-			"   Tell the network where you live now.",
+			`   ${formatCommand(pm, "pds", "identity")}`,
 			`   (Requires email verification from ${sourceDomain})`,
 			"",
 			pc.bold("2. Flip the switch"),

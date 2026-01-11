@@ -2,7 +2,6 @@
  * Interactive PDS setup wizard
  */
 import { defineCommand } from "citty";
-import { spawn } from "node:child_process";
 import * as p from "@clack/prompts";
 import {
 	setVars,
@@ -13,6 +12,7 @@ import {
 	setCustomDomains,
 	detectCloudflareAccounts,
 	listSecrets,
+	runWrangler,
 	type SecretName,
 } from "../utils/wrangler.js";
 import {
@@ -25,6 +25,7 @@ import {
 	saveKeyBackup,
 	is1PasswordAvailable,
 	saveTo1Password,
+	runCommand,
 } from "../utils/cli-helpers.js";
 
 /**
@@ -112,37 +113,6 @@ async function ensureAccountConfigured(): Promise<void> {
 	p.log.success(`Account "${selectedName}" saved to wrangler.jsonc`);
 }
 
-/**
- * Run wrangler types to regenerate TypeScript types
- */
-function runWranglerTypes(): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const child = spawn("wrangler", ["types"], {
-			stdio: "pipe",
-		});
-
-		let output = "";
-		child.stdout?.on("data", (data) => {
-			output += data.toString();
-		});
-		child.stderr?.on("data", (data) => {
-			output += data.toString();
-		});
-
-		child.on("close", (code) => {
-			if (code === 0) {
-				resolve();
-			} else {
-				if (output) {
-					console.error(output);
-				}
-				reject(new Error(`wrangler types failed with code ${code}`));
-			}
-		});
-
-		child.on("error", reject);
-	});
-}
 
 export const initCommand = defineCommand({
 	meta: {
@@ -654,7 +624,7 @@ export const initCommand = defineCommand({
 		// Generate TypeScript types
 		spinner.start("Generating TypeScript types...");
 		try {
-			await runWranglerTypes();
+			await runWrangler(["types"], { throwOnError: true });
 			spinner.stop("TypeScript types generated");
 		} catch {
 			spinner.stop("Failed to generate types (wrangler types)");
@@ -697,31 +667,65 @@ export const initCommand = defineCommand({
 			}
 		}
 
-		if (isMigrating) {
-			p.note(
-				[
-					deployedSecrets
-						? "Deploy your worker and run the migration:"
-						: "Push secrets, deploy, and run the migration:",
-					"",
-					...(deployedSecrets
-						? []
-						: [`  ${formatCommand(pm, "pds", "init", "--production")}`, ""]),
-					`  ${formatCommand(pm, "deploy")}`,
-					`  ${formatCommand(pm, "pds", "migrate")}`,
-					"",
-					"To test locally first:",
-					`  ${formatCommand(pm, "dev")}              # in one terminal`,
-					`  ${formatCommand(pm, "pds", "migrate", "--dev")}  # in another`,
-					"",
-					"Then update your identity and flip the switch! 🦋",
-					"  https://atproto.com/guides/account-migration",
-				].join("\n"),
-				"Next Steps 🧳",
-			);
+		// Offer to deploy to Cloudflare if secrets are deployed
+		let deployed = false;
+		if (deployedSecrets) {
+			const deployWorker = await p.confirm({
+				message: "Deploy to Cloudflare now?",
+				initialValue: true,
+			});
+
+			if (!p.isCancel(deployWorker) && deployWorker) {
+				spinner.start("Building and deploying to Cloudflare...");
+				try {
+					await runCommand(pm === "npm" ? "npm" : pm, ["run", "build"]);
+					await runCommand(pm === "npm" ? "npm" : pm, ["run", "deploy"]);
+					spinner.stop("Deployed to Cloudflare! 🚀");
+					deployed = true;
+				} catch (error) {
+					spinner.stop("Deployment failed");
+					p.log.error(
+						`Failed to deploy: ${error instanceof Error ? error.message : "Unknown error"}`,
+					);
+					p.log.info(`You can deploy manually with: ${formatCommand(pm, "deploy")}`);
+				}
+			}
 		}
 
-		if (deployedSecrets) {
+		if (isMigrating) {
+			const nextSteps = deployed
+				? [
+						"Run the migration:",
+						"",
+						`  ${formatCommand(pm, "pds", "migrate")}`,
+						"",
+						"Then update your identity and flip the switch! 🦋",
+						"  https://atproto.com/guides/account-migration",
+					]
+				: [
+						deployedSecrets
+							? "Deploy your worker and run the migration:"
+							: "Push secrets, deploy, and run the migration:",
+						"",
+						...(deployedSecrets
+							? []
+							: [`  ${formatCommand(pm, "pds", "init", "--production")}`, ""]),
+						`  ${formatCommand(pm, "deploy")}`,
+						`  ${formatCommand(pm, "pds", "migrate")}`,
+						"",
+						"To test locally first:",
+						`  ${formatCommand(pm, "dev")}              # in one terminal`,
+						`  ${formatCommand(pm, "pds", "migrate", "--dev")}  # in another`,
+						"",
+						"Then update your identity and flip the switch! 🦋",
+						"  https://atproto.com/guides/account-migration",
+					];
+			p.note(nextSteps.join("\n"), "Next Steps 🧳");
+		}
+
+		if (deployed) {
+			p.outro(`Your PDS is live at https://${hostname}! 🚀`);
+		} else if (deployedSecrets) {
 			p.outro(`Run '${formatCommand(pm, "deploy")}' to launch your PDS! 🚀`);
 		} else {
 			p.outro(`Run '${formatCommand(pm, "dev")}' to start your PDS locally! 🦋`);

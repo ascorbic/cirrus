@@ -198,6 +198,40 @@ export async function saveTo1Password(
 }
 
 /**
+ * Run a shell command and return a promise.
+ * Captures output and throws on non-zero exit code.
+ * Use this for running npm/pnpm/yarn scripts etc.
+ */
+export function runCommand(cmd: string, args: string[]): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const child = spawn(cmd, args, {
+			stdio: "pipe",
+		});
+
+		let output = "";
+		child.stdout?.on("data", (data) => {
+			output += data.toString();
+		});
+		child.stderr?.on("data", (data) => {
+			output += data.toString();
+		});
+
+		child.on("close", (code) => {
+			if (code === 0) {
+				resolve();
+			} else {
+				if (output) {
+					console.error(output);
+				}
+				reject(new Error(`${cmd} ${args.join(" ")} failed with code ${code}`));
+			}
+		});
+
+		child.on("error", reject);
+	});
+}
+
+/**
  * Save a key backup file with appropriate warnings
  */
 export async function saveKeyBackup(

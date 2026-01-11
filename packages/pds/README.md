@@ -8,9 +8,9 @@ Cirrus is a single-user [AT Protocol](https://atproto.com) Personal Data Server 
 
 Host your own Bluesky identity with minimal infrastructure.
 
-> **⚠️ Experimental Software**
+> **⚠️ Beta Software**
 >
-> This is an early-stage project under active development. **Do not migrate your main Bluesky account to this PDS yet.** Use a test account or create a new identity for experimentation. Data loss, breaking changes, and missing features are expected.
+> This is under active development. Account migration has been tested and works, but breaking changes may still occur. Consider backing up important data before migrating a primary account.
 
 ## What is a PDS?
 
@@ -89,8 +89,7 @@ The package includes a CLI for setup, migration, and secret management.
 Interactive setup wizard for configuring the PDS.
 
 ```bash
-pds init                 # Configure for local development
-pds init --production    # Deploy secrets to Cloudflare
+pds init                 # Configure the PDS (prompts for Cloudflare deploy)
 ```
 
 **What it does:**
@@ -128,6 +127,26 @@ The migration is resumable. If interrupted, run `pds migrate` again to continue.
 
 - `--dev` – Target the local development server instead of production
 - `--clean` – Delete any existing imported data and start fresh (only works on deactivated accounts)
+
+### `pds identity`
+
+Updates your DID document to point to your new PDS. This is the critical step that tells the network where to find you.
+
+```bash
+pds identity             # Update identity for production
+pds identity --dev       # Update identity for local dev
+pds identity --token XXX # Skip email step if you have a token
+```
+
+The command:
+
+1. Resolves your current DID to find the source PDS
+2. Authenticates with your source PDS (requires your password)
+3. Requests an email confirmation token
+4. Gets the source PDS to sign a PLC operation with the new endpoint
+5. Submits the signed operation to the PLC directory
+
+**Note:** Only `did:plc` identities are supported. `did:web` identities don't use PLC operations.
 
 ### `pds activate`
 
@@ -401,10 +420,10 @@ See the [@getcirrus/oauth-provider](../oauth-provider/) package for implementati
 
 1. **Enable R2** in your [Cloudflare dashboard](https://dash.cloudflare.com/?to=/:account/r2/overview). The bucket will be created automatically on first deploy.
 
-2. **Run the production setup** to deploy secrets:
+2. **Run the setup wizard** and answer "Yes" when asked if you want to deploy to Cloudflare:
 
 ```bash
-npx pds init --production
+npx pds init
 ```
 
 3. **Deploy your worker:**
@@ -419,28 +438,82 @@ wrangler deploy
 
 Moving an existing Bluesky account to your own PDS:
 
-### 1. Configure for migration
+### Step 1: Configure for migration
 
 ```bash
 npx pds init
 # Answer "Yes" when asked about migrating an existing account
 ```
 
-### 2. Deploy and migrate data
+This detects your existing account, generates new signing keys, and configures the PDS in deactivated mode (ready for data import).
+
+### Step 2: Deploy and transfer data
 
 ```bash
 wrangler deploy
 npx pds migrate
 ```
 
-### 3. Update your identity
+The migrate command:
+- Resolves your DID to find the current PDS
+- Authenticates with your source PDS
+- Downloads the repository (posts, follows, likes, etc.)
+- Transfers all blobs (images, videos)
+- Copies user preferences
 
-Follow the [AT Protocol account migration guide](https://atproto.com/guides/account-migration) to update your DID document. This typically requires email verification from your current PDS.
+If interrupted, run `pds migrate` again to resume.
 
-### 4. Go live
+### Step 3: Update your identity
+
+```bash
+npx pds identity
+```
+
+This updates your DID document to point to your new PDS. The command:
+1. Authenticates with your source PDS (requires password)
+2. Requests an email confirmation token
+3. Gets the source PDS to sign a PLC operation with your new endpoint
+4. Submits the signed operation to the PLC directory
+
+You'll receive an email with a confirmation token – enter it when prompted.
+
+### Step 4: Activate the account
 
 ```bash
 npx pds activate
+```
+
+This enables writes on your new PDS. Your account is now live.
+
+### Step 5: Verify the migration
+
+```bash
+npx pds status
+```
+
+Check that:
+- The account is active
+- The repository has the expected number of records
+- Your handle resolves correctly
+
+### Full command sequence
+
+```bash
+# 1. Configure (answer "Yes" to deploy secrets to Cloudflare)
+npx pds init                    # Configure for migration + deploy secrets
+
+# 2. Deploy and migrate
+wrangler deploy                 # Deploy the worker
+npx pds migrate                 # Transfer data from source PDS
+
+# 3. Update identity
+npx pds identity                # Update DID document (requires email)
+
+# 4. Go live
+npx pds activate                # Enable writes
+
+# 5. Verify
+npx pds status                  # Check everything is working
 ```
 
 ## Validation
