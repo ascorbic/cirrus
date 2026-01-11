@@ -8,9 +8,9 @@ Cirrus is a single-user [AT Protocol](https://atproto.com) Personal Data Server 
 
 Host your own Bluesky identity with minimal infrastructure.
 
-> **⚠️ Experimental Software**
+> **⚠️ Beta Software**
 >
-> This is an early-stage project under active development. **Do not migrate your main Bluesky account to this PDS yet.** Use a test account or create a new identity for experimentation. Data loss, breaking changes, and missing features are expected.
+> This is under active development. Account migration has been tested and works, but breaking changes may still occur. Consider backing up important data before migrating a primary account.
 
 ## What is a PDS?
 
@@ -128,6 +128,26 @@ The migration is resumable. If interrupted, run `pds migrate` again to continue.
 
 - `--dev` – Target the local development server instead of production
 - `--clean` – Delete any existing imported data and start fresh (only works on deactivated accounts)
+
+### `pds identity`
+
+Updates your DID document to point to your new PDS. This is the critical step that tells the network where to find you.
+
+```bash
+pds identity             # Update identity for production
+pds identity --dev       # Update identity for local dev
+pds identity --token XXX # Skip email step if you have a token
+```
+
+The command:
+
+1. Resolves your current DID to find the source PDS
+2. Authenticates with your source PDS (requires your password)
+3. Requests an email confirmation token
+4. Gets the source PDS to sign a PLC operation with the new endpoint
+5. Submits the signed operation to the PLC directory
+
+**Note:** Only `did:plc` identities are supported. `did:web` identities don't use PLC operations.
 
 ### `pds activate`
 
@@ -435,7 +455,11 @@ npx pds migrate
 
 ### 3. Update your identity
 
-Follow the [AT Protocol account migration guide](https://atproto.com/guides/account-migration) to update your DID document. This typically requires email verification from your current PDS.
+```bash
+npx pds identity
+```
+
+This updates your DID document to point to your new PDS. You'll need to enter your password for the source PDS and confirm via email.
 
 ### 4. Go live
 

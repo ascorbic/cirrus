@@ -18,6 +18,81 @@ export type SecretName =
 	| "JWT_SECRET"
 	| "PASSWORD_HASH";
 
+export interface WranglerResult {
+	stdout: string;
+	stderr: string;
+	code: number | null;
+}
+
+export interface WranglerOptions {
+	/** Data to write to stdin (e.g., for secret values) */
+	stdin?: string;
+	/** If true, throw on non-zero exit code */
+	throwOnError?: boolean;
+}
+
+/**
+ * Run a wrangler command and capture output.
+ * This is the single point of entry for all wrangler CLI invocations.
+ *
+ * @example
+ * // Basic command
+ * const { stdout } = await runWrangler(["whoami"]);
+ *
+ * @example
+ * // Command with stdin (for secrets)
+ * await runWrangler(["secret", "put", "MY_SECRET"], { stdin: secretValue, throwOnError: true });
+ *
+ * @example
+ * // Command that should throw on failure
+ * await runWrangler(["types"], { throwOnError: true });
+ */
+export function runWrangler(
+	args: string[],
+	options: WranglerOptions = {},
+): Promise<WranglerResult> {
+	const { stdin, throwOnError = false } = options;
+
+	return new Promise((resolve, reject) => {
+		const child = spawn("wrangler", args, {
+			stdio: ["pipe", "pipe", "pipe"],
+		});
+
+		let stdout = "";
+		let stderr = "";
+
+		child.stdout?.on("data", (data: Buffer) => {
+			stdout += data.toString();
+		});
+		child.stderr?.on("data", (data: Buffer) => {
+			stderr += data.toString();
+		});
+
+		// Write stdin if provided
+		if (stdin !== undefined) {
+			child.stdin.write(stdin);
+			child.stdin.end();
+		}
+
+		child.on("close", (code) => {
+			if (throwOnError && code !== 0) {
+				const cmd = `wrangler ${args.join(" ")}`;
+				reject(new Error(`${cmd} failed with code ${code}\n${stderr}`));
+			} else {
+				resolve({ stdout, stderr, code });
+			}
+		});
+
+		child.on("error", (err) => {
+			if (throwOnError) {
+				reject(err);
+			} else {
+				resolve({ stdout, stderr, code: null });
+			}
+		});
+	});
+}
+
 /**
  * Set a var in wrangler.jsonc using experimental_patchConfig
  */
@@ -78,25 +153,9 @@ export async function setSecret(
 	name: SecretName,
 	value: string,
 ): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const child = spawn("wrangler", ["secret", "put", name], {
-			stdio: ["pipe", "inherit", "inherit"],
-		});
-
-		child.stdin.write(value);
-		child.stdin.end();
-
-		child.on("close", (code) => {
-			if (code === 0) {
-				resolve();
-			} else {
-				reject(
-					new Error(`wrangler secret put ${name} failed with code ${code}`),
-				);
-			}
-		});
-
-		child.on("error", reject);
+	await runWrangler(["secret", "put", name], {
+		stdin: value,
+		throwOnError: true,
 	});
 }
 
@@ -145,7 +204,7 @@ export async function detectCloudflareAccounts(): Promise<CloudflareAccount[] | 
 		return null;
 	}
 
-	const { stdout, stderr } = await runWranglerWithOutput(["whoami"]);
+	const { stdout, stderr } = await runWrangler(["whoami"]);
 	const output = stdout + stderr;
 
 	// Parse accounts from wrangler whoami table output:
@@ -198,37 +257,6 @@ export function parseSecretListOutput(output: string): string[] {
  * (Values cannot be retrieved - only names)
  */
 export async function listSecrets(): Promise<string[]> {
-	const { stdout } = await runWranglerWithOutput(["secret", "list"]);
+	const { stdout } = await runWrangler(["secret", "list"]);
 	return parseSecretListOutput(stdout);
-}
-
-/**
- * Run a wrangler command and capture output
- */
-function runWranglerWithOutput(
-	args: string[],
-): Promise<{ stdout: string; stderr: string }> {
-	return new Promise((resolve) => {
-		const child = spawn("wrangler", args, {
-			stdio: ["pipe", "pipe", "pipe"],
-		});
-
-		let stdout = "";
-		let stderr = "";
-
-		child.stdout?.on("data", (data: Buffer) => {
-			stdout += data.toString();
-		});
-		child.stderr?.on("data", (data: Buffer) => {
-			stderr += data.toString();
-		});
-
-		child.on("close", () => {
-			resolve({ stdout, stderr });
-		});
-
-		child.on("error", () => {
-			resolve({ stdout, stderr });
-		});
-	});
 }
