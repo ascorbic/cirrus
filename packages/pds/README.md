@@ -89,8 +89,7 @@ The package includes a CLI for setup, migration, and secret management.
 Interactive setup wizard for configuring the PDS.
 
 ```bash
-pds init                 # Configure for local development
-pds init --production    # Deploy secrets to Cloudflare
+pds init                 # Configure the PDS (prompts for Cloudflare deploy)
 ```
 
 **What it does:**
@@ -421,10 +420,10 @@ See the [@getcirrus/oauth-provider](../oauth-provider/) package for implementati
 
 1. **Enable R2** in your [Cloudflare dashboard](https://dash.cloudflare.com/?to=/:account/r2/overview). The bucket will be created automatically on first deploy.
 
-2. **Run the production setup** to deploy secrets:
+2. **Run the setup wizard** and answer "Yes" when asked if you want to deploy to Cloudflare:
 
 ```bash
-npx pds init --production
+npx pds init
 ```
 
 3. **Deploy your worker:**
@@ -500,9 +499,8 @@ Check that:
 ### Full command sequence
 
 ```bash
-# 1. Configure
-npx pds init                    # Configure for migration
-npx pds init --production       # Push secrets to Cloudflare
+# 1. Configure (answer "Yes" to deploy secrets to Cloudflare)
+npx pds init                    # Configure for migration + deploy secrets
 
 # 2. Deploy and migrate
 wrangler deploy                 # Deploy the worker

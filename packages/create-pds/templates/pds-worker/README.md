@@ -45,13 +45,9 @@ curl http://localhost:5173/.well-known/did.json
 
 ### 4. Deploy to production
 
-First, push secrets to Cloudflare:
+When running `pds init`, answer "Yes" when asked if you want to deploy to Cloudflare. This pushes secrets to Cloudflare Workers.
 
-```bash
-pnpm pds init --production
-```
-
-Then deploy:
+Then deploy the worker:
 
 ```bash
 pnpm run deploy
@@ -75,7 +71,6 @@ This detects your existing account, generates new signing keys, and configures t
 ### Step 2: Deploy and transfer data
 
 ```bash
-pnpm pds init --production       # Push secrets to Cloudflare
 pnpm run deploy                  # Deploy the worker
 pnpm pds migrate                 # Transfer data from source PDS
 ```
@@ -111,8 +106,7 @@ Check that the account is active and your handle resolves correctly.
 ### Full command sequence
 
 ```bash
-pnpm pds init                    # Configure for migration
-pnpm pds init --production       # Push secrets to Cloudflare
+pnpm pds init                    # Configure + deploy secrets (answer "Yes" to deploy)
 pnpm run deploy                  # Deploy the worker
 pnpm pds migrate                 # Transfer data from source PDS
 pnpm pds identity                # Update DID document (requires email)
@@ -124,8 +118,7 @@ pnpm pds status                  # Verify everything is working
 
 | Command | Description |
 |---------|-------------|
-| `pnpm pds init` | Interactive setup wizard |
-| `pnpm pds init --production` | Deploy secrets to Cloudflare |
+| `pnpm pds init` | Interactive setup wizard (prompts for Cloudflare deploy) |
 | `pnpm pds migrate` | Transfer account from source PDS |
 | `pnpm pds migrate --clean` | Reset and re-import data |
 | `pnpm pds identity` | Update DID document to point to new PDS |
