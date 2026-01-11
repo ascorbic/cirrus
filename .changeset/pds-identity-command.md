@@ -1,5 +1,5 @@
 ---
-"@cirrus/pds": minor
+"@getcirrus/pds": minor
 ---
 
 Add `pds identity` command for seamless PLC migration
