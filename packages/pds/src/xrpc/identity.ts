@@ -15,6 +15,7 @@
 import type { Context } from "hono";
 import { Secp256k1Keypair } from "@atproto/crypto";
 import { encode } from "@atcute/cbor";
+import { base64url } from "jose";
 import type { AuthedAppEnv } from "../types";
 import { createMigrationToken, validateMigrationToken } from "../migration-token";
 
@@ -181,23 +182,10 @@ async function signOperation(
 	const sig = await keypair.sign(bytes);
 
 	// Convert signature to base64url
-	const sigBase64url = toBase64Url(sig);
-
 	return {
 		...op,
-		sig: sigBase64url,
+		sig: base64url.encode(sig),
 	};
-}
-
-/**
- * Convert bytes to base64url
- */
-function toBase64Url(bytes: Uint8Array): string {
-	let binary = "";
-	for (const byte of bytes) {
-		binary += String.fromCharCode(byte);
-	}
-	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
 /**

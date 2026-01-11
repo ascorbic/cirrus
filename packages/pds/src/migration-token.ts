@@ -11,6 +11,8 @@
  * process but short enough to limit exposure if the token is leaked.
  */
 
+import { base64url } from "jose";
+
 const MINUTE = 60 * 1000;
 const TOKEN_EXPIRY = 15 * MINUTE; // 15 minutes
 
@@ -53,31 +55,6 @@ async function hmacVerify(
 	return crypto.subtle.verify("HMAC", key, signature, encoder.encode(data));
 }
 
-/**
- * Encode bytes to base64url
- */
-function toBase64Url(buffer: ArrayBuffer): string {
-	const bytes = new Uint8Array(buffer);
-	let binary = "";
-	for (const byte of bytes) {
-		binary += String.fromCharCode(byte);
-	}
-	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-}
-
-/**
- * Decode base64url to bytes
- */
-function fromBase64Url(str: string): Uint8Array {
-	const base64 = str.replace(/-/g, "+").replace(/_/g, "/");
-	const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-	const binary = atob(padded);
-	const bytes = new Uint8Array(binary.length);
-	for (let i = 0; i < binary.length; i++) {
-		bytes[i] = binary.charCodeAt(i);
-	}
-	return bytes;
-}
 
 /**
  * Create a migration token for outbound migration
@@ -94,11 +71,10 @@ export async function createMigrationToken(
 	const payload: TokenPayload = { did, exp };
 
 	const payloadStr = JSON.stringify(payload);
-	const payloadBytes = new TextEncoder().encode(payloadStr);
-	const payloadB64 = toBase64Url(payloadBytes.buffer.slice(payloadBytes.byteOffset, payloadBytes.byteOffset + payloadBytes.byteLength) as ArrayBuffer);
+	const payloadB64 = base64url.encode(new TextEncoder().encode(payloadStr));
 
 	const signature = await hmacSign(payloadB64, jwtSecret);
-	const signatureB64 = toBase64Url(signature);
+	const signatureB64 = base64url.encode(new Uint8Array(signature));
 
 	return `${payloadB64}.${signatureB64}`;
 }
@@ -125,18 +101,14 @@ export async function validateMigrationToken(
 
 	try {
 		// Verify signature
-		const signatureBytes = fromBase64Url(signatureB64);
-		const signatureBuffer = signatureBytes.buffer.slice(
-			signatureBytes.byteOffset,
-			signatureBytes.byteOffset + signatureBytes.byteLength,
-		) as ArrayBuffer;
-		const isValid = await hmacVerify(payloadB64, signatureBuffer, jwtSecret);
+		const signatureBytes = base64url.decode(signatureB64);
+		const isValid = await hmacVerify(payloadB64, signatureBytes.buffer, jwtSecret);
 		if (!isValid) {
 			return null;
 		}
 
 		// Decode and validate payload
-		const payloadStr = new TextDecoder().decode(fromBase64Url(payloadB64));
+		const payloadStr = new TextDecoder().decode(base64url.decode(payloadB64));
 		const payload: TokenPayload = JSON.parse(payloadStr);
 
 		// Check DID matches
