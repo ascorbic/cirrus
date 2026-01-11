@@ -49,6 +49,7 @@ This is beta software under active development, but the core features are functi
 - Federation (sync, firehose, blob storage)
 - OAuth 2.1 provider (PKCE, DPoP, PAR)
 - Account migration from existing PDS (tested and verified)
+- Account migration to another PDS (stateless token generation)
 - Passkey authentication for passwordless login
 
 See the [PDS documentation](./packages/pds/) for current limitations and roadmap.

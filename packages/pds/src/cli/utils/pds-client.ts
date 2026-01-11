@@ -799,6 +799,45 @@ export class PDSClient {
 		return res.json() as Promise<{ success: boolean }>;
 	}
 
+	// ============================================
+	// Migration Operations
+	// ============================================
+
+	/**
+	 * Get a migration token for outbound migration.
+	 * This token can be used to migrate to another PDS.
+	 */
+	async getMigrationToken(): Promise<{
+		success: boolean;
+		token?: string;
+		error?: string;
+	}> {
+		const url = new URL(
+			"/xrpc/gg.mk.experimental.getMigrationToken",
+			this.baseUrl,
+		);
+		const headers: Record<string, string> = {};
+		if (this.authToken) {
+			headers["Authorization"] = `Bearer ${this.authToken}`;
+		}
+		const res = await fetch(url.toString(), {
+			method: "GET",
+			headers,
+		});
+		if (!res.ok) {
+			const errorBody = (await res.json().catch(() => ({}))) as {
+				error?: string;
+				message?: string;
+			};
+			return {
+				success: false,
+				error: errorBody.message ?? `Request failed: ${res.status}`,
+			};
+		}
+		const data = (await res.json()) as { token: string };
+		return { success: true, token: data.token };
+	}
+
 	static RELAY_URLS = [
 		"https://relay1.us-west.bsky.network",
 		"https://relay1.us-east.bsky.network",

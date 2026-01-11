@@ -177,6 +177,24 @@ pds migrate --clean      # Reset and re-import
 pds activate             # Go live again
 ```
 
+### `pds migrate-token`
+
+Generates a migration token for migrating away from this PDS to another one.
+
+```bash
+pds migrate-token        # Generate token for production PDS
+pds migrate-token --dev  # Generate token for local development PDS
+```
+
+When migrating to a new PDS, the destination will ask for a confirmation token. This command generates a stateless HMAC-based token that:
+
+- Is valid for 15 minutes
+- Contains your DID and expiry time
+- Is cryptographically signed with your JWT secret
+- Requires no database storage
+
+The token is copied to your clipboard and displayed in the terminal. After migration completes, run `pds deactivate` on this PDS.
+
 ### `pds passkey`
 
 Manage passkeys for passwordless authentication.
