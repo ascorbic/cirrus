@@ -676,14 +676,12 @@ export const initCommand = defineCommand({
 			});
 
 			if (!p.isCancel(deployWorker) && deployWorker) {
-				spinner.start("Building and deploying to Cloudflare...");
+				p.log.step("Deploying to Cloudflare...");
 				try {
-					await runCommand(pm === "npm" ? "npm" : pm, ["run", "build"]);
-					await runCommand(pm === "npm" ? "npm" : pm, ["run", "deploy"]);
-					spinner.stop("Deployed to Cloudflare! 🚀");
+					await runCommand(pm, ["run", "deploy"], { stream: true });
+					p.log.success("Deployed to Cloudflare! 🚀");
 					deployed = true;
 				} catch (error) {
-					spinner.stop("Deployment failed");
 					p.log.error(
 						`Failed to deploy: ${error instanceof Error ? error.message : "Unknown error"}`,
 					);

@@ -197,30 +197,41 @@ export async function saveTo1Password(
 	});
 }
 
+export interface RunCommandOptions {
+	/** If true, stream output to stdout/stderr in real-time */
+	stream?: boolean;
+}
+
 /**
  * Run a shell command and return a promise.
  * Captures output and throws on non-zero exit code.
  * Use this for running npm/pnpm/yarn scripts etc.
  */
-export function runCommand(cmd: string, args: string[]): Promise<void> {
+export function runCommand(
+	cmd: string,
+	args: string[],
+	options: RunCommandOptions = {},
+): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(cmd, args, {
-			stdio: "pipe",
+			stdio: options.stream ? "inherit" : "pipe",
 		});
 
 		let output = "";
-		child.stdout?.on("data", (data) => {
-			output += data.toString();
-		});
-		child.stderr?.on("data", (data) => {
-			output += data.toString();
-		});
+		if (!options.stream) {
+			child.stdout?.on("data", (data) => {
+				output += data.toString();
+			});
+			child.stderr?.on("data", (data) => {
+				output += data.toString();
+			});
+		}
 
 		child.on("close", (code) => {
 			if (code === 0) {
 				resolve();
 			} else {
-				if (output) {
+				if (output && !options.stream) {
 					console.error(output);
 				}
 				reject(new Error(`${cmd} ${args.join(" ")} failed with code ${code}`));
