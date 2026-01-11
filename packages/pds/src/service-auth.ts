@@ -1,6 +1,10 @@
 import { Secp256k1Keypair, randomStr, verifySignature } from "@atproto/crypto";
 
-const MINUTE = 60 * 1000;
+const MINUTE = 60;
+
+// Service JWTs for external services (like video.bsky.app) need longer expiry
+// because video processing can take several minutes before the callback arrives.
+const SERVICE_JWT_EXPIRY_SECONDS = 5 * MINUTE;
 
 /**
  * Shared keypair cache for signing and verification.
@@ -67,7 +71,7 @@ export async function createServiceJwt(
 ): Promise<string> {
 	const { iss, aud, keypair } = params;
 	const iat = Math.floor(Date.now() / 1000);
-	const exp = iat + MINUTE / 1000;
+	const exp = iat + SERVICE_JWT_EXPIRY_SECONDS;
 	const lxm = params.lxm ?? undefined;
 	const jti = randomStr(16, "hex");
 

@@ -47,4 +47,7 @@
 	// - SIGNING_KEY: Private signing key (secp256k1 JWK)
 	// - JWT_SECRET: Secret for signing session JWTs
 	// - PASSWORD_HASH: Bcrypt hash of account password (for Bluesky app login)
+	"observability": {
+		"enabled": true
+	}
 }

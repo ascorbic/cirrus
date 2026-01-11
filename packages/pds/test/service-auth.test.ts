@@ -32,8 +32,8 @@ describe("Service Auth", () => {
 		expect(payload.exp).toBeTypeOf("number");
 		expect(payload.jti).toBeTypeOf("string");
 
-		// Expiry should be ~60 seconds from iat
-		expect(payload.exp - payload.iat).toBe(60);
+		// Expiry should be 5 minutes from iat (for video processing callbacks)
+		expect(payload.exp - payload.iat).toBe(300);
 	});
 
 	it("creates JWT without lxm when null", async () => {
