@@ -439,32 +439,83 @@ wrangler deploy
 
 Moving an existing Bluesky account to your own PDS:
 
-### 1. Configure for migration
+### Step 1: Configure for migration
 
 ```bash
 npx pds init
 # Answer "Yes" when asked about migrating an existing account
 ```
 
-### 2. Deploy and migrate data
+This detects your existing account, generates new signing keys, and configures the PDS in deactivated mode (ready for data import).
+
+### Step 2: Deploy and transfer data
 
 ```bash
 wrangler deploy
 npx pds migrate
 ```
 
-### 3. Update your identity
+The migrate command:
+- Resolves your DID to find the current PDS
+- Authenticates with your source PDS
+- Downloads the repository (posts, follows, likes, etc.)
+- Transfers all blobs (images, videos)
+- Copies user preferences
+
+If interrupted, run `pds migrate` again to resume.
+
+### Step 3: Update your identity
 
 ```bash
 npx pds identity
 ```
 
-This updates your DID document to point to your new PDS. You'll need to enter your password for the source PDS and confirm via email.
+This updates your DID document to point to your new PDS. The command:
+1. Authenticates with your source PDS (requires password)
+2. Requests an email confirmation token
+3. Gets the source PDS to sign a PLC operation with your new endpoint
+4. Submits the signed operation to the PLC directory
 
-### 4. Go live
+You'll receive an email with a confirmation token – enter it when prompted.
+
+### Step 4: Activate the account
 
 ```bash
 npx pds activate
+```
+
+This enables writes on your new PDS. Your account is now live.
+
+### Step 5: Verify the migration
+
+```bash
+npx pds status
+```
+
+Check that:
+- The account is active
+- The repository has the expected number of records
+- Your handle resolves correctly
+
+### Full command sequence
+
+```bash
+# 1. Configure
+npx pds init                    # Configure for migration
+npx pds init --production       # Push secrets to Cloudflare
+
+# 2. Deploy and migrate
+wrangler deploy                 # Deploy the worker
+npx pds migrate                 # Transfer data from source PDS
+
+# 3. Update identity
+npx pds identity                # Update DID document (requires email)
+
+# 4. Go live
+npx pds activate                # Enable writes
+
+# 5. Verify
+npx pds status                  # Check everything is working
 ```
 
 ## Validation

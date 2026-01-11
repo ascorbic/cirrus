@@ -2,9 +2,9 @@
 
 A single-user AT Protocol Personal Data Server running on Cloudflare Workers.
 
-> **⚠️ Experimental Software**
+> **⚠️ Beta Software**
 >
-> This is an early-stage project under active development. **Do not migrate your main Bluesky account to this PDS yet.** Use a test account or create a new identity for experimentation.
+> This is under active development. Account migration has been tested and works, but breaking changes may still occur. Consider backing up important data before migrating a primary account.
 
 ## Getting Started
 
@@ -63,33 +63,62 @@ Finally, configure DNS to point your domain to the worker.
 
 To move an existing Bluesky account from bsky.social or another PDS:
 
-### 1. Configure for migration
+### Step 1: Configure for migration
 
 ```bash
 pnpm pds init
 # Answer "Yes" when asked about migrating an existing account
 ```
 
-### 2. Deploy and transfer the data
+This detects your existing account, generates new signing keys, and configures the PDS in deactivated mode.
+
+### Step 2: Deploy and transfer data
 
 ```bash
-pnpm run deploy
-pnpm pds migrate
+pnpm pds init --production       # Push secrets to Cloudflare
+pnpm run deploy                  # Deploy the worker
+pnpm pds migrate                 # Transfer data from source PDS
 ```
 
-This downloads the repository (posts, follows, likes) and all images/videos from the current PDS.
+The migrate command downloads the repository (posts, follows, likes) and all images/videos from the current PDS. If interrupted, run it again to resume.
 
-### 3. Update the identity
+### Step 3: Update your identity
 
-Follow the [AT Protocol account migration guide](https://atproto.com/guides/account-migration) to update the DID document. This requires email verification from the current PDS.
+```bash
+pnpm pds identity
+```
 
-### 4. Go live
+This updates your DID document to point to your new PDS. You'll need to:
+1. Enter your password for the source PDS
+2. Enter the confirmation token sent to your email
+
+### Step 4: Activate the account
 
 ```bash
 pnpm pds activate
 ```
 
-The account is now live on the new PDS.
+This enables writes on your new PDS. Your account is now live.
+
+### Step 5: Verify the migration
+
+```bash
+pnpm pds status
+```
+
+Check that the account is active and your handle resolves correctly.
+
+### Full command sequence
+
+```bash
+pnpm pds init                    # Configure for migration
+pnpm pds init --production       # Push secrets to Cloudflare
+pnpm run deploy                  # Deploy the worker
+pnpm pds migrate                 # Transfer data from source PDS
+pnpm pds identity                # Update DID document (requires email)
+pnpm pds activate                # Enable writes
+pnpm pds status                  # Verify everything is working
+```
 
 ## CLI Commands
 
@@ -99,8 +128,11 @@ The account is now live on the new PDS.
 | `pnpm pds init --production` | Deploy secrets to Cloudflare |
 | `pnpm pds migrate` | Transfer account from source PDS |
 | `pnpm pds migrate --clean` | Reset and re-import data |
+| `pnpm pds identity` | Update DID document to point to new PDS |
 | `pnpm pds activate` | Enable writes (go live) |
 | `pnpm pds deactivate` | Disable writes (for re-import) |
+| `pnpm pds status` | Check account and repository status |
+| `pnpm pds passkey add` | Register a passkey for passwordless login |
 | `pnpm pds secret key` | Generate new signing keypair |
 | `pnpm pds secret jwt` | Generate new JWT secret |
 | `pnpm pds secret password` | Set account password |
