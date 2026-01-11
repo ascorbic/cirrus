@@ -1,5 +1,18 @@
 # @getcirrus/pds
 
+## 0.7.0
+
+### Minor Changes
+
+- [#91](https://github.com/ascorbic/cirrus/pull/91) [`886785a`](https://github.com/ascorbic/cirrus/commit/886785af18362ed375d386f06f39e98a568530c9) Thanks [@ascorbic](https://github.com/ascorbic)! - Add `pds identity` command for seamless PLC migration
+
+  When migrating from another PDS (like bsky.social), this new command handles the PLC directory update:
+  - Requests a PLC operation signature from your source PDS via email token
+  - Signs the operation with your new Cirrus signing key
+  - Submits the signed operation to plc.directory
+
+  This streamlines the migration flow – run `pds migrate`, then `pds identity`, then `pds activate`.
+
 ## 0.6.0
 
 ### Minor Changes
