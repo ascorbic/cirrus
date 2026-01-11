@@ -114,10 +114,10 @@ export const migrateTokenCommand = defineCommand({
 			p.log.info("Could not copy to clipboard. Token:");
 		}
 
-		// Always show token on its own line for easy triple-click selection
-		p.log.info("");
-		p.log.info(pc.bold(result.token));
-		p.log.info("");
+		// Show token on its own line with no prefix for easy triple-click selection
+		console.log("");
+		console.log(pc.bold(result.token));
+		console.log("");
 
 		p.note(
 			[
