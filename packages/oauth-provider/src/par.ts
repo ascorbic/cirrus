@@ -53,15 +53,10 @@ function normalizeClientId(clientId: string): string {
 			}
 		}
 
-		// Remove trailing slash from pathname (http://localhost/ -> http://localhost)
-		url.pathname = url.pathname.replace(/\/$/, "") || "/";
-		// Actually, for localhost with no path, we want no trailing slash
-		if (url.pathname === "/") {
-			url.pathname = "";
-		}
-
-		url.search = sortedParams.toString();
-		const result = url.toString();
+		// Build the normalized URL string manually
+		// (URL.toString() always adds a trailing slash for root paths)
+		const search = sortedParams.toString();
+		const result = `${url.protocol}//${url.host}${search ? '?' + search : ''}`;
 		console.log("[PAR] normalizeClientId", { input: clientId, output: result });
 		return result;
 	} catch {
