@@ -7,6 +7,7 @@ import { secretCommand } from "./commands/secret/index.js";
 import { passkeyCommand } from "./commands/passkey/index.js";
 import { initCommand } from "./commands/init.js";
 import { migrateCommand } from "./commands/migrate.js";
+import { migrateTokenCommand } from "./commands/migrate-token.js";
 import { identityCommand } from "./commands/identity.js";
 import { activateCommand } from "./commands/activate.js";
 import { deactivateCommand } from "./commands/deactivate.js";
@@ -24,6 +25,7 @@ const main = defineCommand({
 		secret: secretCommand,
 		passkey: passkeyCommand,
 		migrate: migrateCommand,
+		"migrate-token": migrateTokenCommand,
 		identity: identityCommand,
 		activate: activateCommand,
 		deactivate: deactivateCommand,

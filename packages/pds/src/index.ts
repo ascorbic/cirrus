@@ -15,6 +15,7 @@ import { createOAuthApp } from "./oauth";
 import * as sync from "./xrpc/sync";
 import * as repo from "./xrpc/repo";
 import * as server from "./xrpc/server";
+import * as identity from "./xrpc/identity";
 import * as passkey from "./passkey";
 import {
 	renderPasskeyRegistrationPage,
@@ -276,6 +277,24 @@ app.use("/xrpc/com.atproto.identity.resolveHandle", async (c, next) => {
 	}
 	await next();
 });
+
+// Identity management for outbound migration
+// These endpoints allow migrating FROM Cirrus to another PDS
+app.post(
+	"/xrpc/com.atproto.identity.requestPlcOperationSignature",
+	requireAuth,
+	identity.requestPlcOperationSignature,
+);
+app.post(
+	"/xrpc/com.atproto.identity.signPlcOperation",
+	requireAuth,
+	identity.signPlcOperation,
+);
+app.get(
+	"/xrpc/gg.mk.experimental.getMigrationToken",
+	requireAuth,
+	identity.getMigrationToken,
+);
 
 // Session management
 app.post("/xrpc/com.atproto.server.createSession", server.createSession);
