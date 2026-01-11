@@ -44,7 +44,8 @@ function normalizeClientId(clientId: string): string {
 		const sortedParams = new URLSearchParams();
 
 		// Get all keys, sort them, rebuild
-		const keys = Array.from(params.keys()).sort();
+		// Exclude 'scope' - it's passed separately and may not be in client_id consistently
+		const keys = Array.from(params.keys()).filter(k => k !== 'scope').sort();
 		for (const key of keys) {
 			const value = params.get(key);
 			if (value !== null) {
