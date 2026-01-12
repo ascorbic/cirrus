@@ -113,7 +113,6 @@ async function ensureAccountConfigured(): Promise<void> {
 	p.log.success(`Account "${selectedName}" saved to wrangler.jsonc`);
 }
 
-
 export const initCommand = defineCommand({
 	meta: {
 		name: "init",
@@ -256,7 +255,7 @@ export const initCommand = defineCommand({
 						const didResolver = new DidResolver();
 						const didDoc = await didResolver.resolve(resolvedDid);
 						const pdsService = didDoc?.service?.find(
-							(s: { id: string; type: string }) =>
+							(s) =>
 								s.type === "AtprotoPersonalDataServer" ||
 								s.id === "#atproto_pds",
 						);
@@ -434,17 +433,22 @@ export const initCommand = defineCommand({
 				{
 					value: "wnam" as const,
 					label: "Western North America",
-					hint: "US West Coast",
+					hint: "Location hint",
 				},
 				{
 					value: "enam" as const,
 					label: "Eastern North America",
-					hint: "US East Coast",
+					hint: "Location hint",
 				},
 				{
 					value: "apac" as const,
 					label: "Asia-Pacific",
-					hint: "APAC region",
+					hint: "Location hint",
+				},
+				{
+					value: "oc" as const,
+					label: "Oceania",
+					hint: "Location hint",
 				},
 			],
 		});
@@ -584,7 +588,9 @@ export const initCommand = defineCommand({
 			} else if (backupChoice === "file") {
 				const backupPath = await saveKeyBackup(signingKey, handle);
 				p.log.success(`Signing key saved to: ${backupPath}`);
-				p.log.warn("Move this file to a secure location and delete the local copy!");
+				p.log.warn(
+					"Move this file to a secure location and delete the local copy!",
+				);
 			} else if (backupChoice === "show") {
 				p.note(
 					[
@@ -732,7 +738,9 @@ export const initCommand = defineCommand({
 					p.log.error(
 						`Failed to deploy: ${error instanceof Error ? error.message : "Unknown error"}`,
 					);
-					p.log.info(`You can deploy manually with: ${formatCommand(pm, "deploy")}`);
+					p.log.info(
+						`You can deploy manually with: ${formatCommand(pm, "deploy")}`,
+					);
 				}
 			}
 		}
@@ -773,7 +781,9 @@ export const initCommand = defineCommand({
 		} else if (deployedSecrets) {
 			p.outro(`Run '${formatCommand(pm, "deploy")}' to launch your PDS! 🚀`);
 		} else {
-			p.outro(`Run '${formatCommand(pm, "dev")}' to start your PDS locally! 🦋`);
+			p.outro(
+				`Run '${formatCommand(pm, "dev")}' to start your PDS locally! 🦋`,
+			);
 		}
 	},
 });

@@ -356,38 +356,26 @@ The PDS uses environment variables for configuration. Public values go in `wrang
 
 ### Data Placement
 
-Cirrus supports Cloudflare's Durable Object data placement features for users who need control over where their data is stored.
+Cirrus supports Cloudflare's Durable Object [data placement features](https://developers.cloudflare.com/durable-objects/reference/data-location/) for users who need control over where their data is stored. By default a durable object is created near to the first location it is accessed from. This is likely to be correct for most users. However, if you have specific data residency requirements, you can set the `DATA_LOCATION` environment variable to control where your Durable Object is placed. This only affects the location of the Durable Object instance that stores your PDS data. ATProto data is globally distributed via relays, so this does not limit access to your data from other regions.
 
-Set `DATA_LOCATION` to control where your Durable Object is placed:
+> [!WARNING]
+> Once a Durable Object is created, its location cannot be changed. Therefore, you should set `DATA_LOCATION` before the first deployment of your PDS. Changing this value after deployment will break your installation, as existing data will not be migrated.
 
-| Value  | Type         | Description                                      |
-| ------ | ------------ | ------------------------------------------------ |
-| `auto` | Default      | No location constraint (recommended)             |
-| `eu`   | Jurisdiction | European Union - hard guarantee data stays in EU |
-| `wnam` | Hint         | Western North America                            |
-| `enam` | Hint         | Eastern North America                            |
-| `sam`  | Hint         | South America                                    |
-| `weur` | Hint         | Western Europe                                   |
-| `eeur` | Hint         | Eastern Europe                                   |
-| `apac` | Hint         | Asia-Pacific                                     |
-| `oc`   | Hint         | Oceania                                          |
-| `afr`  | Hint         | Africa                                           |
-| `me`   | Hint         | Middle East                                      |
+Supported values for `DATA_LOCATION`:
 
+- **Auto** (`auto`): Default behaviour. Cloudflare places the DO near the first access location.
 - **Jurisdiction** (`eu`): Hard guarantee that data never leaves the region. Use this for compliance requirements.
-- **Hints** (all others): Best-effort suggestions for initial placement. Cloudflare may place the DO elsewhere based on availability.
+- **Hints** (`wnam`, `enam`, `weur`, `eeur`, `apac`, `oc`). Best-effort suggestions for initial placement region. Cloudflare may place the DO elsewhere based on availability. See [supported locations](https://developers.cloudflare.com/durable-objects/reference/data-location/#supported-locations-1) for more details)
 
 Example in `wrangler.jsonc`:
 
 ```jsonc
 {
 	"vars": {
-		"DATA_LOCATION": "eu"
-	}
+		"DATA_LOCATION": "eu",
+	},
 }
 ```
-
-> **Warning:** Do not change `DATA_LOCATION` after initial deployment. This setting only affects newly-created Durable Objects. Changing it will NOT migrate existing data. To relocate, export your repository and re-import to a new PDS.
 
 See [Cloudflare's data location documentation](https://developers.cloudflare.com/durable-objects/reference/data-location/) for more details.
 
@@ -511,6 +499,7 @@ npx pds migrate
 ```
 
 The migrate command:
+
 - Resolves your DID to find the current PDS
 - Authenticates with your source PDS
 - Downloads the repository (posts, follows, likes, etc.)
@@ -526,6 +515,7 @@ npx pds identity
 ```
 
 This updates your DID document to point to your new PDS. The command:
+
 1. Authenticates with your source PDS (requires password)
 2. Requests an email confirmation token
 3. Gets the source PDS to sign a PLC operation with your new endpoint
@@ -548,6 +538,7 @@ npx pds status
 ```
 
 Check that:
+
 - The account is active
 - The repository has the expected number of records
 - Your handle resolves correctly

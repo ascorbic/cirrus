@@ -42,20 +42,10 @@
 		// Account handle (e.g., "alice.example.com")
 		"HANDLE": "",
 		// ⚠️  DATA_LOCATION: Controls where your Durable Objects are created.
-		// ⚠️  WARNING: This CANNOT be changed after deployment! Durable Objects
-		// ⚠️  cannot be relocated once created. Changing this value after your
-		// ⚠️  PDS has users will cause data access issues.
-		// ⚠️
-		// ⚠️  Options:
-		// ⚠️    "auto" (default) - Cloudflare chooses optimal location
-		// ⚠️    "eu"   - European Union (GDPR jurisdiction guarantee)
-		// ⚠️    "wnam" - Western North America
-		// ⚠️    "enam" - Eastern North America
-		// ⚠️    "apac" - Asia-Pacific
-		// ⚠️
-		// ⚠️  Use "eu" if you need GDPR compliance. Use "auto" if unsure.
+		// ⚠️  WARNING: This CANNOT be changed after deployment!
+		// ⚠️  Changing this value after your PDS is live will break your installation.
 		"DATA_LOCATION": "auto"
-	}
+	},
 	// Secrets (set via `pds init` or `pds secret <name>`):
 	// - AUTH_TOKEN: Bearer token for API write operations
 	// - SIGNING_KEY: Private signing key (secp256k1 JWK)
