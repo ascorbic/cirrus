@@ -1,7 +1,9 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { compare } from "bcryptjs";
 
-const ACCESS_TOKEN_LIFETIME = "2h";
+// Match official PDS: 15 minutes for access tokens (spec allows 1-5 min, max 1 hour)
+// Short lifetime forces regular refresh, keeping sessions active in the app
+const ACCESS_TOKEN_LIFETIME = "15m";
 const REFRESH_TOKEN_LIFETIME = "90d";
 
 /**
