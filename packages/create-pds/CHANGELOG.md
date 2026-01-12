@@ -1,5 +1,11 @@
 # create-pds
 
+## 0.0.11
+
+### Patch Changes
+
+- [#97](https://github.com/ascorbic/cirrus/pull/97) [`55fc14f`](https://github.com/ascorbic/cirrus/commit/55fc14fd06de5827fd4cb94ccbdad2145aae6a18) Thanks [@JoshuaACasey](https://github.com/JoshuaACasey)! - Fix missing comma in generated wrangler.jsonc
+
 ## 0.0.10
 
 ### Patch Changes

@@ -1,5 +1,21 @@
 # @getcirrus/pds
 
+## 0.9.0
+
+### Minor Changes
+
+- [#99](https://github.com/ascorbic/cirrus/pull/99) [`1275523`](https://github.com/ascorbic/cirrus/commit/1275523097b6b8b754d7f3e8ce20cf7a7fbd1f7f) Thanks [@ascorbic](https://github.com/ascorbic)! - feat: implement com.atproto.sync.getRecord endpoint
+
+  Add support for the `com.atproto.sync.getRecord` endpoint, which returns a CAR file containing the commit block and all MST blocks needed to prove the existence (or non-existence) of a record. This enables tools like pdsls to verify record signatures.
+
+### Patch Changes
+
+- [#101](https://github.com/ascorbic/cirrus/pull/101) [`f2f891b`](https://github.com/ascorbic/cirrus/commit/f2f891b0547f7349781a20c06183192278ae68f1) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix authentication loss by reducing access token lifetime to 15 minutes
+
+  Reduces access token lifetime from 2 hours to 15 minutes to match the official Bluesky PDS implementation and AT Protocol OAuth specification (which recommends 1-5 minutes with a maximum of 1 hour).
+
+  This fixes the periodic authentication loss issue where the Bluesky app and web interface would lose authentication and require account switching or page reload to recover. Short-lived tokens force regular refresh cycles, keeping sessions fresh and properly synchronized with the app's token management.
+
 ## 0.8.0
 
 ### Minor Changes
