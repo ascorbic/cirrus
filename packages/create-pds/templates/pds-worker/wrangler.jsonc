@@ -41,7 +41,7 @@
 		"DID": "",
 		// Account handle (e.g., "alice.example.com")
 		"HANDLE": ""
-	}
+	},
 	// Secrets (set via `pds init` or `pds secret <name>`):
 	// - AUTH_TOKEN: Bearer token for API write operations
 	// - SIGNING_KEY: Private signing key (secp256k1 JWK)
