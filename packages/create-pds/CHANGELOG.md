@@ -1,5 +1,15 @@
 # create-pds
 
+## 0.0.10
+
+### Patch Changes
+
+- [#95](https://github.com/ascorbic/cirrus/pull/95) [`11d1f70`](https://github.com/ascorbic/cirrus/commit/11d1f70f6f9b11d8632dad2733b229ceb8107a00) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix service JWT expiry for video uploads
+
+  Extended the service JWT expiry from 60 seconds to 5 minutes. This fixes video upload failures where larger videos would take longer than 60 seconds to process on video.bsky.app, causing the callback to your PDS to fail with 401 due to the expired JWT.
+
+  Also enables observability in the Cloudflare Worker template for better debugging.
+
 ## 0.0.9
 
 ### Patch Changes
