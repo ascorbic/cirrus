@@ -417,6 +417,52 @@ export const initCommand = defineCommand({
 			}
 		}
 
+		// Prompt for data location
+		const dataLocation = await promptSelect({
+			message: "Where should your data be stored?",
+			options: [
+				{
+					value: "auto" as const,
+					label: "Auto (Recommended)",
+					hint: "Cloudflare chooses optimal location",
+				},
+				{
+					value: "eu" as const,
+					label: "European Union",
+					hint: "GDPR jurisdiction guarantee",
+				},
+				{
+					value: "wnam" as const,
+					label: "Western North America",
+					hint: "US West Coast",
+				},
+				{
+					value: "enam" as const,
+					label: "Eastern North America",
+					hint: "US East Coast",
+				},
+				{
+					value: "apac" as const,
+					label: "Asia-Pacific",
+					hint: "APAC region",
+				},
+			],
+		});
+
+		if (dataLocation !== "auto") {
+			p.log.warn("⚠️  Data location cannot be changed after deployment!");
+			p.note(
+				[
+					"Durable Objects cannot be relocated once created.",
+					"If you deploy with this setting and later change it,",
+					"existing data will become inaccessible.",
+					"",
+					`You selected: ${dataLocation.toUpperCase()}`,
+				].join("\n"),
+				"Important",
+			);
+		}
+
 		const spinner = p.spinner();
 
 		const authToken = await getOrGenerateSecret(
@@ -597,6 +643,7 @@ export const initCommand = defineCommand({
 			HANDLE: handle,
 			SIGNING_KEY_PUBLIC: signingKeyPublic,
 			INITIAL_ACTIVE: initialActive,
+			DATA_LOCATION: dataLocation,
 		});
 		setCustomDomains([hostname]);
 		spinner.stop("wrangler.jsonc updated");

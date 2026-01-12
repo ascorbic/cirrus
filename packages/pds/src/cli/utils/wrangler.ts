@@ -11,7 +11,8 @@ export type VarName =
 	| "DID"
 	| "HANDLE"
 	| "SIGNING_KEY_PUBLIC"
-	| "INITIAL_ACTIVE";
+	| "INITIAL_ACTIVE"
+	| "DATA_LOCATION";
 export type SecretName =
 	| "AUTH_TOKEN"
 	| "SIGNING_KEY"
