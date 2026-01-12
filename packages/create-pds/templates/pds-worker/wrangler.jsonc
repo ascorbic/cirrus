@@ -44,7 +44,7 @@
 		// ⚠️  DATA_LOCATION: Controls where your Durable Objects are created.
 		// ⚠️  WARNING: This CANNOT be changed after deployment!
 		// ⚠️  Changing this value after your PDS is live will break your installation.
-		"DATA_LOCATION": "auto"
+		"DATA_LOCATION": ""
 	},
 	// Secrets (set via `pds init` or `pds secret <name>`):
 	// - AUTH_TOKEN: Bearer token for API write operations
