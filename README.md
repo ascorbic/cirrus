@@ -33,6 +33,19 @@ npm create pds
 
 This scaffolds a new project, installs dependencies, and runs the setup wizard. See the [PDS package documentation](./packages/pds/) for detailed setup and configuration.
 
+## Before You Get Started
+
+Before running your PDS, you'll need:
+
+1. **A Cloudflare account** – Sign up at [cloudflare.com](https://cloudflare.com) if you don't have one
+2. **Your domain added to Cloudflare** – Add the domain you plan to use for your PDS to your Cloudflare account:
+   - Log into the Cloudflare dashboard
+   - Click "Add a site" and enter your domain
+   - Follow the instructions to update your domain's nameservers to point to Cloudflare
+   - Wait for DNS propagation (usually a few minutes, can take up to 24 hours)
+
+Once your domain is active in Cloudflare, you can proceed with the setup wizard.
+
 ## Packages
 
 | Package                                                   | Description                                                                            |
@@ -43,7 +56,9 @@ This scaffolds a new project, installs dependencies, and runs the setup wizard. 
 
 ## Status
 
-This is beta software under active development, but the core features are functional:
+⚠️ **This is experimental beta software under active development.** While the core features are functional and account migration has been tested, this PDS implementation is still being refined. Breaking changes may occur, and not all edge cases have been discovered. Consider backing up important data before migrating a primary account.
+
+Core features currently working:
 
 - Repository operations (create, read, update, delete records)
 - Federation (sync, firehose, blob storage)
