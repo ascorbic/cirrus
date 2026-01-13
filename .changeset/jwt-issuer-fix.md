@@ -2,21 +2,17 @@
 "@getcirrus/pds": patch
 ---
 
-Fix authentication loss after 2 hours
+Fix automatic token refresh not triggering after access token expiry
 
-Fixes the authentication loss issue where Cirrus-hosted accounts would lose auth after ~2 hours of idle time, requiring users to switch accounts or reload the page to recover.
+Fixes the authentication loss issue where Cirrus-hosted accounts would lose auth after ~2 hours, requiring users to switch accounts or reload the page to recover.
 
 **Root Cause:**
-The Bluesky client (@atproto/api) checks for the `emailConfirmed` field in `refreshSession` responses. When missing, it makes an additional `getSession` call. If `getSession` also omits `emailConfirmed`, the client's session state becomes corrupted.
-
-After the 2-hour access token expires, the refresh flow would:
-1. Client calls `refreshSession` → gets incomplete response
-2. Client detects missing `emailConfirmed` and calls `getSession`
-3. `getSession` also returns incomplete data
-4. Client session state corrupts, causing auth failures
+The Bluesky client's `fetchHandler` specifically checks for HTTP 400 with error code `'ExpiredToken'` to trigger automatic token refresh. Cirrus was returning HTTP 401 with `'InvalidToken'`, which the client interpreted as "token is fundamentally broken" rather than "token expired, please refresh".
 
 **Fixes:**
-1. Added `emailConfirmed` field to `createSession`, `refreshSession`, and `getSession` responses
-2. Removed JWT `iss` (issuer) claim to match official PDS implementation (reduces unnecessary strictness)
-
-Both changes align Cirrus with the official Bluesky PDS behavior and ensure reliable session refresh.
+1. Return HTTP 400 with `'ExpiredToken'` for expired access tokens (matching official PDS)
+2. Added `TokenExpiredError` class to detect `jose.errors.JWTExpired` specifically
+3. Fixed JWT scope to use `'com.atproto.access'` (matching official PDS)
+4. Removed duplicate `jti` from refresh token payload
+5. Removed JWT `iss` claim to match official PDS
+6. Added `emailConfirmed` field to session responses

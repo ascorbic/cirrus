@@ -7,6 +7,7 @@ import {
 	verifyPassword,
 	verifyAccessToken,
 	verifyRefreshToken,
+	TokenExpiredError,
 } from "../session";
 import type { AppEnv, AuthedAppEnv } from "../types";
 
@@ -145,9 +146,19 @@ export async function refreshSession(c: Context<AppEnv>): Promise<Response> {
 			active: true,
 		});
 	} catch (err) {
+		// Match official PDS: expired tokens return 'ExpiredToken', other errors return 'InvalidToken'
+		if (err instanceof TokenExpiredError) {
+			return c.json(
+				{
+					error: "ExpiredToken",
+					message: err.message,
+				},
+				400,
+			);
+		}
 		return c.json(
 			{
-				error: "ExpiredToken",
+				error: "InvalidToken",
 				message: err instanceof Error ? err.message : "Invalid refresh token",
 			},
 			400,
@@ -209,6 +220,17 @@ export async function getSession(c: Context<AppEnv>): Promise<Response> {
 			active: true,
 		});
 	} catch (err) {
+		// Match official PDS: expired tokens return 400 with 'ExpiredToken'
+		// This is required for clients to trigger automatic token refresh
+		if (err instanceof TokenExpiredError) {
+			return c.json(
+				{
+					error: "ExpiredToken",
+					message: err.message,
+				},
+				400,
+			);
+		}
 		return c.json(
 			{
 				error: "InvalidToken",

@@ -7,7 +7,7 @@ import type { Context } from "hono";
 import { DidResolver } from "./did-resolver";
 import { getAtprotoServiceEndpoint } from "@atcute/identity";
 import { createServiceJwt } from "./service-auth";
-import { verifyAccessToken } from "./session";
+import { verifyAccessToken, TokenExpiredError } from "./session";
 import { getProvider } from "./oauth";
 import type { PDSEnv } from "./types";
 import type { Secp256k1Keypair } from "@atproto/crypto";
@@ -173,8 +173,19 @@ export async function handleXrpcProxy(
 					userDid = payload.sub;
 				}
 			}
-		} catch {
-			// Token verification failed - continue without auth
+		} catch (err) {
+			// Match official PDS: expired tokens return 400 with 'ExpiredToken'
+			// This is required for clients to trigger automatic token refresh
+			if (err instanceof TokenExpiredError) {
+				return c.json(
+					{
+						error: "ExpiredToken",
+						message: err.message,
+					},
+					400,
+				);
+			}
+			// Other token verification errors - continue without auth
 		}
 	}
 

@@ -1,6 +1,6 @@
 import type { Context, Next } from "hono";
 import { verifyServiceJwt } from "../service-auth";
-import { verifyAccessToken } from "../session";
+import { verifyAccessToken, TokenExpiredError } from "../session";
 import { getProvider } from "../oauth";
 import type { PDSEnv } from "../types";
 
@@ -64,7 +64,7 @@ export async function requireAuth(
 
 	// Try static token first (backwards compatibility)
 	if (token === c.env.AUTH_TOKEN) {
-		c.set("auth", { did: c.env.DID, scope: "atproto" });
+		c.set("auth", { did: c.env.DID, scope: "com.atproto.access" });
 		return next();
 	}
 
@@ -93,8 +93,19 @@ export async function requireAuth(
 		// Store auth info in context for downstream use
 		c.set("auth", { did: payload.sub, scope: payload.scope as string });
 		return next();
-	} catch {
-		// Session JWT verification failed, try service JWT
+	} catch (err) {
+		// Match official PDS: expired tokens return 400 with 'ExpiredToken'
+		// This is required for clients to trigger automatic token refresh
+		if (err instanceof TokenExpiredError) {
+			return c.json(
+				{
+					error: "ExpiredToken",
+					message: err.message,
+				},
+				400,
+			);
+		}
+		// Session JWT verification failed for other reasons, try service JWT
 	}
 
 	// Try service JWT verification (ES256K, signed with our signing key)

@@ -1,9 +1,19 @@
-import { SignJWT, jwtVerify, type JWTPayload } from "jose";
+import { SignJWT, jwtVerify, errors, type JWTPayload } from "jose";
 import { compare } from "bcryptjs";
 
+/**
+ * Error thrown when a JWT has expired.
+ * Callers should return HTTP 400 with error code 'ExpiredToken'.
+ */
+export class TokenExpiredError extends Error {
+	constructor(message = "Token has expired") {
+		super(message);
+		this.name = "TokenExpiredError";
+	}
+}
+
 // Match official PDS: 120 minutes for session access tokens
-// OAuth tokens use separate TTL (60 minutes) in @getcirrus/oauth-provider
-const ACCESS_TOKEN_LIFETIME = "5m";
+const ACCESS_TOKEN_LIFETIME = "120m";
 const REFRESH_TOKEN_LIFETIME = "90d";
 
 /**
@@ -23,7 +33,7 @@ export async function createAccessToken(
 ): Promise<string> {
 	const secret = createSecretKey(jwtSecret);
 
-	return new SignJWT({ scope: "atproto" })
+	return new SignJWT({ scope: "com.atproto.access" })
 		.setProtectedHeader({ alg: "HS256", typ: "at+jwt" })
 		.setIssuedAt()
 		.setAudience(serviceDid)
@@ -43,7 +53,7 @@ export async function createRefreshToken(
 	const secret = createSecretKey(jwtSecret);
 	const jti = crypto.randomUUID();
 
-	return new SignJWT({ scope: "com.atproto.refresh", jti })
+	return new SignJWT({ scope: "com.atproto.refresh" })
 		.setProtectedHeader({ alg: "HS256", typ: "refresh+jwt" })
 		.setIssuedAt()
 		.setAudience(serviceDid)
@@ -54,7 +64,8 @@ export async function createRefreshToken(
 }
 
 /**
- * Verify an access token and return the payload
+ * Verify an access token and return the payload.
+ * Throws TokenExpiredError if the token has expired.
  */
 export async function verifyAccessToken(
 	token: string,
@@ -63,9 +74,21 @@ export async function verifyAccessToken(
 ): Promise<JWTPayload> {
 	const secret = createSecretKey(jwtSecret);
 
-	const { payload, protectedHeader } = await jwtVerify(token, secret, {
-		audience: serviceDid,
-	});
+	let payload: JWTPayload;
+	let protectedHeader: { typ?: string };
+
+	try {
+		const result = await jwtVerify(token, secret, {
+			audience: serviceDid,
+		});
+		payload = result.payload;
+		protectedHeader = result.protectedHeader;
+	} catch (err) {
+		if (err instanceof errors.JWTExpired) {
+			throw new TokenExpiredError();
+		}
+		throw err;
+	}
 
 	// Check token type
 	if (protectedHeader.typ !== "at+jwt") {
@@ -73,7 +96,7 @@ export async function verifyAccessToken(
 	}
 
 	// Check scope
-	if (payload.scope !== "atproto") {
+	if (payload.scope !== "com.atproto.access") {
 		throw new Error("Invalid scope");
 	}
 
@@ -81,7 +104,8 @@ export async function verifyAccessToken(
 }
 
 /**
- * Verify a refresh token and return the payload
+ * Verify a refresh token and return the payload.
+ * Throws TokenExpiredError if the token has expired.
  */
 export async function verifyRefreshToken(
 	token: string,
@@ -90,9 +114,21 @@ export async function verifyRefreshToken(
 ): Promise<JWTPayload> {
 	const secret = createSecretKey(jwtSecret);
 
-	const { payload, protectedHeader } = await jwtVerify(token, secret, {
-		audience: serviceDid,
-	});
+	let payload: JWTPayload;
+	let protectedHeader: { typ?: string };
+
+	try {
+		const result = await jwtVerify(token, secret, {
+			audience: serviceDid,
+		});
+		payload = result.payload;
+		protectedHeader = result.protectedHeader;
+	} catch (err) {
+		if (err instanceof errors.JWTExpired) {
+			throw new TokenExpiredError();
+		}
+		throw err;
+	}
 
 	// Check token type
 	if (protectedHeader.typ !== "refresh+jwt") {
