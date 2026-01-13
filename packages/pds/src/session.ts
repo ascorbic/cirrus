@@ -1,9 +1,9 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { compare } from "bcryptjs";
 
-// Match official PDS: 120 minutes for legacy session access tokens
+// Match official PDS: 120 minutes for session access tokens
 // OAuth tokens use separate TTL (60 minutes) in @getcirrus/oauth-provider
-const ACCESS_TOKEN_LIFETIME = "120m";
+const ACCESS_TOKEN_LIFETIME = "5m";
 const REFRESH_TOKEN_LIFETIME = "90d";
 
 /**

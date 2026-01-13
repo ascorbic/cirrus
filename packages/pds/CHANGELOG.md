@@ -1,5 +1,37 @@
 # @getcirrus/pds
 
+## 0.9.0
+
+### Minor Changes
+
+- [#99](https://github.com/ascorbic/cirrus/pull/99) [`1275523`](https://github.com/ascorbic/cirrus/commit/1275523097b6b8b754d7f3e8ce20cf7a7fbd1f7f) Thanks [@ascorbic](https://github.com/ascorbic)! - feat: implement com.atproto.sync.getRecord endpoint
+
+  Add support for the `com.atproto.sync.getRecord` endpoint, which returns a CAR file containing the commit block and all MST blocks needed to prove the existence (or non-existence) of a record. This enables tools like pdsls to verify record signatures.
+
+### Patch Changes
+
+- [#101](https://github.com/ascorbic/cirrus/pull/101) [`f2f891b`](https://github.com/ascorbic/cirrus/commit/f2f891b0547f7349781a20c06183192278ae68f1) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix authentication loss by reducing access token lifetime to 15 minutes
+
+  Reduces access token lifetime from 2 hours to 15 minutes to match the official Bluesky PDS implementation and AT Protocol OAuth specification (which recommends 1-5 minutes with a maximum of 1 hour).
+
+  This fixes the periodic authentication loss issue where the Bluesky app and web interface would lose authentication and require account switching or page reload to recover. Short-lived tokens force regular refresh cycles, keeping sessions fresh and properly synchronized with the app's token management.
+
+## 0.8.0
+
+### Minor Changes
+
+- [#93](https://github.com/ascorbic/cirrus/pull/93) [`34c84aa`](https://github.com/ascorbic/cirrus/commit/34c84aae2ff8472ea6589c8c35a665bb2b9c63ce) Thanks [@ascorbic](https://github.com/ascorbic)! - Add migrate-out token generation for account migration
+
+  Adds `pds migrate-token` CLI command that generates stateless HMAC-based migration tokens for users wanting to migrate their account to another PDS. Tokens are valid for 15 minutes and require no database storage.
+
+### Patch Changes
+
+- [#95](https://github.com/ascorbic/cirrus/pull/95) [`11d1f70`](https://github.com/ascorbic/cirrus/commit/11d1f70f6f9b11d8632dad2733b229ceb8107a00) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix service JWT expiry for video uploads
+
+  Extended the service JWT expiry from 60 seconds to 5 minutes. This fixes video upload failures where larger videos would take longer than 60 seconds to process on video.bsky.app, causing the callback to your PDS to fail with 401 due to the expired JWT.
+
+  Also enables observability in the Cloudflare Worker template for better debugging.
+
 ## 0.7.0
 
 ### Minor Changes

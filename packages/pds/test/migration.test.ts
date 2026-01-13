@@ -366,6 +366,159 @@ describe("Account Migration", () => {
 		});
 	});
 
+	describe("com.atproto.sync.getRecord", () => {
+		it("requires did parameter", async () => {
+			const response = await worker.fetch(
+				new Request(`http://pds.test/xrpc/com.atproto.sync.getRecord`),
+				env,
+			);
+
+			expect(response.status).toBe(400);
+			const body = (await response.json()) as Record<string, unknown>;
+			expect(body.error).toBe("InvalidRequest");
+			expect(body.message).toContain("did");
+		});
+
+		it("requires collection parameter", async () => {
+			const response = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getRecord?did=${env.DID}`,
+				),
+				env,
+			);
+
+			expect(response.status).toBe(400);
+			const body = (await response.json()) as Record<string, unknown>;
+			expect(body.error).toBe("InvalidRequest");
+			expect(body.message).toContain("collection");
+		});
+
+		it("requires rkey parameter", async () => {
+			const response = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getRecord?did=${env.DID}&collection=app.bsky.feed.post`,
+				),
+				env,
+			);
+
+			expect(response.status).toBe(400);
+			const body = (await response.json()) as Record<string, unknown>;
+			expect(body.error).toBe("InvalidRequest");
+			expect(body.message).toContain("rkey");
+		});
+
+		it("returns CAR file for existing record", async () => {
+			// First create a record
+			const createResponse = await worker.fetch(
+				new Request(`http://pds.test/xrpc/com.atproto.repo.createRecord`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						rkey: "sync-test-record",
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Test post for sync.getRecord",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
+				env,
+			);
+			expect(createResponse.status).toBe(200);
+
+			// Now get the record proof
+			const response = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getRecord?did=${env.DID}&collection=app.bsky.feed.post&rkey=sync-test-record`,
+				),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get("Content-Type")).toBe(
+				"application/vnd.ipld.car",
+			);
+
+			// Verify the CAR file is valid
+			const carBytes = new Uint8Array(await response.arrayBuffer());
+			expect(carBytes.length).toBeGreaterThan(0);
+
+			const { CarReader } = await import("@ipld/car");
+			const reader = await CarReader.fromBytes(carBytes);
+			const roots = await reader.getRoots();
+			expect(roots).toHaveLength(1);
+		});
+
+		it("returns CAR file even for non-existent record (proof of non-existence)", async () => {
+			// Ensure the repo exists by creating a record
+			await worker.fetch(
+				new Request(`http://pds.test/xrpc/com.atproto.repo.createRecord`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Ensure repo exists",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
+				env,
+			);
+
+			// Try to get a non-existent record
+			const response = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getRecord?did=${env.DID}&collection=app.bsky.feed.post&rkey=does-not-exist`,
+				),
+				env,
+			);
+
+			// Should still return 200 with a CAR file that proves non-existence
+			expect(response.status).toBe(200);
+			expect(response.headers.get("Content-Type")).toBe(
+				"application/vnd.ipld.car",
+			);
+		});
+
+		it("rejects unknown DID", async () => {
+			const response = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getRecord?did=did:plc:unknown&collection=app.bsky.feed.post&rkey=test`,
+				),
+				env,
+			);
+
+			expect(response.status).toBe(404);
+			const body = (await response.json()) as Record<string, unknown>;
+			expect(body.error).toBe("RepoNotFound");
+		});
+
+		it("rejects invalid collection format", async () => {
+			const response = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getRecord?did=${env.DID}&collection=not-an-nsid&rkey=test`,
+				),
+				env,
+			);
+
+			expect(response.status).toBe(400);
+			const body = (await response.json()) as Record<string, unknown>;
+			expect(body.error).toBe("InvalidRequest");
+			expect(body.message).toContain("collection");
+		});
+	});
+
 	describe("getAccountStatus with migration metrics", () => {
 		it("returns block and record counts", async () => {
 			// Create a record to ensure there's data

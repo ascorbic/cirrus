@@ -5,6 +5,7 @@ import {
 	BlockMap,
 	blocksToCarFile,
 	readCarWithRoot,
+	getRecords,
 	type RecordCreateOp,
 	type RecordUpdateOp,
 	type RecordDeleteOp,
@@ -770,6 +771,44 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		// Return CAR file with requested blocks
 		return blocksToCarFile(root, blocks);
+	}
+
+	/**
+	 * RPC method: Get record with proof as CAR file.
+	 * Returns the commit block and all MST blocks needed to verify
+	 * the existence (or non-existence) of a record.
+	 * Used by com.atproto.sync.getRecord for record verification.
+	 */
+	async rpcGetRecordProof(
+		collection: string,
+		rkey: string,
+	): Promise<Uint8Array> {
+		const storage = await this.getStorage();
+		const root = await storage.getRoot();
+
+		if (!root) {
+			throw new Error("No repository root found");
+		}
+
+		// Use @atproto/repo's getRecords to generate the proof CAR
+		// This returns an async iterable of CAR chunks
+		const carChunks: Uint8Array[] = [];
+		for await (const chunk of getRecords(storage, root, [
+			{ collection, rkey },
+		])) {
+			carChunks.push(chunk);
+		}
+
+		// Concatenate all chunks into a single Uint8Array
+		const totalLength = carChunks.reduce((acc, chunk) => acc + chunk.length, 0);
+		const result = new Uint8Array(totalLength);
+		let offset = 0;
+		for (const chunk of carChunks) {
+			result.set(chunk, offset);
+			offset += chunk.length;
+		}
+
+		return result;
 	}
 
 	/**

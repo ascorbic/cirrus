@@ -202,6 +202,9 @@ app.get("/xrpc/com.atproto.sync.listRepos", (c) =>
 app.get("/xrpc/com.atproto.sync.listBlobs", (c) =>
 	sync.listBlobs(c, getAccountDO(c.env)),
 );
+app.get("/xrpc/com.atproto.sync.getRecord", (c) =>
+	sync.getRecord(c, getAccountDO(c.env)),
+);
 
 // WebSocket firehose
 app.get("/xrpc/com.atproto.sync.subscribeRepos", async (c) => {

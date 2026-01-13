@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { isDid } from "@atcute/lexicons/syntax";
+import { isDid, isNsid, isRecordKey } from "@atcute/lexicons/syntax";
 import type { AccountDurableObject } from "../account-do.js";
 import type { AppEnv } from "../types";
 
@@ -297,4 +297,101 @@ export async function getBlob(
 			"Content-Length": blob.size.toString(),
 		},
 	});
+}
+
+export async function getRecord(
+	c: Context<AppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
+	const did = c.req.query("did");
+	const collection = c.req.query("collection");
+	const rkey = c.req.query("rkey");
+
+	if (!did) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required parameter: did",
+			},
+			400,
+		);
+	}
+
+	if (!collection) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required parameter: collection",
+			},
+			400,
+		);
+	}
+
+	if (!rkey) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required parameter: rkey",
+			},
+			400,
+		);
+	}
+
+	// Validate DID format
+	if (!isDid(did)) {
+		return c.json(
+			{ error: "InvalidRequest", message: "Invalid DID format" },
+			400,
+		);
+	}
+
+	// Validate collection is an NSID
+	if (!isNsid(collection)) {
+		return c.json(
+			{ error: "InvalidRequest", message: "Invalid collection format (must be NSID)" },
+			400,
+		);
+	}
+
+	// Validate rkey format
+	if (!isRecordKey(rkey)) {
+		return c.json(
+			{ error: "InvalidRequest", message: "Invalid rkey format" },
+			400,
+		);
+	}
+
+	// Check if this is our DID
+	if (did !== c.env.DID) {
+		return c.json(
+			{
+				error: "RepoNotFound",
+				message: `Repository not found for DID: ${did}`,
+			},
+			404,
+		);
+	}
+
+	try {
+		const carBytes = await accountDO.rpcGetRecordProof(collection, rkey);
+
+		return new Response(carBytes, {
+			status: 200,
+			headers: {
+				"Content-Type": "application/vnd.ipld.car",
+				"Content-Length": carBytes.length.toString(),
+			},
+		});
+	} catch (err) {
+		// The proof CAR will still be returned even if the record doesn't exist
+		// (to prove non-existence), so errors here indicate storage issues
+		console.error("Error getting record proof:", err);
+		return c.json(
+			{
+				error: "InternalServerError",
+				message: "Failed to get record proof",
+			},
+			500,
+		);
+	}
 }

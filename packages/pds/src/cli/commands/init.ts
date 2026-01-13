@@ -150,7 +150,10 @@ export const initCommand = defineCommand({
 			// Ignore errors - probably not logged in or no worker yet
 		}
 
-		if (cfSecrets.includes("SIGNING_KEY") && !devVars.SIGNING_KEY) {
+		// Track if signing key is already in Cloudflare - we'll use this later to decide whether to push
+		const signingKeyInCloudflare = cfSecrets.includes("SIGNING_KEY");
+
+		if (signingKeyInCloudflare && !devVars.SIGNING_KEY) {
 			p.log.error("⚠️  Signing key exists in Cloudflare but not locally!");
 			p.note(
 				[
@@ -650,14 +653,14 @@ export const initCommand = defineCommand({
 		if (!isProduction) {
 			const deployNow = await p.confirm({
 				message: "Push secrets to Cloudflare now?",
-				initialValue: false,
+				initialValue: true,
 			});
 
 			if (!p.isCancel(deployNow) && deployNow) {
 				spinner.start("Deploying secrets to Cloudflare...");
 				await setSecretValue("AUTH_TOKEN", authToken, false);
-				// Only push signing key if it's new - never overwrite an existing one
-				if (signingKeyIsNew) {
+				// Only push signing key if it's not already in Cloudflare - never overwrite
+				if (!signingKeyInCloudflare) {
 					await setSecretValue("SIGNING_KEY", signingKey, false);
 				}
 				await setSecretValue("JWT_SECRET", jwtSecret, false);
@@ -726,7 +729,24 @@ export const initCommand = defineCommand({
 		} else if (deployedSecrets) {
 			p.outro(`Run '${formatCommand(pm, "deploy")}' to launch your PDS! 🚀`);
 		} else {
-			p.outro(`Run '${formatCommand(pm, "dev")}' to start your PDS locally! 🦋`);
+			// User declined to push secrets - show them how to do it later
+			p.note(
+				[
+					"To deploy your PDS, first push your secrets to Cloudflare:",
+					"",
+					`  ${formatCommand(pm, "pds", "init")}`,
+					"",
+					"Then deploy:",
+					"",
+					`  ${formatCommand(pm, "deploy")}`,
+					"",
+					"Or to test locally first:",
+					"",
+					`  ${formatCommand(pm, "dev")}`,
+				].join("\n"),
+				"Next Steps",
+			);
+			p.outro("Configuration saved to .dev.vars");
 		}
 	},
 });
