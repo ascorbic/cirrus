@@ -343,6 +343,7 @@ The PDS uses environment variables for configuration. Public values go in `wrang
 | `HANDLE`             | Account handle                             |
 | `SIGNING_KEY_PUBLIC` | Public key for DID document (multibase)    |
 | `INITIAL_ACTIVE`     | Whether account starts active (true/false) |
+| `DATA_LOCATION`      | Data placement (optional, see below)       |
 
 ### Secrets
 
@@ -352,6 +353,31 @@ The PDS uses environment variables for configuration. Public values go in `wrang
 | `SIGNING_KEY`   | Private signing key (secp256k1 JWK)   |
 | `JWT_SECRET`    | Secret for signing session JWTs       |
 | `PASSWORD_HASH` | Bcrypt hash of password for app login |
+
+### Data Placement
+
+Cirrus supports Cloudflare's Durable Object [data placement features](https://developers.cloudflare.com/durable-objects/reference/data-location/) for users who need control over where their data is stored. By default a durable object is created near to the first location it is accessed from. This is likely to be correct for most users. However, if you have specific data residency requirements, you can set the `DATA_LOCATION` environment variable to control where your Durable Object is placed. This only affects the location of the Durable Object instance that stores your PDS data. ATProto data is globally distributed via relays, so this does not limit access to your data from other regions.
+
+> [!WARNING]
+> Once a Durable Object is created, its location cannot be changed. Therefore, you should set `DATA_LOCATION` before the first deployment of your PDS. Changing this value after deployment will break your installation, as existing data will not be migrated.
+
+Supported values for `DATA_LOCATION`:
+
+- **Auto** (`auto`): Default behaviour. Cloudflare places the DO near the first access location.
+- **Jurisdiction** (`eu`): Hard guarantee that data never leaves the region. Use this for compliance requirements.
+- **Hints** (`wnam`, `enam`, `weur`, `eeur`, `apac`, `oc`). Best-effort suggestions for initial placement region. Cloudflare may place the DO elsewhere based on availability. See [supported locations](https://developers.cloudflare.com/durable-objects/reference/data-location/#supported-locations-1) for more details)
+
+Example in `wrangler.jsonc`:
+
+```jsonc
+{
+	"vars": {
+		"DATA_LOCATION": "eu",
+	},
+}
+```
+
+See [Cloudflare's data location documentation](https://developers.cloudflare.com/durable-objects/reference/data-location/) for more details.
 
 ## API Endpoints
 
@@ -473,6 +499,7 @@ npx pds migrate
 ```
 
 The migrate command:
+
 - Resolves your DID to find the current PDS
 - Authenticates with your source PDS
 - Downloads the repository (posts, follows, likes, etc.)
@@ -488,6 +515,7 @@ npx pds identity
 ```
 
 This updates your DID document to point to your new PDS. The command:
+
 1. Authenticates with your source PDS (requires password)
 2. Requests an email confirmation token
 3. Gets the source PDS to sign a PLC operation with your new endpoint
@@ -510,6 +538,7 @@ npx pds status
 ```
 
 Check that:
+
 - The account is active
 - The repository has the expected number of records
 - Your handle resolves correctly

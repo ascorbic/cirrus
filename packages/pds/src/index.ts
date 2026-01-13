@@ -1,6 +1,6 @@
 // Public API
 export { AccountDurableObject } from "./account-do";
-export type { PDSEnv } from "./types";
+export type { PDSEnv, DataLocation } from "./types";
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -85,9 +85,22 @@ app.use(
 	}),
 );
 
-// Helper to get Account DO stub
+// Helper to get Account DO stub with optional data location
 function getAccountDO(env: PDSEnv) {
+	const location = env.DATA_LOCATION;
+
+	// "eu" is a jurisdiction (hard guarantee), everything else is a hint (best-effort)
+	if (location === "eu") {
+		const namespace = env.ACCOUNT.jurisdiction("eu");
+		return namespace.get(namespace.idFromName("account"));
+	}
+
+	// Location hints (or "auto"/undefined = no constraint)
 	const id = env.ACCOUNT.idFromName("account");
+	if (location && location !== "auto") {
+		return env.ACCOUNT.get(id, { locationHint: location });
+	}
+
 	return env.ACCOUNT.get(id);
 }
 

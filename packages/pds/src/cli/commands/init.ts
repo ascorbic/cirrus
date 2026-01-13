@@ -113,7 +113,6 @@ async function ensureAccountConfigured(): Promise<void> {
 	p.log.success(`Account "${selectedName}" saved to wrangler.jsonc`);
 }
 
-
 export const initCommand = defineCommand({
 	meta: {
 		name: "init",
@@ -259,7 +258,7 @@ export const initCommand = defineCommand({
 						const didResolver = new DidResolver();
 						const didDoc = await didResolver.resolve(resolvedDid);
 						const pdsService = didDoc?.service?.find(
-							(s: { id: string; type: string }) =>
+							(s) =>
 								s.type === "AtprotoPersonalDataServer" ||
 								s.id === "#atproto_pds",
 						);
@@ -420,6 +419,62 @@ export const initCommand = defineCommand({
 			}
 		}
 
+		// Prompt for data location (skip if already configured)
+		let dataLocation: string;
+		if (currentVars.DATA_LOCATION) {
+			dataLocation = currentVars.DATA_LOCATION;
+		} else {
+			dataLocation = await promptSelect({
+				message: "Where should your data be stored?",
+				options: [
+					{
+						value: "auto" as const,
+						label: "Auto (Recommended)",
+						hint: "Cloudflare chooses optimal location",
+					},
+					{
+						value: "eu" as const,
+						label: "European Union",
+						hint: "GDPR jurisdiction guarantee",
+					},
+					{
+						value: "wnam" as const,
+						label: "Western North America",
+						hint: "Location hint",
+					},
+					{
+						value: "enam" as const,
+						label: "Eastern North America",
+						hint: "Location hint",
+					},
+					{
+						value: "apac" as const,
+						label: "Asia-Pacific",
+						hint: "Location hint",
+					},
+					{
+						value: "oc" as const,
+						label: "Oceania",
+						hint: "Location hint",
+					},
+				],
+			});
+
+			if (dataLocation && dataLocation !== "auto") {
+				p.log.warn("⚠️  Data location cannot be changed after deployment!");
+				p.note(
+					[
+						"Durable Objects cannot be relocated once created.",
+						"If you deploy with this setting and later change it,",
+						"existing data will become inaccessible.",
+						"",
+						`You selected: ${dataLocation}`,
+					].join("\n"),
+					"Important",
+				);
+			}
+		}
+
 		const spinner = p.spinner();
 
 		const authToken = await getOrGenerateSecret(
@@ -541,7 +596,9 @@ export const initCommand = defineCommand({
 			} else if (backupChoice === "file") {
 				const backupPath = await saveKeyBackup(signingKey, handle);
 				p.log.success(`Signing key saved to: ${backupPath}`);
-				p.log.warn("Move this file to a secure location and delete the local copy!");
+				p.log.warn(
+					"Move this file to a secure location and delete the local copy!",
+				);
 			} else if (backupChoice === "show") {
 				p.note(
 					[
@@ -600,6 +657,7 @@ export const initCommand = defineCommand({
 			HANDLE: handle,
 			SIGNING_KEY_PUBLIC: signingKeyPublic,
 			INITIAL_ACTIVE: initialActive,
+			DATA_LOCATION: dataLocation,
 		});
 		setCustomDomains([hostname]);
 		spinner.stop("wrangler.jsonc updated");
@@ -688,7 +746,9 @@ export const initCommand = defineCommand({
 					p.log.error(
 						`Failed to deploy: ${error instanceof Error ? error.message : "Unknown error"}`,
 					);
-					p.log.info(`You can deploy manually with: ${formatCommand(pm, "deploy")}`);
+					p.log.info(
+						`You can deploy manually with: ${formatCommand(pm, "deploy")}`,
+					);
 				}
 			}
 		}

@@ -2,9 +2,22 @@
 
 A single-user AT Protocol Personal Data Server running on Cloudflare Workers.
 
-> **⚠️ Beta Software**
+> **⚠️ Experimental Beta Software**
 >
-> This is under active development. Account migration has been tested and works, but breaking changes may still occur. Consider backing up important data before migrating a primary account.
+> This is experimental software under active development. While account migration has been tested and works, this PDS implementation is still being refined. Breaking changes may occur, and not all edge cases have been discovered. **Strongly consider backing up important data before migrating a primary account.**
+
+## Before You Get Started
+
+Before setting up your PDS, make sure you have:
+
+1. **A Cloudflare account** – Sign up at [cloudflare.com](https://cloudflare.com) if you don't have one
+2. **Your domain added to Cloudflare** – Add the domain you plan to use for your PDS to your Cloudflare account:
+   - Log into the Cloudflare dashboard
+   - Click "Add a site" and enter your domain
+   - Follow the instructions to update your domain's nameservers to point to Cloudflare
+   - Wait for DNS propagation (usually a few minutes, can take up to 24 hours)
+
+Once your domain is active in Cloudflare, you're ready to proceed with the setup below.
 
 ## Getting Started
 
