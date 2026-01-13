@@ -1,5 +1,38 @@
 # @getcirrus/pds
 
+## 0.10.0
+
+### Minor Changes
+
+- [#104](https://github.com/ascorbic/cirrus/pull/104) [`6e99cc6`](https://github.com/ascorbic/cirrus/commit/6e99cc64bebb83ec2c8ae78b33b774bcd7697a7b) Thanks [@ascorbic](https://github.com/ascorbic)! - Add data placement support for Durable Objects
+  - Added `DATA_LOCATION` environment variable for controlling DO placement
+  - Supports `eu` jurisdiction (hard guarantee) and location hints (`wnam`, `enam`, `sam`, `weur`, `eeur`, `apac`, `oc`, `afr`, `me`)
+  - Default is `auto` (no location constraint, recommended for most users)
+  - Exported `DataLocation` type from package
+
+  These features use Cloudflare's Durable Object data location capabilities. The `eu` jurisdiction provides compliance guarantees that data never leaves the EU, while hints are best-effort suggestions for latency optimization.
+
+  Warning: Do not change this setting after initial deployment. It only affects newly-created DOs and will not migrate existing data.
+
+### Patch Changes
+
+- [#102](https://github.com/ascorbic/cirrus/pull/102) [`39ff210`](https://github.com/ascorbic/cirrus/commit/39ff21073f284bfa8a7e50f0f2cf20402908646b) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix SIGNING_KEY not being pushed to Cloudflare when re-running init after initially declining. Also default "Push secrets to Cloudflare now?" to yes and show clear deployment instructions when declining.
+
+- [#108](https://github.com/ascorbic/cirrus/pull/108) [`3d5b264`](https://github.com/ascorbic/cirrus/commit/3d5b26453c037655f7998dfcd6f0d9499cc1b08c) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix automatic token refresh not triggering after access token expiry
+
+  Fixes the authentication loss issue where Cirrus-hosted accounts would lose auth after ~2 hours, requiring users to switch accounts or reload the page to recover.
+
+  **Root Cause:**
+  The Bluesky client's `fetchHandler` specifically checks for HTTP 400 with error code `'ExpiredToken'` to trigger automatic token refresh. Cirrus was returning HTTP 401 with `'InvalidToken'`, which the client interpreted as "token is fundamentally broken" rather than "token expired, please refresh".
+
+  **Fixes:**
+  1. Return HTTP 400 with `'ExpiredToken'` for expired access tokens (matching official PDS)
+  2. Added `TokenExpiredError` class to detect `jose.errors.JWTExpired` specifically
+  3. Fixed JWT scope to use `'com.atproto.access'` (matching official PDS)
+  4. Removed duplicate `jti` from refresh token payload
+  5. Removed JWT `iss` claim to match official PDS
+  6. Added `emailConfirmed` field to session responses
+
 ## 0.9.0
 
 ### Minor Changes
