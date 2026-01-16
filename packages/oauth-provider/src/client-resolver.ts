@@ -50,6 +50,48 @@ function isHttpsUrl(value: string): boolean {
 }
 
 /**
+ * Check if a client ID is a valid localhost client per AT Protocol spec.
+ * Localhost clients use http://localhost with no port, and encode
+ * redirect_uri and scope as query parameters.
+ * @see https://atproto.com/specs/oauth#clients
+ */
+function isLocalhostClient(value: string): boolean {
+	try {
+		const url = new URL(value);
+		// Must be http://localhost with no port
+		return url.protocol === "http:" && url.hostname === "localhost" && !url.port;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Parse localhost client metadata from the client_id URL.
+ * Per AT Protocol spec, redirect_uri and scope are encoded as query params.
+ * Defaults to http://127.0.0.1/ and http://[::1]/ for redirect URIs.
+ */
+function parseLocalhostClientMetadata(clientId: string): ClientMetadata {
+	const url = new URL(clientId);
+
+	// Get redirect_uri from query params, default to loopback addresses
+	const redirectUriParam = url.searchParams.get("redirect_uri");
+	const redirectUris = redirectUriParam
+		? [redirectUriParam]
+		: ["http://127.0.0.1/", "http://[::1]/"];
+
+	// Scope is informational for localhost clients
+	const scope = url.searchParams.get("scope") ?? "atproto";
+
+	return {
+		clientId,
+		clientName: "Localhost Client",
+		redirectUris,
+		tokenEndpointAuthMethod: "none", // Localhost clients are always public
+		cachedAt: Date.now(),
+	};
+}
+
+/**
  * Validate that a string is a valid DID using @atproto/syntax
  */
 function isValidDid(value: string): boolean {
@@ -102,11 +144,17 @@ export class ClientResolver {
 
 	/**
 	 * Resolve client metadata from a client ID (URL or DID)
-	 * @param clientId The client ID (HTTPS URL or DID)
+	 * @param clientId The client ID (HTTPS URL, DID, or localhost URL)
 	 * @returns The client metadata
 	 * @throws ClientResolutionError if resolution fails
 	 */
 	async resolveClient(clientId: string): Promise<ClientMetadata> {
+		// Handle localhost clients per AT Protocol spec
+		// These don't need network resolution - metadata is in the URL
+		if (isLocalhostClient(clientId)) {
+			return parseLocalhostClientMetadata(clientId);
+		}
+
 		if (!isHttpsUrl(clientId) && !isValidDid(clientId)) {
 			throw new ClientResolutionError(
 				`Invalid client ID format: ${clientId}`,
@@ -193,14 +241,46 @@ export class ClientResolver {
 
 	/**
 	 * Validate that a redirect URI is allowed for a client
-	 * @param clientId The client DID
+	 * @param clientId The client ID (URL or DID)
 	 * @param redirectUri The redirect URI to validate
 	 * @returns true if the redirect URI is allowed
 	 */
 	async validateRedirectUri(clientId: string, redirectUri: string): Promise<boolean> {
 		try {
 			const metadata = await this.resolveClient(clientId);
+
+			// For localhost clients, use relaxed matching per AT Protocol spec:
+			// Port numbers are not matched, only scheme, host, and path
+			if (isLocalhostClient(clientId)) {
+				return this.matchesLocalhostRedirectUri(metadata.redirectUris, redirectUri);
+			}
+
 			return metadata.redirectUris.includes(redirectUri);
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * Check if a redirect URI matches any allowed URI for localhost clients.
+	 * Per AT Protocol spec, port numbers are not matched for localhost.
+	 */
+	private matchesLocalhostRedirectUri(allowedUris: string[], redirectUri: string): boolean {
+		try {
+			const redirect = new URL(redirectUri);
+
+			for (const allowed of allowedUris) {
+				const allowedUrl = new URL(allowed);
+				// Match scheme, hostname, and path - ignore port
+				if (
+					redirect.protocol === allowedUrl.protocol &&
+					redirect.hostname === allowedUrl.hostname &&
+					redirect.pathname === allowedUrl.pathname
+				) {
+					return true;
+				}
+			}
+			return false;
 		} catch {
 			return false;
 		}
