@@ -1,5 +1,17 @@
 # @getcirrus/oauth-provider
 
+## 0.3.1
+
+### Patch Changes
+
+- [#114](https://github.com/ascorbic/cirrus/pull/114) [`982e067`](https://github.com/ascorbic/cirrus/commit/982e067aec5b7a3ec0f30bdf14146612fabca186) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix OAuth for localhost clients per AT Protocol spec
+
+  Localhost clients (using `http://localhost` as client_id) are now accepted per the AT Protocol OAuth specification. This enables local development tools and CLI applications to authenticate without requiring a registered client.
+  - Added `isLocalhostClientId()` helper to detect localhost client URIs
+  - Updated `ClientResolver` to generate metadata for localhost clients dynamically
+  - Localhost clients are treated as public clients with no client authentication
+  - Redirect URIs must use `http://127.0.0.1` with any port (per spec requirement)
+
 ## 0.3.0
 
 ### Minor Changes

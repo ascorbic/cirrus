@@ -1,5 +1,12 @@
 # @getcirrus/pds
 
+## 0.10.1
+
+### Patch Changes
+
+- Updated dependencies [[`982e067`](https://github.com/ascorbic/cirrus/commit/982e067aec5b7a3ec0f30bdf14146612fabca186)]:
+  - @getcirrus/oauth-provider@0.3.1
+
 ## 0.10.0
 
 ### Minor Changes
