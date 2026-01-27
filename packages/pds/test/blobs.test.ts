@@ -225,6 +225,146 @@ describe("Blob Storage", () => {
 		});
 	});
 
+	describe("Content-Type Detection", () => {
+		it("should detect video/mp4 from magic bytes when stored with */*", async () => {
+			// Create a valid MP4 header (ftyp box with isom brand)
+			const mp4Header = new Uint8Array([
+				0x00, 0x00, 0x00, 0x14, // box size (20 bytes)
+				0x66, 0x74, 0x79, 0x70, // "ftyp"
+				0x69, 0x73, 0x6f, 0x6d, // "isom" brand
+				0x00, 0x00, 0x00, 0x01, // minor version
+				0x69, 0x73, 0x6f, 0x6d, // compatible brand
+			]);
+
+			// Upload with wildcard content type (simulating the bug)
+			const uploadResponse = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.uploadBlob", {
+					method: "POST",
+					headers: {
+						"Content-Type": "*/*",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: mp4Header,
+				}),
+				env,
+			);
+
+			expect(uploadResponse.status).toBe(200);
+
+			const uploadData = (await uploadResponse.json()) as {
+				blob: { ref: { $link: string } };
+			};
+			const cid = uploadData.blob.ref.$link;
+
+			// Retrieve - should detect video/mp4 from magic bytes
+			const getResponse = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getBlob?did=${env.DID}&cid=${cid}`,
+				),
+				env,
+			);
+
+			expect(getResponse.status).toBe(200);
+			expect(getResponse.headers.get("Content-Type")).toBe("video/mp4");
+		});
+
+		it("should detect image/jpeg from magic bytes when stored with */*", async () => {
+			// JPEG magic bytes
+			const jpegData = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01]);
+
+			const uploadResponse = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.uploadBlob", {
+					method: "POST",
+					headers: {
+						"Content-Type": "*/*",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: jpegData,
+				}),
+				env,
+			);
+
+			const uploadData = (await uploadResponse.json()) as {
+				blob: { ref: { $link: string } };
+			};
+			const cid = uploadData.blob.ref.$link;
+
+			const getResponse = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getBlob?did=${env.DID}&cid=${cid}`,
+				),
+				env,
+			);
+
+			expect(getResponse.status).toBe(200);
+			expect(getResponse.headers.get("Content-Type")).toBe("image/jpeg");
+		});
+
+		it("should detect image/png from magic bytes", async () => {
+			// PNG magic bytes
+			const pngData = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D]);
+
+			const uploadResponse = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.uploadBlob", {
+					method: "POST",
+					headers: {
+						"Content-Type": "*/*",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: pngData,
+				}),
+				env,
+			);
+
+			const uploadData = (await uploadResponse.json()) as {
+				blob: { ref: { $link: string } };
+			};
+			const cid = uploadData.blob.ref.$link;
+
+			const getResponse = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getBlob?did=${env.DID}&cid=${cid}`,
+				),
+				env,
+			);
+
+			expect(getResponse.status).toBe(200);
+			expect(getResponse.headers.get("Content-Type")).toBe("image/png");
+		});
+
+		it("should fallback to application/octet-stream for unknown content", async () => {
+			// Random bytes that don't match any known format
+			const unknownData = new Uint8Array([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C]);
+
+			const uploadResponse = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.uploadBlob", {
+					method: "POST",
+					headers: {
+						"Content-Type": "*/*",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: unknownData,
+				}),
+				env,
+			);
+
+			const uploadData = (await uploadResponse.json()) as {
+				blob: { ref: { $link: string } };
+			};
+			const cid = uploadData.blob.ref.$link;
+
+			const getResponse = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getBlob?did=${env.DID}&cid=${cid}`,
+				),
+				env,
+			);
+
+			expect(getResponse.status).toBe(200);
+			expect(getResponse.headers.get("Content-Type")).toBe("application/octet-stream");
+		});
+	});
+
 	describe("Integration", () => {
 		it("should handle upload and retrieval flow", async () => {
 			// Create test data

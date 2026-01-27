@@ -1,8 +1,9 @@
 import type { Context } from "hono";
 import { isDid } from "@atcute/lexicons/syntax";
-import { AccountDurableObject } from "../account-do";
-import type { AppEnv, AuthedAppEnv } from "../types";
-import { validator } from "../validation";
+import { AccountDurableObject } from "../account-do.js";
+import type { AppEnv, AuthedAppEnv } from "../types.js";
+import { validator } from "../validation.js";
+import { detectContentType } from "../format.js";
 
 function invalidRecordError(
 	c: Context<AuthedAppEnv>,
@@ -423,9 +424,12 @@ export async function uploadBlob(
 	c: Context<AuthedAppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
-	const contentType =
-		c.req.header("Content-Type") || "application/octet-stream";
+	let contentType = c.req.header("Content-Type");
+
 	const bytes = new Uint8Array(await c.req.arrayBuffer());
+	if (!contentType || contentType === "*/*") {
+		contentType = detectContentType(bytes) || "application/octet-stream";
+	}
 
 	// Size limit check (60MB)
 	const MAX_BLOB_SIZE = 60 * 1024 * 1024;
