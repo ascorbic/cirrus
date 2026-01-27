@@ -1,7 +1,8 @@
 import type { Context } from "hono";
 import { isDid, isNsid, isRecordKey } from "@atcute/lexicons/syntax";
 import type { AccountDurableObject } from "../account-do.js";
-import type { AppEnv } from "../types";
+import type { AppEnv } from "../types.js";
+import { detectContentType } from "../format.js";
 
 export async function getRepo(
 	c: Context<AppEnv>,
@@ -293,7 +294,7 @@ export async function getBlob(
 	let contentType = blob.httpMetadata?.contentType;
 
 	// If no content type or invalid wildcard, try to detect from content
-	if (!contentType || contentType === "*/*" || contentType === "application/octet-stream") {
+	if (!contentType || contentType === "*/*") {
 		// Read first few bytes to detect content type
 		const [headerStream, bodyStream] = blob.body.tee();
 		const reader = headerStream.getReader();
@@ -301,7 +302,8 @@ export async function getBlob(
 		reader.releaseLock();
 
 		if (headerBytes && headerBytes.length >= 12) {
-			contentType = detectContentType(headerBytes) || "application/octet-stream";
+			contentType =
+				detectContentType(headerBytes) || "application/octet-stream";
 		} else {
 			contentType = "application/octet-stream";
 		}
@@ -322,60 +324,6 @@ export async function getBlob(
 			"Content-Length": blob.size.toString(),
 		},
 	});
-}
-
-/**
- * Detect content type from file magic bytes.
- * Returns the detected MIME type or null if unknown.
- */
-function detectContentType(bytes: Uint8Array): string | null {
-	// MP4/M4V/MOV - check for ftyp box
-	if (bytes.length >= 12) {
-		const ftyp = String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]);
-		if (ftyp === "ftyp") {
-			// Check brand for more specific type
-			const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]);
-			if (brand === "isom" || brand === "iso2" || brand === "mp41" || brand === "mp42" || brand === "avc1") {
-				return "video/mp4";
-			}
-			if (brand === "M4V " || brand === "M4VH" || brand === "M4VP") {
-				return "video/x-m4v";
-			}
-			if (brand === "qt  ") {
-				return "video/quicktime";
-			}
-			// Default to mp4 for any ftyp
-			return "video/mp4";
-		}
-	}
-
-	// JPEG
-	if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
-		return "image/jpeg";
-	}
-
-	// PNG
-	if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
-		return "image/png";
-	}
-
-	// GIF
-	if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
-		return "image/gif";
-	}
-
-	// WebP
-	if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
-		bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
-		return "image/webp";
-	}
-
-	// WebM
-	if (bytes[0] === 0x1A && bytes[1] === 0x45 && bytes[2] === 0xDF && bytes[3] === 0xA3) {
-		return "video/webm";
-	}
-
-	return null;
 }
 
 export async function getRecord(
@@ -427,7 +375,10 @@ export async function getRecord(
 	// Validate collection is an NSID
 	if (!isNsid(collection)) {
 		return c.json(
-			{ error: "InvalidRequest", message: "Invalid collection format (must be NSID)" },
+			{
+				error: "InvalidRequest",
+				message: "Invalid collection format (must be NSID)",
+			},
 			400,
 		);
 	}
