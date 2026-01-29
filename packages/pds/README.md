@@ -387,7 +387,7 @@ See [Cloudflare's data location documentation](https://developers.cloudflare.com
 | ------------------------------ | ----------------------------------------------------- |
 | `GET /.well-known/did.json`    | DID document for did:web resolution                   |
 | `GET /.well-known/atproto-did` | Handle verification (only if handle matches hostname) |
-| `GET /health`                  | Health check with version info                        |
+| `GET /xrpc/_health`            | Health check with version info                        |
 
 ### Federation (Sync)
 

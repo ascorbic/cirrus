@@ -90,7 +90,7 @@ No additional code needed!
 Once deployed, your PDS will serve:
 
 - `GET /.well-known/did.json` - DID document
-- `GET /health` - Health check
+- `GET /xrpc/_health` - Health check
 - `GET /xrpc/com.atproto.sync.getRepo` - Export repository as CAR
 - `GET /xrpc/com.atproto.sync.subscribeRepos` - WebSocket firehose
 - `POST /xrpc/com.atproto.repo.createRecord` - Create a record (authenticated)
