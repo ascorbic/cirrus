@@ -68,7 +68,12 @@ export async function describeRepo(
 		);
 	}
 
-	if (repo !== c.env.DID) {
+	// Get repo info from the DO (routed by DID at the index.ts level)
+	const data = await accountDO.rpcDescribeRepo();
+
+	// Get identity from DO for DID document
+	const identity = await accountDO.rpcGetAtprotoIdentity();
+	if (!identity) {
 		return c.json(
 			{
 				error: "RepoNotFound",
@@ -78,21 +83,19 @@ export async function describeRepo(
 		);
 	}
 
-	const data = await accountDO.rpcDescribeRepo();
-
 	return c.json({
-		did: c.env.DID,
-		handle: c.env.HANDLE,
+		did: identity.did,
+		handle: identity.handle,
 		didDoc: {
 			"@context": ["https://www.w3.org/ns/did/v1"],
-			id: c.env.DID,
-			alsoKnownAs: [`at://${c.env.HANDLE}`],
+			id: identity.did,
+			alsoKnownAs: [`at://${identity.handle}`],
 			verificationMethod: [
 				{
-					id: `${c.env.DID}#atproto`,
+					id: `${identity.did}#atproto`,
 					type: "Multikey",
-					controller: c.env.DID,
-					publicKeyMultibase: c.env.SIGNING_KEY_PUBLIC,
+					controller: identity.did,
+					publicKeyMultibase: identity.signingKeyPublic,
 				},
 			],
 		},
@@ -127,15 +130,7 @@ export async function getRecord(
 		);
 	}
 
-	if (repo !== c.env.DID) {
-		return c.json(
-			{
-				error: "RepoNotFound",
-				message: `Repository not found: ${repo}`,
-			},
-			404,
-		);
-	}
+	// Note: DID validation for multi-tenant is done at routing level in index.ts
 
 	const result = await accountDO.rpcGetRecord(collection, rkey);
 
@@ -184,16 +179,6 @@ export async function listRecords(
 		);
 	}
 
-	if (repo !== c.env.DID) {
-		return c.json(
-			{
-				error: "RepoNotFound",
-				message: `Repository not found: ${repo}`,
-			},
-			404,
-		);
-	}
-
 	const limit = Math.min(limitStr ? Number.parseInt(limitStr, 10) : 50, 100);
 	const reverse = reverseStr === "true";
 
@@ -223,7 +208,9 @@ export async function createRecord(
 		);
 	}
 
-	if (repo !== c.env.DID) {
+	// Verify the repo matches the authenticated user
+	const authedDid = c.get("did");
+	if (repo !== authedDid) {
 		return c.json(
 			{
 				error: "InvalidRepo",
@@ -268,7 +255,9 @@ export async function deleteRecord(
 		);
 	}
 
-	if (repo !== c.env.DID) {
+	// Verify the repo matches the authenticated user
+	const authedDid = c.get("did");
+	if (repo !== authedDid) {
 		return c.json(
 			{
 				error: "InvalidRepo",
@@ -317,7 +306,9 @@ export async function putRecord(
 		);
 	}
 
-	if (repo !== c.env.DID) {
+	// Verify the repo matches the authenticated user
+	const authedDid = c.get("did");
+	if (repo !== authedDid) {
 		return c.json(
 			{
 				error: "InvalidRepo",
@@ -368,7 +359,9 @@ export async function applyWrites(
 		);
 	}
 
-	if (repo !== c.env.DID) {
+	// Verify the repo matches the authenticated user
+	const authedDid = c.get("did");
+	if (repo !== authedDid) {
 		return c.json(
 			{
 				error: "InvalidRepo",

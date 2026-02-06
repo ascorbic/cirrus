@@ -19,6 +19,6 @@ export function uniqueRkey(): string {
 	return `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export const TEST_DID = "did:web:test.local";
-export const TEST_HANDLE = "test.local";
-export const TEST_PASSWORD = "test-password"; // Matches PASSWORD_HASH in .dev.vars
+// Test credentials for WebFID format: did:web:NNN.domain where NNN is a FID
+export const TEST_DID = "did:web:1.test.local";
+export const TEST_HANDLE = "1.test.local";

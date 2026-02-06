@@ -28,15 +28,8 @@ export async function getRepo(
 		);
 	}
 
-	if (did !== c.env.DID) {
-		return c.json(
-			{
-				error: "RepoNotFound",
-				message: `Repository not found for DID: ${did}`,
-			},
-			404,
-		);
-	}
+	// Note: DID validation for multi-tenant is done at routing level in index.ts
+	// The accountDO is already routed to the correct DO based on the DID
 
 	const carBytes = await accountDO.rpcGetRepoCar();
 
@@ -70,16 +63,6 @@ export async function getRepoStatus(
 		return c.json(
 			{ error: "InvalidRequest", message: "Invalid DID format" },
 			400,
-		);
-	}
-
-	if (did !== c.env.DID) {
-		return c.json(
-			{
-				error: "RepoNotFound",
-				message: `Repository not found for DID: ${did}`,
-			},
-			404,
 		);
 	}
 
@@ -133,16 +116,6 @@ export async function listBlobs(
 		return c.json(
 			{ error: "InvalidRequest", message: "Invalid DID format" },
 			400,
-		);
-	}
-
-	if (did !== c.env.DID) {
-		return c.json(
-			{
-				error: "RepoNotFound",
-				message: `Repository not found for DID: ${did}`,
-			},
-			404,
 		);
 	}
 
@@ -209,16 +182,6 @@ export async function getBlocks(
 		);
 	}
 
-	if (did !== c.env.DID) {
-		return c.json(
-			{
-				error: "RepoNotFound",
-				message: `Repository not found for DID: ${did}`,
-			},
-			404,
-		);
-	}
-
 	const carBytes = await accountDO.rpcGetBlocks(cidsParam);
 
 	return new Response(carBytes, {
@@ -252,16 +215,6 @@ export async function getBlob(
 		return c.json(
 			{ error: "InvalidRequest", message: "Invalid DID format" },
 			400,
-		);
-	}
-
-	if (did !== c.env.DID) {
-		return c.json(
-			{
-				error: "RepoNotFound",
-				message: `Repository not found for DID: ${did}`,
-			},
-			404,
 		);
 	}
 
@@ -388,17 +341,6 @@ export async function getRecord(
 		return c.json(
 			{ error: "InvalidRequest", message: "Invalid rkey format" },
 			400,
-		);
-	}
-
-	// Check if this is our DID
-	if (did !== c.env.DID) {
-		return c.json(
-			{
-				error: "RepoNotFound",
-				message: `Repository not found for DID: ${did}`,
-			},
-			404,
 		);
 	}
 

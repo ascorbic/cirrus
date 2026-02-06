@@ -103,6 +103,17 @@ export class SqliteRepoStorage
 				expires_at INTEGER NOT NULL,
 				name TEXT
 			);
+
+			-- AT Protocol identity for this account
+			-- Each DO stores exactly one identity (DID, handle, signing keys)
+			CREATE TABLE IF NOT EXISTS atproto_identity (
+				did TEXT PRIMARY KEY,
+				handle TEXT NOT NULL,
+				signing_key TEXT NOT NULL,
+				signing_key_public TEXT NOT NULL,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
 		`);
 
 		// Migration: add email column for existing databases
@@ -681,5 +692,106 @@ export class SqliteRepoStorage
 			"DELETE FROM passkey_tokens WHERE expires_at < ?",
 			Date.now(),
 		);
+	}
+
+	// ============================================
+	// AT Protocol Identity Methods
+	// ============================================
+
+	/**
+	 * Check if AT Protocol identity exists for this account.
+	 */
+	hasAtprotoIdentity(): boolean {
+		const rows = this.sql
+			.exec("SELECT 1 FROM atproto_identity LIMIT 1")
+			.toArray();
+		return rows.length > 0;
+	}
+
+	/**
+	 * Get AT Protocol identity.
+	 */
+	getAtprotoIdentity(): {
+		did: string;
+		handle: string;
+		signingKey: string;
+		signingKeyPublic: string;
+		createdAt: string;
+		updatedAt: string;
+	} | null {
+		const rows = this.sql
+			.exec(
+				`SELECT did, handle, signing_key, signing_key_public, created_at, updated_at
+				 FROM atproto_identity LIMIT 1`,
+			)
+			.toArray();
+
+		if (rows.length === 0) return null;
+
+		const row = rows[0]!;
+		return {
+			did: row.did as string,
+			handle: row.handle as string,
+			signingKey: row.signing_key as string,
+			signingKeyPublic: row.signing_key_public as string,
+			createdAt: row.created_at as string,
+			updatedAt: row.updated_at as string,
+		};
+	}
+
+	/**
+	 * Set AT Protocol identity. Can only be called once per account.
+	 */
+	setAtprotoIdentity(identity: {
+		did: string;
+		handle: string;
+		signingKey: string;
+		signingKeyPublic: string;
+	}): void {
+		if (this.hasAtprotoIdentity()) {
+			throw new Error("AT Protocol identity already exists for this account");
+		}
+
+		this.sql.exec(
+			`INSERT INTO atproto_identity (did, handle, signing_key, signing_key_public)
+			 VALUES (?, ?, ?, ?)`,
+			identity.did,
+			identity.handle,
+			identity.signingKey,
+			identity.signingKeyPublic,
+		);
+	}
+
+	/**
+	 * Get the public signing key (for DID document generation).
+	 */
+	getAtprotoPublicKey(): string | null {
+		const rows = this.sql
+			.exec("SELECT signing_key_public FROM atproto_identity LIMIT 1")
+			.toArray();
+		if (rows.length === 0) return null;
+		return rows[0]!.signing_key_public as string;
+	}
+
+	/**
+	 * Get the private signing key (for signing operations).
+	 */
+	getAtprotoSigningKey(): string | null {
+		const rows = this.sql
+			.exec("SELECT signing_key FROM atproto_identity LIMIT 1")
+			.toArray();
+		if (rows.length === 0) return null;
+		return rows[0]!.signing_key as string;
+	}
+
+	/**
+	 * Get the DID for this account.
+	 */
+	getAtprotoDid(): string | null {
+		const rows = this.sql
+			.exec("SELECT did FROM atproto_identity LIMIT 1")
+			.toArray();
+		if (rows.length === 0) return null;
+		return rows[0]!.did as string;
 	}
 }

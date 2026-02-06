@@ -1,12 +1,20 @@
-// Public API
+/**
+ * Multi-tenant PDS Entry Point for fid.is
+ *
+ * This is the worker entry point for the Farcaster-to-ATProto bridge.
+ * It handles multiple users with:
+ * - Wildcard subdomain routing (NNN.fid.is)
+ * - DID-based DO routing (deterministic from DID)
+ * - Dynamic DID document generation
+ * - Farcaster Quick Auth for authentication
+ */
+
+// Public API exports
 export { AccountDurableObject } from "./account-do";
 export type { PDSEnv, DataLocation } from "./types";
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { env as _env } from "cloudflare:workers";
-import { Secp256k1Keypair } from "@atproto/crypto";
-import { isDid, isHandle } from "@atcute/lexicons/syntax";
 import { requireAuth } from "./middleware/auth";
 import { DidResolver } from "./did-resolver";
 import { WorkersDidCache } from "./did-cache";
@@ -15,63 +23,24 @@ import { createOAuthApp } from "./oauth";
 import * as sync from "./xrpc/sync";
 import * as repo from "./xrpc/repo";
 import * as server from "./xrpc/server";
-import * as identity from "./xrpc/identity";
-import * as passkey from "./passkey";
+import * as fidAccount from "./xrpc/fid-account";
 import {
-	renderPasskeyRegistrationPage,
-	renderPasskeyErrorPage,
-	getPasskeyUiCsp,
-	PASSKEY_ERROR_CSP,
-} from "./passkey-ui";
-import type { PDSEnv } from "./types";
+	hostnameToFid,
+	fidToDid,
+	fidToHandle,
+} from "./farcaster-auth";
+import type { PDSEnv, AppEnv } from "./types";
+import type { AccountDurableObject } from "./account-do";
 
 import { version } from "../package.json" with { type: "json" };
 
-// Cast env to PDSEnv for type safety
-const env = _env as PDSEnv;
-
-// Validate required environment variables at module load
-const required = [
-	"DID",
-	"HANDLE",
-	"PDS_HOSTNAME",
-	"AUTH_TOKEN",
-	"SIGNING_KEY",
-	"SIGNING_KEY_PUBLIC",
-	"JWT_SECRET",
-	"PASSWORD_HASH",
-] as const;
-
-for (const key of required) {
-	if (!env[key]) {
-		throw new Error(`Missing required environment variable: ${key}`);
-	}
-}
-
-// Validate DID and handle formats
-if (!isDid(env.DID)) {
-	throw new Error(`Invalid DID format: ${env.DID}`);
-}
-if (!isHandle(env.HANDLE)) {
-	throw new Error(`Invalid handle format: ${env.HANDLE}`);
-}
-
 const didResolver = new DidResolver({
 	didCache: new WorkersDidCache(),
-	timeout: 3000, // 3 second timeout for DID resolution
+	timeout: 3000,
 	plcUrl: "https://plc.directory",
 });
 
-// Lazy-loaded keypair for service auth
-let keypairPromise: Promise<Secp256k1Keypair> | null = null;
-function getKeypair(): Promise<Secp256k1Keypair> {
-	if (!keypairPromise) {
-		keypairPromise = Secp256k1Keypair.import(env.SIGNING_KEY);
-	}
-	return keypairPromise;
-}
-
-const app = new Hono<{ Bindings: PDSEnv }>();
+const app = new Hono<AppEnv>();
 
 // CORS middleware for all routes
 app.use(
@@ -85,18 +54,24 @@ app.use(
 	}),
 );
 
-// Helper to get Account DO stub with optional data location
-function getAccountDO(env: PDSEnv) {
+/**
+ * Get Account DO stub using DID-based deterministic routing.
+ * The DID is used as the DO name for consistent routing.
+ */
+function getAccountDO(
+	env: PDSEnv,
+	did: string,
+): DurableObjectStub<AccountDurableObject> {
 	const location = env.DATA_LOCATION;
 
 	// "eu" is a jurisdiction (hard guarantee), everything else is a hint (best-effort)
 	if (location === "eu") {
 		const namespace = env.ACCOUNT.jurisdiction("eu");
-		return namespace.get(namespace.idFromName("account"));
+		return namespace.get(namespace.idFromName(did));
 	}
 
 	// Location hints (or "auto"/undefined = no constraint)
-	const id = env.ACCOUNT.idFromName("account");
+	const id = env.ACCOUNT.idFromName(did);
 	if (location && location !== "auto") {
 		return env.ACCOUNT.get(id, { locationHint: location });
 	}
@@ -104,55 +79,117 @@ function getAccountDO(env: PDSEnv) {
 	return env.ACCOUNT.get(id);
 }
 
-// DID document for did:web resolution
-app.get("/.well-known/did.json", (c) => {
+/**
+ * Escape special regex characters in a string.
+ */
+function escapeRegex(str: string): string {
+	return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Extract FID from subdomain hostname.
+ * Used for well-known endpoints served on NNN.{domain}.
+ */
+function extractFidFromSubdomain(hostname: string, domain: string): string | null {
+	return hostnameToFid(hostname, domain);
+}
+
+/**
+ * Check if a DID is a WebFID DID that we can route to.
+ */
+function isWebFidDid(did: string, domain: string): boolean {
+	const regex = new RegExp(`^did:web:\\d+\\.${escapeRegex(domain)}$`);
+	return regex.test(did);
+}
+
+// ============================================
+// OAuth 2.1 Endpoints (served on NNN.fid.is per-user subdomains)
+// ============================================
+
+// Mount OAuth routes - handles /.well-known/oauth-* and /oauth/*
+const oauthApp = createOAuthApp(getAccountDO);
+app.route("/", oauthApp);
+
+// ============================================
+// Well-Known Endpoints (served on NNN.fid.is)
+// ============================================
+
+// Handle resolution: NNN.{domain}/.well-known/atproto-did -> did:web:NNN.{domain}
+app.get("/.well-known/atproto-did", async (c) => {
+	const hostname = new URL(c.req.url).hostname;
+	const domain = c.env.WEBFID_DOMAIN;
+	const fid = extractFidFromSubdomain(hostname, domain);
+
+	if (!fid) {
+		return c.text("Invalid hostname", 400);
+	}
+
+	// Return the deterministic DID
+	const did = fidToDid(fid, domain);
+	return new Response(did, {
+		headers: { "Content-Type": "text/plain" },
+	});
+});
+
+// DID document: NNN.{domain}/.well-known/did.json
+app.get("/.well-known/did.json", async (c) => {
+	const hostname = new URL(c.req.url).hostname;
+	const domain = c.env.WEBFID_DOMAIN;
+	const fid = extractFidFromSubdomain(hostname, domain);
+
+	if (!fid) {
+		return c.json({ error: "InvalidHostname", message: "Invalid hostname" }, 400);
+	}
+
+	const did = fidToDid(fid, domain);
+	const handle = fidToHandle(fid, domain);
+
+	// Fetch the public key from the account's DO (route by DID)
+	const accountDO = getAccountDO(c.env, did);
+	const publicKey = await accountDO.rpcGetAtprotoPublicKey();
+
+	if (!publicKey) {
+		return c.json(
+			{ error: "AccountNotFound", message: "Account not found" },
+			404,
+		);
+	}
+
 	const didDocument = {
 		"@context": [
 			"https://www.w3.org/ns/did/v1",
 			"https://w3id.org/security/multikey/v1",
 			"https://w3id.org/security/suites/secp256k1-2019/v1",
 		],
-		id: c.env.DID,
-		alsoKnownAs: [`at://${c.env.HANDLE}`],
+		id: did,
+		alsoKnownAs: [`at://${handle}`],
 		verificationMethod: [
 			{
-				id: `${c.env.DID}#atproto`,
+				id: `${did}#atproto`,
 				type: "Multikey",
-				controller: c.env.DID,
-				publicKeyMultibase: c.env.SIGNING_KEY_PUBLIC,
+				controller: did,
+				publicKeyMultibase: publicKey,
 			},
 		],
 		service: [
 			{
 				id: "#atproto_pds",
 				type: "AtprotoPersonalDataServer",
-				serviceEndpoint: `https://${c.env.PDS_HOSTNAME}`,
+				// Use per-user subdomain as PDS endpoint (matches DID structure)
+				serviceEndpoint: `https://${handle}`,
 			},
 		],
 	};
 	return c.json(didDocument);
 });
 
-// Handle verification for AT Protocol
-// Only served if handle matches PDS hostname
-app.get("/.well-known/atproto-did", (c) => {
-	if (c.env.HANDLE !== c.env.PDS_HOSTNAME) {
-		return c.notFound();
-	}
-	return new Response(c.env.DID, {
-		headers: { "Content-Type": "text/plain" },
-	});
-});
+// ============================================
+// XRPC Endpoints (served on NNN.fid.is per-user subdomains)
+// ============================================
 
-// Health check - AT Protocol standard path
-app.get("/xrpc/_health", async (c) => {
-	try {
-		const accountDO = getAccountDO(c.env);
-		await accountDO.rpcHealthCheck();
-		return c.json({ status: "ok", version });
-	} catch {
-		return c.json({ status: "unhealthy", version }, 503);
-	}
+// Health check
+app.get("/xrpc/_health", (c) => {
+	return c.json({ status: "ok", version });
 });
 
 // Homepage
@@ -162,7 +199,7 @@ app.get("/", (c) => {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>☁️</title>
+<title>fid.is PDS</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -176,166 +213,238 @@ body {
 	color: #000;
 	padding: 2rem;
 }
-.cloud { font-size: clamp(4rem, 15vw, 10rem); line-height: 1; }
+.logo { font-size: clamp(4rem, 15vw, 10rem); line-height: 1; }
 .name { font-size: clamp(1.5rem, 5vw, 3rem); font-weight: 700; letter-spacing: 0.2em; margin: 1rem 0; }
-.what { font-size: clamp(0.8rem, 2vw, 1rem); color: #666; max-width: 300px; text-align: center; }
-.handle { font-size: clamp(0.9rem, 2.5vw, 1.2rem); margin-top: 2rem; padding: 0.5rem 1rem; border: 2px solid #000; }
-:is(.handle, .name) a { color: inherit; text-decoration: none; }
-:is(.handle, .name) a:hover { text-decoration: underline; }
+.what { font-size: clamp(0.8rem, 2vw, 1rem); color: #666; max-width: 400px; text-align: center; }
 .version { position: fixed; bottom: 1rem; right: 1rem; font-size: 0.7rem; color: #999; }
 </style>
 </head>
 <body>
-<div class="cloud">☁️</div>
-<div class="name"><a href="https://github.com/ascorbic/cirrus">CIRRUS</a></div>
-<div class="what">a personal data server for the atmosphere</div>
-<div class="handle"><a href="https://bsky.app/profile/${c.env.HANDLE}" target="_blank">@${c.env.HANDLE}</a></div>
+<div class="logo">🟣</div>
+<div class="name">FID.IS</div>
+<div class="what">Farcaster-to-ATProto Bridge<br/>Bring your FID to the Atmosphere</div>
 <div class="version">v${version}</div>
 </body>
 </html>`;
 	return c.html(html);
 });
 
-// Sync endpoints (federation)
-app.get("/xrpc/com.atproto.sync.getRepo", (c) =>
-	sync.getRepo(c, getAccountDO(c.env)),
-);
-app.get("/xrpc/com.atproto.sync.getRepoStatus", (c) =>
-	sync.getRepoStatus(c, getAccountDO(c.env)),
-);
-app.get("/xrpc/com.atproto.sync.getBlocks", (c) =>
-	sync.getBlocks(c, getAccountDO(c.env)),
-);
-app.get("/xrpc/com.atproto.sync.getBlob", (c) =>
-	sync.getBlob(c, getAccountDO(c.env)),
-);
-app.get("/xrpc/com.atproto.sync.listRepos", (c) =>
-	sync.listRepos(c, getAccountDO(c.env)),
-);
-app.get("/xrpc/com.atproto.sync.listBlobs", (c) =>
-	sync.listBlobs(c, getAccountDO(c.env)),
-);
-app.get("/xrpc/com.atproto.sync.getRecord", (c) =>
-	sync.getRecord(c, getAccountDO(c.env)),
-);
+// Server description
+app.get("/xrpc/com.atproto.server.describeServer", (c) => {
+	// In per-user subdomain mode, derive DID from hostname
+	const hostname = new URL(c.req.url).hostname;
+	const domain = c.env.WEBFID_DOMAIN;
+	const fid = extractFidFromSubdomain(hostname, domain);
 
-// WebSocket firehose
-app.get("/xrpc/com.atproto.sync.subscribeRepos", async (c) => {
-	const upgradeHeader = c.req.header("Upgrade");
-	if (upgradeHeader !== "websocket") {
+	if (fid === null) {
 		return c.json(
-			{ error: "InvalidRequest", message: "Expected WebSocket upgrade" },
+			{ error: "InvalidRequest", message: "Invalid hostname" },
 			400,
 		);
 	}
 
-	// Use fetch() instead of RPC to avoid WebSocket serialization error
-	const accountDO = getAccountDO(c.env);
-	return accountDO.fetch(c.req.raw);
+	return c.json({
+		did: fidToDid(fid, domain),
+		availableUserDomains: [domain],
+		inviteCodeRequired: false,
+	});
 });
 
-// Repository operations - handle local repo directly, proxy foreign DIDs to AppView
-app.use("/xrpc/com.atproto.repo.describeRepo", async (c, next) => {
-	const requestedRepo = c.req.query("repo");
-	if (!requestedRepo || requestedRepo === c.env.DID) {
-		return repo.describeRepo(c, getAccountDO(c.env));
-	}
-	await next();
-});
+// ============================================
+// FID Account Management Endpoints
+// ============================================
 
-app.use("/xrpc/com.atproto.repo.getRecord", async (c, next) => {
-	const requestedRepo = c.req.query("repo");
-	if (!requestedRepo || requestedRepo === c.env.DID) {
-		return repo.getRecord(c, getAccountDO(c.env));
-	}
-	await next();
-});
-
-app.use("/xrpc/com.atproto.repo.listRecords", async (c, next) => {
-	const requestedRepo = c.req.query("repo");
-	if (!requestedRepo || requestedRepo === c.env.DID) {
-		return repo.listRecords(c, getAccountDO(c.env));
-	}
-	await next();
-});
-
-// Write operations require authentication
-app.post("/xrpc/com.atproto.repo.createRecord", requireAuth, (c) =>
-	repo.createRecord(c, getAccountDO(c.env)),
-);
-app.post("/xrpc/com.atproto.repo.deleteRecord", requireAuth, (c) =>
-	repo.deleteRecord(c, getAccountDO(c.env)),
-);
-app.post("/xrpc/com.atproto.repo.uploadBlob", requireAuth, (c) =>
-	repo.uploadBlob(c, getAccountDO(c.env)),
-);
-app.post("/xrpc/com.atproto.repo.applyWrites", requireAuth, (c) =>
-	repo.applyWrites(c, getAccountDO(c.env)),
-);
-app.post("/xrpc/com.atproto.repo.putRecord", requireAuth, (c) =>
-	repo.putRecord(c, getAccountDO(c.env)),
-);
-app.post("/xrpc/com.atproto.repo.importRepo", requireAuth, (c) =>
-	repo.importRepo(c, getAccountDO(c.env)),
-);
-app.get("/xrpc/com.atproto.repo.listMissingBlobs", requireAuth, (c) =>
-	repo.listMissingBlobs(c, getAccountDO(c.env)),
+// Create account with Farcaster auth
+app.post("/xrpc/is.fid.account.create", (c) =>
+	fidAccount.createAccount(c, getAccountDO),
 );
 
-// Server identity
-app.get("/xrpc/com.atproto.server.describeServer", server.describeServer);
+// Login with Farcaster auth
+app.post("/xrpc/is.fid.auth.login", (c) =>
+	fidAccount.loginWithFarcaster(c, getAccountDO),
+);
 
-// Handle resolution - return our DID for our handle, let others fall through to proxy
+// Login with Sign In With Farcaster (browser-based)
+app.post("/xrpc/is.fid.auth.siwf", (c) =>
+	fidAccount.loginWithSiwf(c, getAccountDO),
+);
+
+// ============================================
+// Handle Resolution
+// ============================================
+
+// Resolve handle - check if it matches our subdomain pattern
 app.use("/xrpc/com.atproto.identity.resolveHandle", async (c, next) => {
 	const handle = c.req.query("handle");
-	if (handle === c.env.HANDLE) {
-		return c.json({ did: c.env.DID });
+	if (!handle) {
+		await next();
+		return;
 	}
+
+	// Check if handle matches our subdomain pattern (NNN.{domain})
+	// Users can change their handle to any DNS name, so we only resolve
+	// handles that still match our subdomain format. Others get proxied.
+	const domain = c.env.WEBFID_DOMAIN;
+	const fid = hostnameToFid(handle, domain);
+	if (fid !== null) {
+		// Handle matches subdomain pattern - derive DID and check if account exists
+		const did = fidToDid(fid, domain);
+		const accountDO = getAccountDO(c.env, did);
+		const hasCredentials = await accountDO.rpcHasAtprotoIdentity();
+		if (hasCredentials) {
+			return c.json({ did });
+		}
+	}
+
+	// Handle doesn't match our pattern or account doesn't exist, proxy to AppView
 	await next();
 });
 
-// Identity management for outbound migration
-// These endpoints allow migrating FROM Cirrus to another PDS
-app.post(
-	"/xrpc/com.atproto.identity.requestPlcOperationSignature",
-	requireAuth,
-	identity.requestPlcOperationSignature,
-);
-app.post(
-	"/xrpc/com.atproto.identity.signPlcOperation",
-	requireAuth,
-	identity.signPlcOperation,
-);
-app.get(
-	"/xrpc/gg.mk.experimental.getMigrationToken",
-	requireAuth,
-	identity.getMigrationToken,
-);
+// ============================================
+// Session Management (with Farcaster auth)
+// ============================================
 
-// Session management
-app.post("/xrpc/com.atproto.server.createSession", (c) =>
-	server.createSession(c, getAccountDO(c.env)),
-);
+app.post("/xrpc/com.atproto.server.createSession", server.createSession);
 app.post("/xrpc/com.atproto.server.refreshSession", (c) =>
-	server.refreshSession(c, getAccountDO(c.env)),
+	server.refreshSession(c, getAccountDO),
 );
 app.get("/xrpc/com.atproto.server.getSession", (c) =>
-	server.getSession(c, getAccountDO(c.env)),
+	server.getSession(c, getAccountDO),
 );
 app.post("/xrpc/com.atproto.server.deleteSession", server.deleteSession);
 
-// Account lifecycle
-app.get("/xrpc/com.atproto.server.checkAccountStatus", requireAuth, (c) =>
-	server.checkAccountStatus(c, getAccountDO(c.env)),
+// ============================================
+// Sync Endpoints (require FID context from auth)
+// ============================================
+
+// These endpoints use DID directly from the query parameter
+app.get("/xrpc/com.atproto.sync.getRepo", async (c) => {
+	const did = c.req.query("did");
+	if (!did) {
+		return c.json({ error: "InvalidRequest", message: "Missing did parameter" }, 400);
+	}
+
+	// Validate it's a routeable DID (WebFID)
+	const domain = c.env.WEBFID_DOMAIN;
+	if (!isWebFidDid(did, domain)) {
+		return c.json({ error: "InvalidRequest", message: `Not a ${domain} DID` }, 400);
+	}
+
+	return sync.getRepo(c as any, getAccountDO(c.env, did));
+});
+
+app.get("/xrpc/com.atproto.sync.getRepoStatus", async (c) => {
+	const did = c.req.query("did");
+	if (!did) {
+		return c.json({ error: "InvalidRequest", message: "Missing did parameter" }, 400);
+	}
+
+	const domain = c.env.WEBFID_DOMAIN;
+	if (!isWebFidDid(did, domain)) {
+		return c.json({ error: "InvalidRequest", message: `Not a ${domain} DID` }, 400);
+	}
+
+	return sync.getRepoStatus(c as any, getAccountDO(c.env, did));
+});
+
+app.get("/xrpc/com.atproto.sync.listRepos", (c) => {
+	// This would need to enumerate all accounts - not supported in multi-tenant mode
+	return c.json({ repos: [], cursor: undefined });
+});
+
+// ============================================
+// Repository Operations (require auth)
+// ============================================
+
+// Read operations - use DID directly from repo param
+app.use("/xrpc/com.atproto.repo.describeRepo", async (c, next) => {
+	const did = c.req.query("repo");
+	const domain = c.env.WEBFID_DOMAIN;
+	if (!did || !isWebFidDid(did, domain)) {
+		await next();
+		return;
+	}
+	return repo.describeRepo(c as any, getAccountDO(c.env, did));
+});
+
+app.use("/xrpc/com.atproto.repo.getRecord", async (c, next) => {
+	const did = c.req.query("repo");
+	const domain = c.env.WEBFID_DOMAIN;
+	if (!did || !isWebFidDid(did, domain)) {
+		await next();
+		return;
+	}
+	return repo.getRecord(c as any, getAccountDO(c.env, did));
+});
+
+app.use("/xrpc/com.atproto.repo.listRecords", async (c, next) => {
+	const did = c.req.query("repo");
+	const domain = c.env.WEBFID_DOMAIN;
+	if (!did || !isWebFidDid(did, domain)) {
+		await next();
+		return;
+	}
+	return repo.listRecords(c as any, getAccountDO(c.env, did));
+});
+
+// Write operations - require auth and use authenticated DID
+app.post(
+	"/xrpc/com.atproto.repo.createRecord",
+	requireAuth,
+	(c: any) => repo.createRecord(c, getAccountDO(c.env, c.get("did"))),
 );
-app.post("/xrpc/com.atproto.server.activateAccount", requireAuth, (c) =>
-	server.activateAccount(c, getAccountDO(c.env)),
+app.post(
+	"/xrpc/com.atproto.repo.deleteRecord",
+	requireAuth,
+	(c: any) => repo.deleteRecord(c, getAccountDO(c.env, c.get("did"))),
 );
-app.post("/xrpc/com.atproto.server.deactivateAccount", requireAuth, (c) =>
-	server.deactivateAccount(c, getAccountDO(c.env)),
+app.post(
+	"/xrpc/com.atproto.repo.uploadBlob",
+	requireAuth,
+	(c: any) => repo.uploadBlob(c, getAccountDO(c.env, c.get("did"))),
 );
-app.post("/xrpc/gg.mk.experimental.resetMigration", requireAuth, (c) =>
-	server.resetMigration(c, getAccountDO(c.env)),
+app.post(
+	"/xrpc/com.atproto.repo.applyWrites",
+	requireAuth,
+	(c: any) => repo.applyWrites(c, getAccountDO(c.env, c.get("did"))),
+);
+app.post(
+	"/xrpc/com.atproto.repo.putRecord",
+	requireAuth,
+	(c: any) => repo.putRecord(c, getAccountDO(c.env, c.get("did"))),
+);
+app.post(
+	"/xrpc/com.atproto.repo.importRepo",
+	requireAuth,
+	(c: any) => repo.importRepo(c, getAccountDO(c.env, c.get("did"))),
+);
+app.get(
+	"/xrpc/com.atproto.repo.listMissingBlobs",
+	requireAuth,
+	(c: any) => repo.listMissingBlobs(c, getAccountDO(c.env, c.get("did"))),
+);
+
+// ============================================
+// Account Lifecycle
+// ============================================
+
+app.get(
+	"/xrpc/com.atproto.server.checkAccountStatus",
+	requireAuth,
+	(c: any) => server.checkAccountStatus(c, getAccountDO(c.env, c.get("did"))),
+);
+app.post(
+	"/xrpc/com.atproto.server.activateAccount",
+	requireAuth,
+	(c: any) => server.activateAccount(c, getAccountDO(c.env, c.get("did"))),
+);
+app.post(
+	"/xrpc/com.atproto.server.deactivateAccount",
+	requireAuth,
+	(c: any) => server.deactivateAccount(c, getAccountDO(c.env, c.get("did"))),
+);
+app.post("/xrpc/gg.mk.experimental.resetMigration", requireAuth, (c: any) =>
+	server.resetMigration(c, getAccountDO(c.env, c.get("did"))),
 );
 app.post(
 	"/xrpc/com.atproto.server.requestEmailUpdate",
@@ -347,175 +456,59 @@ app.post(
 	requireAuth,
 	server.requestEmailConfirmation,
 );
-app.post("/xrpc/com.atproto.server.updateEmail", requireAuth, (c) =>
-	server.updateEmail(c, getAccountDO(c.env)),
+app.post("/xrpc/com.atproto.server.updateEmail", requireAuth, (c: any) =>
+	server.updateEmail(c, getAccountDO(c.env, c.get("did"))),
 );
 
-// Service auth - used by clients to get JWTs for external services (video, etc.)
-app.get(
-	"/xrpc/com.atproto.server.getServiceAuth",
-	requireAuth,
-	server.getServiceAuth,
-);
+// ============================================
+// Preferences
+// ============================================
 
-// Actor preferences
-app.get("/xrpc/app.bsky.actor.getPreferences", requireAuth, async (c) => {
-	const accountDO = getAccountDO(c.env);
-	const result = await accountDO.rpcGetPreferences();
-	return c.json(result);
+app.get("/xrpc/app.bsky.actor.getPreferences", requireAuth, async (c: any) => {
+	const accountDO = getAccountDO(c.env, c.get("did"));
+	const result = accountDO.rpcGetPreferences();
+	return c.json(await result);
 });
-app.post("/xrpc/app.bsky.actor.putPreferences", requireAuth, async (c) => {
-	const body = await c.req.json<{ preferences: unknown[] }>();
-	const accountDO = getAccountDO(c.env);
+
+app.post("/xrpc/app.bsky.actor.putPreferences", requireAuth, async (c: any) => {
+	const body = (await c.req.json()) as { preferences: unknown[] };
+	const accountDO = getAccountDO(c.env, c.get("did"));
 	await accountDO.rpcPutPreferences(body.preferences);
 	return c.json({});
 });
 
-// Age assurance (stub - self-hosted users are pre-verified)
-app.get("/xrpc/app.bsky.ageassurance.getState", requireAuth, (c) => {
-	return c.json({
-		state: {
-			status: "assured",
-			access: "full",
-			lastInitiatedAt: new Date().toISOString(),
-		},
-		metadata: {
-			accountCreatedAt: new Date().toISOString(),
-		},
-	});
-});
+// ============================================
+// Service Auth
+// ============================================
 
-// Emit identity event to refresh handle verification with relays
-app.post("/xrpc/gg.mk.experimental.emitIdentityEvent", requireAuth, async (c) => {
-	const accountDO = getAccountDO(c.env);
-	const result = await accountDO.rpcEmitIdentityEvent(c.env.HANDLE);
-	return c.json(result);
-});
-
-// Firehose status (authenticated)
-app.get(
-	"/xrpc/gg.mk.experimental.getFirehoseStatus",
-	requireAuth,
-	async (c) => {
-		const accountDO = getAccountDO(c.env);
-		return c.json(await accountDO.rpcGetFirehoseStatus());
-	},
+app.get("/xrpc/com.atproto.server.getServiceAuth", requireAuth, (c: any) =>
+	server.getServiceAuth(c, getAccountDO(c.env, c.get("did"))),
 );
 
 // ============================================
-// Passkey Routes
+// Proxy Unhandled XRPC to AppView
 // ============================================
 
-// Initialize passkey registration (authenticated)
-app.post("/passkey/init", requireAuth, async (c) => {
-	const accountDO = getAccountDO(c.env);
-	const body = await c.req.json<{ name?: string }>().catch(() => ({} as { name?: string }));
-	try {
-		const result = await passkey.initPasskeyRegistration(
-			accountDO,
-			c.env.PDS_HOSTNAME,
-			c.env.DID,
-			body.name,
-		);
-		return c.json(result);
-	} catch (err) {
-		console.error("Passkey init error:", err);
-		const message = err instanceof Error ? err.message : String(err);
-		return c.json({ error: "PasskeyInitFailed", message }, 500);
+app.all("/xrpc/*", async (c) => {
+	// For proxy, we need to create a service JWT
+	// In multi-tenant mode, we'd need to get the keypair from the authenticated user's DO
+	// For now, proxy without service auth for public endpoints
+	const auth = c.req.header("Authorization");
+	if (!auth) {
+		// No auth, just proxy as-is
+		return handleXrpcProxy(c as any, didResolver, async () => {
+			throw new Error("No keypair available for unauthenticated requests");
+		}, getAccountDO);
 	}
+
+	// TODO: For authenticated proxy requests, we'd need to:
+	// 1. Verify the token and get the DID
+	// 2. Load the keypair from that user's DO
+	// 3. Create service JWT with their identity
+	// For now, this is a limitation of the multi-tenant architecture
+	return handleXrpcProxy(c as any, didResolver, async () => {
+		throw new Error("Authenticated proxy not yet implemented");
+	}, getAccountDO);
 });
-
-// Passkey registration page (GET - renders UI)
-app.get("/passkey/register", async (c) => {
-	const token = c.req.query("token");
-	if (!token) {
-		return c.html(
-			renderPasskeyErrorPage("missing_token", "No registration token provided."),
-			400,
-			{ "Content-Security-Policy": PASSKEY_ERROR_CSP },
-		);
-	}
-
-	const accountDO = getAccountDO(c.env);
-	const options = await passkey.getRegistrationOptions(
-		accountDO,
-		c.env.PDS_HOSTNAME,
-		c.env.DID,
-		token,
-	);
-
-	if (!options) {
-		return c.html(
-			renderPasskeyErrorPage("invalid_token", "Invalid or expired registration token."),
-			400,
-			{ "Content-Security-Policy": PASSKEY_ERROR_CSP },
-		);
-	}
-
-	const csp = await getPasskeyUiCsp();
-	return c.html(
-		renderPasskeyRegistrationPage({
-			options,
-			token,
-			handle: c.env.HANDLE,
-		}),
-		200,
-		{ "Content-Security-Policy": csp },
-	);
-});
-
-// Complete passkey registration (POST - receives WebAuthn response)
-app.post("/passkey/register", async (c) => {
-	const body = await c.req.json<{
-		token: string;
-		response: any;
-	}>();
-
-	if (!body.token || !body.response) {
-		return c.json({ success: false, error: "Missing token or response" }, 400);
-	}
-
-	const accountDO = getAccountDO(c.env);
-	// Name comes from the token (set during init)
-	const result = await passkey.completePasskeyRegistration(
-		accountDO,
-		c.env.PDS_HOSTNAME,
-		body.token,
-		body.response,
-	);
-
-	if (result.success) {
-		return c.json({ success: true });
-	} else {
-		return c.json({ success: false, error: result.error }, 400);
-	}
-});
-
-// List passkeys (authenticated)
-app.get("/passkey/list", requireAuth, async (c) => {
-	const accountDO = getAccountDO(c.env);
-	const passkeys = await passkey.listPasskeys(accountDO);
-	return c.json({ passkeys });
-});
-
-// Delete passkey (authenticated)
-app.post("/passkey/delete", requireAuth, async (c) => {
-	const body = await c.req.json<{ id: string }>();
-	if (!body.id) {
-		return c.json({ success: false, error: "Missing passkey ID" }, 400);
-	}
-
-	const accountDO = getAccountDO(c.env);
-	const deleted = await passkey.deletePasskey(accountDO, body.id);
-	return c.json({ success: deleted });
-});
-
-// OAuth 2.1 endpoints for "Login with Bluesky"
-const oauthApp = createOAuthApp(getAccountDO);
-app.route("/", oauthApp);
-
-// Proxy unhandled XRPC requests to services specified via atproto-proxy header
-// or fall back to Bluesky services for backward compatibility
-app.all("/xrpc/*", (c) => handleXrpcProxy(c, didResolver, getKeypair));
 
 export default app;

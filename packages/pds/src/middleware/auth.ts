@@ -1,20 +1,30 @@
+/**
+ * Authentication middleware for multi-tenant PDS.
+ *
+ * Verifies session JWTs and extracts the DID from the JWT subject claim.
+ * In per-user subdomain mode, the JWT audience is derived from the request hostname.
+ */
+
 import type { Context, Next } from "hono";
-import { verifyServiceJwt } from "../service-auth";
 import { verifyAccessToken, TokenExpiredError } from "../session";
-import { getProvider } from "../oauth";
+import { hostnameToFid, fidToDid } from "../farcaster-auth";
 import type { PDSEnv } from "../types";
 
-export interface AuthInfo {
-	did: string;
-	scope: string;
-}
-
+/** Variables set by the auth middleware */
 export type AuthVariables = {
-	auth: AuthInfo;
+	/** The authenticated user's DID */
+	did: string;
 };
 
+/**
+ * Middleware that requires authentication.
+ * Verifies the session JWT and extracts DID from the subject claim.
+ */
 export async function requireAuth(
-	c: Context<{ Bindings: PDSEnv; Variables: AuthVariables }>,
+	c: Context<{
+		Bindings: PDSEnv;
+		Variables: Partial<AuthVariables>;
+	}>,
 	next: Next,
 ): Promise<Response | void> {
 	const auth = c.req.header("Authorization");
@@ -29,27 +39,7 @@ export async function requireAuth(
 		);
 	}
 
-	// Handle DPoP-bound OAuth tokens
-	if (auth.startsWith("DPoP ")) {
-		const provider = getProvider(c.env);
-
-		// Verify OAuth access token with DPoP proof
-		const tokenData = await provider.verifyAccessToken(c.req.raw);
-		if (!tokenData) {
-			return c.json(
-				{
-					error: "AuthenticationRequired",
-					message: "Invalid OAuth access token",
-				},
-				401,
-			);
-		}
-
-		c.set("auth", { did: tokenData.sub, scope: tokenData.scope });
-		return next();
-	}
-
-	// Handle Bearer tokens (session JWTs, static token, service JWTs)
+	// Only support Bearer tokens (session JWTs)
 	if (!auth.startsWith("Bearer ")) {
 		return c.json(
 			{
@@ -62,16 +52,13 @@ export async function requireAuth(
 
 	const token = auth.slice(7);
 
-	// Try static token first (backwards compatibility)
-	if (token === c.env.AUTH_TOKEN) {
-		c.set("auth", { did: c.env.DID, scope: "com.atproto.access" });
-		return next();
-	}
+	// Derive service DID from request hostname (per-user subdomain mode)
+	const hostname = new URL(c.req.url).hostname;
+	const domain = c.env.WEBFID_DOMAIN;
+	const fid = hostnameToFid(hostname, domain);
+	// If on a valid subdomain, use that user's DID for JWT audience
+	const serviceDid = fid ? fidToDid(fid, domain) : `did:web:${hostname}`;
 
-	const serviceDid = `did:web:${c.env.PDS_HOSTNAME}`;
-
-	// Try session JWT verification (HS256, signed with JWT_SECRET)
-	// Used by Bluesky app for normal operations (posts, likes, etc.)
 	try {
 		const payload = await verifyAccessToken(
 			token,
@@ -79,23 +66,23 @@ export async function requireAuth(
 			serviceDid,
 		);
 
-		// Verify subject matches our DID
-		if (payload.sub !== c.env.DID) {
+		const did = payload.sub;
+		if (!did) {
 			return c.json(
 				{
 					error: "AuthenticationRequired",
-					message: "Invalid access token",
+					message: "Invalid access token - missing subject",
 				},
 				401,
 			);
 		}
 
-		// Store auth info in context for downstream use
-		c.set("auth", { did: payload.sub, scope: payload.scope as string });
+		// Store DID in context for handlers
+		c.set("did", did);
+
 		return next();
 	} catch (err) {
 		// Match official PDS: expired tokens return 400 with 'ExpiredToken'
-		// This is required for clients to trigger automatic token refresh
 		if (err instanceof TokenExpiredError) {
 			return c.json(
 				{
@@ -105,31 +92,13 @@ export async function requireAuth(
 				400,
 			);
 		}
-		// Session JWT verification failed for other reasons, try service JWT
-	}
 
-	// Try service JWT verification (ES256K, signed with our signing key)
-	// Used by external services (like video.bsky.app) calling back to our PDS
-	try {
-		const payload = await verifyServiceJwt(
-			token,
-			c.env.SIGNING_KEY,
-			serviceDid, // audience should be our PDS
-			c.env.DID, // issuer should be the user's DID
+		return c.json(
+			{
+				error: "AuthenticationRequired",
+				message: "Invalid authentication token",
+			},
+			401,
 		);
-
-		// Store auth info in context
-		c.set("auth", { did: payload.iss, scope: payload.lxm || "atproto" });
-		return next();
-	} catch {
-		// Service JWT verification also failed
 	}
-
-	return c.json(
-		{
-			error: "AuthenticationRequired",
-			message: "Invalid authentication token",
-		},
-		401,
-	);
 }

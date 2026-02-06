@@ -35,26 +35,34 @@ export type DataLocation =
 	| "me"; // Middle East (hint)
 
 /**
- * Environment bindings required by the PDS worker.
- * Consumers must provide these bindings in their wrangler config.
+ * AT Protocol identity stored per-account in the Durable Object.
+ * Generated during account creation and stored in SQLite.
+ *
+ * Note: For did:web DIDs, the DID and handle are derivable from each other
+ * (e.g., did:web:123.fid.is <-> 123.fid.is), but both are stored for convenience.
+ */
+export interface AtprotoIdentity {
+	/** The account's DID (e.g., did:web:123.fid.is) */
+	did: string;
+	/** The account's handle (e.g., 123.fid.is) */
+	handle: string;
+	/** Private signing key (hex-encoded) */
+	signingKey: string;
+	/** Public signing key (multibase-encoded) */
+	signingKeyPublic: string;
+}
+
+/**
+ * Environment bindings for the multi-tenant PDS.
+ * AT Protocol identity is stored per-account in DO SQLite, not in env vars.
  */
 export interface PDSEnv {
-	/** The account's DID (e.g., did:web:example.com) */
-	DID: string;
-	/** The account's handle (e.g., alice.example.com) */
-	HANDLE: string;
-	/** Public hostname of the PDS */
-	PDS_HOSTNAME: string;
-	/** Bearer token for write operations */
-	AUTH_TOKEN: string;
-	/** Private signing key (hex-encoded) */
-	SIGNING_KEY: string;
-	/** Public signing key (multibase-encoded) */
-	SIGNING_KEY_PUBLIC: string;
+	/** Base domain for WebFID subdomains (e.g., "fid.is") */
+	WEBFID_DOMAIN: string;
+	/** Domain for Quick Auth token verification (defaults to WEBFID_DOMAIN) */
+	QUICKAUTH_DOMAIN?: string;
 	/** Secret for signing session JWTs */
 	JWT_SECRET: string;
-	/** Bcrypt hash of account password */
-	PASSWORD_HASH: string;
 	/** Durable Object namespace for account storage */
 	ACCOUNT: DurableObjectNamespace<AccountDurableObject>;
 	/** R2 bucket for blob storage (optional) */
@@ -80,11 +88,12 @@ export interface PDSEnv {
 }
 
 /**
- * Base app environment with bindings only.
+ * Base app environment for multi-tenant PDS.
  * Used for routes that don't require authentication.
  */
 export type AppEnv = {
 	Bindings: PDSEnv;
+	Variables: Partial<AuthVariables>;
 };
 
 /**

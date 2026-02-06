@@ -8,9 +8,11 @@ import { DidResolver } from "./did-resolver";
 import { getAtprotoServiceEndpoint } from "@atcute/identity";
 import { createServiceJwt } from "./service-auth";
 import { verifyAccessToken, TokenExpiredError } from "./session";
-import { getProvider } from "./oauth";
+import { getProviderForRequest } from "./oauth";
+import { hostnameToFid, fidToDid } from "./farcaster-auth";
 import type { PDSEnv } from "./types";
 import type { Secp256k1Keypair } from "@atproto/crypto";
+import type { AccountDurableObject } from "./account-do";
 
 /**
  * Parse atproto-proxy header value
@@ -33,6 +35,9 @@ export function parseProxyHeader(
 	return { did, serviceId };
 }
 
+// Type for the getAccountDO function
+type GetAccountDO = (env: PDSEnv, did: string) => DurableObjectStub<AccountDurableObject>;
+
 /**
  * Handle XRPC proxy requests
  * Routes requests to external services based on atproto-proxy header or lexicon namespace
@@ -41,6 +46,7 @@ export async function handleXrpcProxy(
 	c: Context<{ Bindings: PDSEnv }>,
 	didResolver: DidResolver,
 	getKeypair: () => Promise<Secp256k1Keypair>,
+	getAccountDO: GetAccountDO,
 ): Promise<Response> {
 	// Extract XRPC method name from path (e.g., "app.bsky.feed.getTimeline")
 	const url = new URL(c.req.url);
@@ -145,33 +151,36 @@ export async function handleXrpcProxy(
 
 	if (auth?.startsWith("DPoP ")) {
 		// Verify DPoP-bound OAuth access token
+		// Uses hostname-based OAuth provider for per-user subdomain architecture
 		try {
-			const provider = getProvider(c.env);
-			const tokenData = await provider.verifyAccessToken(c.req.raw);
-			if (tokenData) {
-				userDid = tokenData.sub;
+			const provider = getProviderForRequest(c.req.raw, getAccountDO, c.env);
+			if (provider) {
+				const tokenData = await provider.verifyAccessToken(c.req.raw);
+				if (tokenData) {
+					userDid = tokenData.sub;
+				}
 			}
 		} catch {
 			// DPoP verification failed - continue without auth
 		}
 	} else if (auth?.startsWith("Bearer ")) {
 		const token = auth.slice(7);
-		const serviceDid = `did:web:${c.env.PDS_HOSTNAME}`;
+
+		// Derive service DID from request hostname (per-user subdomain mode)
+		const hostname = new URL(c.req.url).hostname;
+		const domain = c.env.WEBFID_DOMAIN;
+		const fid = hostnameToFid(hostname, domain);
+		const serviceDid = fid ? fidToDid(fid, domain) : `did:web:${hostname}`;
 
 		try {
-			// Check static token first
-			if (token === c.env.AUTH_TOKEN) {
-				userDid = c.env.DID;
-			} else {
-				// Verify JWT
-				const payload = await verifyAccessToken(
-					token,
-					c.env.JWT_SECRET,
-					serviceDid,
-				);
-				if (payload.sub) {
-					userDid = payload.sub;
-				}
+			// Verify JWT
+			const payload = await verifyAccessToken(
+				token,
+				c.env.JWT_SECRET,
+				serviceDid,
+			);
+			if (payload.sub) {
+				userDid = payload.sub;
 			}
 		} catch (err) {
 			// Match official PDS: expired tokens return 400 with 'ExpiredToken'

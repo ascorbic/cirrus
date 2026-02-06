@@ -1,104 +1,45 @@
 import type { Context } from "hono";
-import type { AccountDurableObject } from "../account-do";
-import { createServiceJwt, getSigningKeypair } from "../service-auth";
 import {
 	createAccessToken,
 	createRefreshToken,
-	verifyPassword,
 	verifyAccessToken,
 	verifyRefreshToken,
 	TokenExpiredError,
 } from "../session";
-import type { AppEnv, AuthedAppEnv } from "../types";
+import { createServiceJwt } from "../service-auth";
+import { Secp256k1Keypair } from "@atproto/crypto";
+import { didToFid, fidToHandle, hostnameToFid, fidToDid } from "../farcaster-auth";
+import type { PDSEnv, AppEnv, AuthedAppEnv } from "../types";
+import type { AccountDurableObject } from "../account-do";
 
-export async function describeServer(c: Context<AppEnv>): Promise<Response> {
-	return c.json({
-		did: c.env.DID,
-		availableUserDomains: [],
-		inviteCodeRequired: false,
-	});
-}
+/** Function type for getting Account DO by DID */
+type GetAccountDO = (
+	env: PDSEnv,
+	did: string,
+) => DurableObjectStub<AccountDurableObject>;
 
 /**
- * Create a new session (login)
+ * Create a new session.
+ *
+ * Password-based login is not supported. Use Farcaster Quick Auth instead.
  */
-export async function createSession(
-	c: Context<AppEnv>,
-	accountDO: DurableObjectStub<AccountDurableObject>,
-): Promise<Response> {
-	const body = await c.req.json<{
-		identifier: string;
-		password: string;
-	}>();
-
-	const { identifier, password } = body;
-
-	if (!identifier || !password) {
-		return c.json(
-			{
-				error: "InvalidRequest",
-				message: "Missing identifier or password",
-			},
-			400,
-		);
-	}
-
-	// Check identifier matches handle or DID
-	if (identifier !== c.env.HANDLE && identifier !== c.env.DID) {
-		return c.json(
-			{
-				error: "AuthenticationRequired",
-				message: "Invalid identifier or password",
-			},
-			401,
-		);
-	}
-
-	// Verify password
-	const passwordValid = await verifyPassword(password, c.env.PASSWORD_HASH);
-	if (!passwordValid) {
-		return c.json(
-			{
-				error: "AuthenticationRequired",
-				message: "Invalid identifier or password",
-			},
-			401,
-		);
-	}
-
-	// Create tokens
-	const serviceDid = `did:web:${c.env.PDS_HOSTNAME}`;
-	const accessJwt = await createAccessToken(
-		c.env.JWT_SECRET,
-		c.env.DID,
-		serviceDid,
+export async function createSession(c: Context<AppEnv>): Promise<Response> {
+	return c.json(
+		{
+			error: "InvalidRequest",
+			message:
+				"Password-based login is not supported. Use POST /xrpc/is.fid.auth.login with Farcaster Quick Auth.",
+		},
+		400,
 	);
-	const refreshJwt = await createRefreshToken(
-		c.env.JWT_SECRET,
-		c.env.DID,
-		serviceDid,
-	);
-
-	const { email: storedEmail } = await accountDO.rpcGetEmail();
-	const email = storedEmail || c.env.EMAIL;
-
-	return c.json({
-		accessJwt,
-		refreshJwt,
-		handle: c.env.HANDLE,
-		did: c.env.DID,
-		...(email ? { email } : {}),
-		emailConfirmed: true,
-		active: true,
-	});
 }
 
 /**
- * Refresh a session
+ * Refresh a session.
  */
 export async function refreshSession(
 	c: Context<AppEnv>,
-	accountDO: DurableObjectStub<AccountDurableObject>,
+	getAccountDO: GetAccountDO,
 ): Promise<Response> {
 	const authHeader = c.req.header("Authorization");
 
@@ -113,7 +54,21 @@ export async function refreshSession(
 	}
 
 	const token = authHeader.slice(7);
-	const serviceDid = `did:web:${c.env.PDS_HOSTNAME}`;
+
+	// Derive service DID from request hostname (per-user subdomain mode)
+	const hostname = new URL(c.req.url).hostname;
+	const domain = c.env.WEBFID_DOMAIN;
+	const hostFid = hostnameToFid(hostname, domain);
+	if (!hostFid) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Invalid hostname - must use WebFID subdomain",
+			},
+			400,
+		);
+	}
+	const serviceDid = fidToDid(hostFid, domain);
 
 	try {
 		const payload = await verifyRefreshToken(
@@ -122,26 +77,42 @@ export async function refreshSession(
 			serviceDid,
 		);
 
-		// Verify the subject matches our DID
-		if (payload.sub !== c.env.DID) {
+		const sub = payload.sub;
+		if (!sub) {
 			return c.json(
 				{
 					error: "AuthenticationRequired",
-					message: "Invalid refresh token",
+					message: "Invalid refresh token - missing subject",
 				},
 				401,
 			);
 		}
 
-		// Create new tokens
+		const did = sub;
+		const accountDO = getAccountDO(c.env, did);
+		const exists = await accountDO.rpcHasAtprotoIdentity();
+		if (!exists) {
+			return c.json(
+				{
+					error: "AccountNotFound",
+					message: "Account no longer exists",
+				},
+				401,
+			);
+		}
+
+		// Derive handle from DID
+		const fid = didToFid(did, domain);
+		const handle = fid ? fidToHandle(fid, domain) : did.replace("did:web:", "");
+
 		const accessJwt = await createAccessToken(
 			c.env.JWT_SECRET,
-			c.env.DID,
+			did,
 			serviceDid,
 		);
 		const refreshJwt = await createRefreshToken(
 			c.env.JWT_SECRET,
-			c.env.DID,
+			did,
 			serviceDid,
 		);
 
@@ -151,14 +122,12 @@ export async function refreshSession(
 		return c.json({
 			accessJwt,
 			refreshJwt,
-			handle: c.env.HANDLE,
-			did: c.env.DID,
+			handle,
+			did,
 			...(email ? { email } : {}),
-			emailConfirmed: true,
 			active: true,
 		});
 	} catch (err) {
-		// Match official PDS: expired tokens return 'ExpiredToken', other errors return 'InvalidToken'
 		if (err instanceof TokenExpiredError) {
 			return c.json(
 				{
@@ -179,11 +148,11 @@ export async function refreshSession(
 }
 
 /**
- * Get current session info
+ * Get current session info.
  */
 export async function getSession(
 	c: Context<AppEnv>,
-	accountDO: DurableObjectStub<AccountDurableObject>,
+	getAccountDO: GetAccountDO,
 ): Promise<Response> {
 	const authHeader = c.req.header("Authorization");
 
@@ -198,22 +167,22 @@ export async function getSession(
 	}
 
 	const token = authHeader.slice(7);
-	const serviceDid = `did:web:${c.env.PDS_HOSTNAME}`;
 
-	// First try static token
-	if (token === c.env.AUTH_TOKEN) {
-		const { email: storedEmail } = await accountDO.rpcGetEmail();
-		const email = storedEmail || c.env.EMAIL;
-		return c.json({
-			handle: c.env.HANDLE,
-			did: c.env.DID,
-			...(email ? { email } : {}),
-			emailConfirmed: true,
-			active: true,
-		});
+	// Derive service DID from request hostname (per-user subdomain mode)
+	const hostname = new URL(c.req.url).hostname;
+	const domain = c.env.WEBFID_DOMAIN;
+	const hostFid = hostnameToFid(hostname, domain);
+	if (!hostFid) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Invalid hostname - must use WebFID subdomain",
+			},
+			400,
+		);
 	}
+	const serviceDid = fidToDid(hostFid, domain);
 
-	// Try JWT
 	try {
 		const payload = await verifyAccessToken(
 			token,
@@ -221,7 +190,8 @@ export async function getSession(
 			serviceDid,
 		);
 
-		if (payload.sub !== c.env.DID) {
+		const sub = payload.sub;
+		if (!sub) {
 			return c.json(
 				{
 					error: "AuthenticationRequired",
@@ -231,18 +201,33 @@ export async function getSession(
 			);
 		}
 
+		const did = sub;
+		const accountDO = getAccountDO(c.env, did);
+		const exists = await accountDO.rpcHasAtprotoIdentity();
+		if (!exists) {
+			return c.json(
+				{
+					error: "AccountNotFound",
+					message: "Account not found",
+				},
+				401,
+			);
+		}
+
+		// Derive handle from DID
+		const fid = didToFid(did, domain);
+		const handle = fid ? fidToHandle(fid, domain) : did.replace("did:web:", "");
+
 		const { email: storedEmail } = await accountDO.rpcGetEmail();
 		const email = storedEmail || c.env.EMAIL;
+
 		return c.json({
-			handle: c.env.HANDLE,
-			did: c.env.DID,
+			handle,
+			did,
 			...(email ? { email } : {}),
-			emailConfirmed: true,
 			active: true,
 		});
 	} catch (err) {
-		// Match official PDS: expired tokens return 400 with 'ExpiredToken'
-		// This is required for clients to trigger automatic token refresh
 		if (err instanceof TokenExpiredError) {
 			return c.json(
 				{
@@ -263,28 +248,24 @@ export async function getSession(
 }
 
 /**
- * Delete current session (logout)
+ * Delete current session (logout).
  */
 export async function deleteSession(c: Context<AppEnv>): Promise<Response> {
-	// For a single-user PDS with stateless JWTs, we don't need to do anything
-	// The client just needs to delete its stored tokens
-	// In a full implementation, we'd revoke the refresh token
+	// Stateless JWTs - nothing to delete on server side
 	return c.json({});
 }
 
 /**
- * Get account status - used for migration checks and progress tracking
+ * Get account status.
  */
 export async function checkAccountStatus(
 	c: Context<AuthedAppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	try {
-		// Check if repo exists and get activation state
 		const status = await accountDO.rpcGetRepoStatus();
 		const active = await accountDO.rpcGetActive();
 
-		// Get counts for migration progress tracking
 		const [repoBlocks, indexedRecords, expectedBlobs, importedBlobs] =
 			await Promise.all([
 				accountDO.rpcCountBlocks(),
@@ -293,7 +274,6 @@ export async function checkAccountStatus(
 				accountDO.rpcCountImportedBlobs(),
 			]);
 
-		// Account is considered "activated" if it's currently active OR has content
 		const activated = active || indexedRecords > 0;
 
 		return c.json({
@@ -308,8 +288,7 @@ export async function checkAccountStatus(
 			expectedBlobs,
 			importedBlobs,
 		});
-	} catch (err) {
-		// If repo doesn't exist yet, return empty status
+	} catch {
 		return c.json({
 			activated: false,
 			active: false,
@@ -326,11 +305,11 @@ export async function checkAccountStatus(
 }
 
 /**
- * Get a service auth token for communicating with external services.
- * Used by clients to get JWTs for services like video.bsky.app.
+ * Get a service auth token for external services.
  */
 export async function getServiceAuth(
 	c: Context<AuthedAppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const aud = c.req.query("aud");
 	const lxm = c.req.query("lxm") || null;
@@ -345,10 +324,22 @@ export async function getServiceAuth(
 		);
 	}
 
-	// Create service JWT for the requested audience
-	const keypair = await getSigningKeypair(c.env.SIGNING_KEY);
+	// Get identity from DO to get the signing key
+	const identity = await accountDO.rpcGetAtprotoIdentity();
+	if (!identity) {
+		return c.json(
+			{
+				error: "AccountNotFound",
+				message: "Account identity not found",
+			},
+			404,
+		);
+	}
+
+	// Create service JWT
+	const keypair = await Secp256k1Keypair.import(identity.signingKey);
 	const token = await createServiceJwt({
-		iss: c.env.DID,
+		iss: identity.did,
 		aud,
 		lxm,
 		keypair,
@@ -358,7 +349,7 @@ export async function getServiceAuth(
 }
 
 /**
- * Activate account - enables writes and firehose events
+ * Activate account.
  */
 export async function activateAccount(
 	c: Context<AuthedAppEnv>,
@@ -379,7 +370,7 @@ export async function activateAccount(
 }
 
 /**
- * Deactivate account - disables writes while keeping reads available
+ * Deactivate account.
  */
 export async function deactivateAccount(
 	c: Context<AuthedAppEnv>,
@@ -401,7 +392,7 @@ export async function deactivateAccount(
 
 /**
  * Request a token to update the account email.
- * Single-user PDS: no token needed, always returns tokenRequired: false.
+ * No token needed, always returns tokenRequired: false.
  */
 export async function requestEmailUpdate(
 	c: Context<AuthedAppEnv>,
@@ -411,7 +402,7 @@ export async function requestEmailUpdate(
 
 /**
  * Request email confirmation.
- * Single-user PDS: email is always confirmed, nothing to do.
+ * Email is always confirmed, nothing to do.
  */
 export async function requestEmailConfirmation(
 	c: Context<AuthedAppEnv>,

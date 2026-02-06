@@ -11,6 +11,12 @@ import {
 	type RecordDeleteOp,
 	type RecordWriteOp,
 } from "@atproto/repo";
+import type {
+	AuthCodeData,
+	ClientMetadata,
+	PARData,
+	TokenData,
+} from "@getcirrus/oauth-provider";
 /** Record type compatible with @atproto/repo operations */
 type RepoRecord = Record<string, unknown>;
 import { Secp256k1Keypair } from "@atproto/crypto";
@@ -28,7 +34,7 @@ import {
 } from "./sequencer";
 import { BlobStore, type BlobRef } from "./blobs";
 import { jsonToLex } from "@atproto/lex-json";
-import type { PDSEnv } from "./types";
+import type { PDSEnv, AtprotoIdentity } from "./types";
 
 /**
  * Account Durable Object - manages a single user's AT Protocol repository.
@@ -38,6 +44,8 @@ import type { PDSEnv } from "./types";
  * - AT Protocol Repo instance for repository operations
  * - Firehose WebSocket connections
  * - Sequence number management
+ *
+ * Identity (DID, handle, signing keys) is stored in the SQLite atproto_identity table.
  */
 export class AccountDurableObject extends DurableObject<PDSEnv> {
 	private storage: SqliteRepoStorage | null = null;
@@ -48,22 +56,12 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	private blobStore: BlobStore | null = null;
 	private storageInitialized = false;
 	private repoInitialized = false;
+	/** Cached identity */
+	private cachedIdentity: AtprotoIdentity | null = null;
 
 	constructor(ctx: DurableObjectState, env: PDSEnv) {
 		super(ctx, env);
-
-		// Validate required environment variables at startup
-		if (!env.SIGNING_KEY) {
-			throw new Error("Missing required environment variable: SIGNING_KEY");
-		}
-		if (!env.DID) {
-			throw new Error("Missing required environment variable: DID");
-		}
-
-		// Initialize BlobStore if R2 bucket is available
-		if (env.BLOBS) {
-			this.blobStore = new BlobStore(env.BLOBS, env.DID);
-		}
+		// BlobStore is initialized lazily after identity is loaded
 	}
 
 	/**
@@ -127,6 +125,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 	/**
 	 * Initialize the Repo instance. Called lazily on first repo access.
+	 * Identity is loaded from the SQLite atproto_identity table.
 	 */
 	private async ensureRepoInitialized(): Promise<void> {
 		await this.ensureStorageInitialized();
@@ -135,24 +134,44 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			await this.ctx.blockConcurrencyWhile(async () => {
 				if (this.repoInitialized) return; // Double-check after acquiring lock
 
+				// Load identity from database
+				const identity = this.storage!.getAtprotoIdentity();
+				if (!identity) {
+					throw new Error(
+						"No identity found. Account must be created first via is.fid.account.create",
+					);
+				}
+				this.cachedIdentity = identity;
+
+				// Initialize BlobStore with stored DID if not already done
+				if (!this.blobStore && this.env.BLOBS) {
+					this.blobStore = new BlobStore(this.env.BLOBS, identity.did);
+				}
+
 				// Load signing key
-				this.keypair = await Secp256k1Keypair.import(this.env.SIGNING_KEY);
+				this.keypair = await Secp256k1Keypair.import(identity.signingKey);
 
 				// Load or create repo
 				const root = await this.storage!.getRoot();
 				if (root) {
 					this.repo = await Repo.load(this.storage!, root);
 				} else {
-					this.repo = await Repo.create(
-						this.storage!,
-						this.env.DID,
-						this.keypair,
-					);
+					this.repo = await Repo.create(this.storage!, identity.did, this.keypair);
 				}
 
 				this.repoInitialized = true;
 			});
 		}
+	}
+
+	/**
+	 * Get the DID for this account from cached identity.
+	 */
+	private getAccountDid(): string {
+		if (this.cachedIdentity) {
+			return this.cachedIdentity.did;
+		}
+		throw new Error("No DID available - identity not loaded");
 	}
 
 	/**
@@ -867,19 +886,27 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		const importRev = tidNow();
 		await this.storage!.putMany(blocks, importRev);
 
+		// Get signing key and expected DID from stored identity
+		const identity = this.storage!.getAtprotoIdentity();
+		if (!identity) {
+			throw new Error("No identity found for import validation");
+		}
+		const signingKey = identity.signingKey;
+		const expectedDid = identity.did;
+
 		// Load the repo to verify it's valid and get the actual revision
-		this.keypair = await Secp256k1Keypair.import(this.env.SIGNING_KEY);
+		this.keypair = await Secp256k1Keypair.import(signingKey);
 		this.repo = await Repo.load(this.storage!, rootCid);
 
 		// Persist the root CID in storage so getRoot() works correctly
 		await this.storage!.updateRoot(rootCid, this.repo.commit.rev);
 
 		// Verify the DID matches to prevent incorrect migrations
-		if (this.repo.did !== this.env.DID) {
+		if (this.repo.did !== expectedDid) {
 			// Clean up imported blocks
 			await this.storage!.destroy();
 			throw new Error(
-				`DID mismatch: CAR file contains DID ${this.repo.did}, but expected ${this.env.DID}`,
+				`DID mismatch: CAR file contains DID ${this.repo.did}, but expected ${expectedDid}`,
 			);
 		}
 
@@ -1268,6 +1295,12 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcEmitIdentityEvent(handle: string): Promise<{ seq: number }> {
 		await this.ensureStorageInitialized();
 
+		// Get the DID from stored identity
+		const did = this.storage!.getAtprotoDid();
+		if (!did) {
+			throw new Error("No DID found for identity event");
+		}
+
 		const time = new Date().toISOString();
 
 		// Get next sequence number
@@ -1285,7 +1318,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		const header = { op: 1, t: "#identity" };
 		const body = {
 			seq,
-			did: this.env.DID,
+			did,
 			time,
 			handle,
 		};
@@ -1343,18 +1376,13 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	// ============================================
 
 	/** Save an authorization code */
-	async rpcSaveAuthCode(
-		code: string,
-		data: import("@getcirrus/oauth-provider").AuthCodeData,
-	): Promise<void> {
+	async rpcSaveAuthCode(code: string, data: AuthCodeData): Promise<void> {
 		const storage = await this.getOAuthStorage();
 		await storage.saveAuthCode(code, data);
 	}
 
 	/** Get authorization code data */
-	async rpcGetAuthCode(
-		code: string,
-	): Promise<import("@getcirrus/oauth-provider").AuthCodeData | null> {
+	async rpcGetAuthCode(code: string): Promise<AuthCodeData | null> {
 		const storage = await this.getOAuthStorage();
 		return storage.getAuthCode(code);
 	}
@@ -1366,25 +1394,19 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/** Save token data */
-	async rpcSaveTokens(
-		data: import("@getcirrus/oauth-provider").TokenData,
-	): Promise<void> {
+	async rpcSaveTokens(data: TokenData): Promise<void> {
 		const storage = await this.getOAuthStorage();
 		await storage.saveTokens(data);
 	}
 
 	/** Get token data by access token */
-	async rpcGetTokenByAccess(
-		accessToken: string,
-	): Promise<import("@getcirrus/oauth-provider").TokenData | null> {
+	async rpcGetTokenByAccess(accessToken: string): Promise<TokenData | null> {
 		const storage = await this.getOAuthStorage();
 		return storage.getTokenByAccess(accessToken);
 	}
 
 	/** Get token data by refresh token */
-	async rpcGetTokenByRefresh(
-		refreshToken: string,
-	): Promise<import("@getcirrus/oauth-provider").TokenData | null> {
+	async rpcGetTokenByRefresh(refreshToken: string): Promise<TokenData | null> {
 		const storage = await this.getOAuthStorage();
 		return storage.getTokenByRefresh(refreshToken);
 	}
@@ -1402,35 +1424,25 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/** Save client metadata */
-	async rpcSaveClient(
-		clientId: string,
-		metadata: import("@getcirrus/oauth-provider").ClientMetadata,
-	): Promise<void> {
+	async rpcSaveClient(clientId: string, metadata: ClientMetadata): Promise<void> {
 		const storage = await this.getOAuthStorage();
 		await storage.saveClient(clientId, metadata);
 	}
 
 	/** Get client metadata */
-	async rpcGetClient(
-		clientId: string,
-	): Promise<import("@getcirrus/oauth-provider").ClientMetadata | null> {
+	async rpcGetClient(clientId: string): Promise<ClientMetadata | null> {
 		const storage = await this.getOAuthStorage();
 		return storage.getClient(clientId);
 	}
 
 	/** Save PAR data */
-	async rpcSavePAR(
-		requestUri: string,
-		data: import("@getcirrus/oauth-provider").PARData,
-	): Promise<void> {
+	async rpcSavePAR(requestUri: string, data: PARData): Promise<void> {
 		const storage = await this.getOAuthStorage();
 		await storage.savePAR(requestUri, data);
 	}
 
 	/** Get PAR data */
-	async rpcGetPAR(
-		requestUri: string,
-	): Promise<import("@getcirrus/oauth-provider").PARData | null> {
+	async rpcGetPAR(requestUri: string): Promise<PARData | null> {
 		const storage = await this.getOAuthStorage();
 		return storage.getPAR(requestUri);
 	}
@@ -1536,6 +1548,52 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcConsumeWebAuthnChallenge(challenge: string): Promise<boolean> {
 		const oauthStorage = await this.getOAuthStorage();
 		return oauthStorage.consumeWebAuthnChallenge(challenge);
+	}
+
+	// ============================================
+	// AT Protocol Identity RPC Methods (Multi-tenant FID PDS)
+	// ============================================
+
+	/** Check if AT Protocol identity exists for this account */
+	async rpcHasAtprotoIdentity(): Promise<boolean> {
+		const storage = await this.getStorage();
+		return storage.hasAtprotoIdentity();
+	}
+
+	/** Get AT Protocol identity */
+	async rpcGetAtprotoIdentity(): Promise<{
+		did: string;
+		handle: string;
+		signingKey: string;
+		signingKeyPublic: string;
+		createdAt: string;
+		updatedAt: string;
+	} | null> {
+		const storage = await this.getStorage();
+		return storage.getAtprotoIdentity();
+	}
+
+	/** Set AT Protocol identity (can only be called once per account) */
+	async rpcSetAtprotoIdentity(identity: {
+		did: string;
+		handle: string;
+		signingKey: string;
+		signingKeyPublic: string;
+	}): Promise<void> {
+		const storage = await this.getStorage();
+		storage.setAtprotoIdentity(identity);
+	}
+
+	/** Get the public signing key (for DID document generation) */
+	async rpcGetAtprotoPublicKey(): Promise<string | null> {
+		const storage = await this.getStorage();
+		return storage.getAtprotoPublicKey();
+	}
+
+	/** Get the DID for this account */
+	async rpcGetAtprotoDid(): Promise<string | null> {
+		const storage = await this.getStorage();
+		return storage.getAtprotoDid();
 	}
 
 	/**

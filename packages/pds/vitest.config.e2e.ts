@@ -3,14 +3,15 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const rootDir = resolve(__dirname, "../..");
 
 export default defineConfig({
 	resolve: {
 		alias: {
-			// Help vitest find packages in node_modules
-			"@atproto/api": resolve(__dirname, "node_modules/@atproto/api"),
-			"@ipld/car": resolve(__dirname, "node_modules/@ipld/car"),
-			ws: resolve(__dirname, "node_modules/ws"),
+			// Help vitest find packages in node_modules (pnpm hoists to root)
+			"@atproto/api": resolve(rootDir, "node_modules/@atproto/api"),
+			"@ipld/car": resolve(rootDir, "node_modules/@ipld/car"),
+			ws: resolve(rootDir, "node_modules/ws"),
 		},
 	},
 	test: {
