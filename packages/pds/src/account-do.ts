@@ -27,7 +27,7 @@ import {
 	type CommitData,
 } from "./sequencer";
 import { BlobStore, type BlobRef } from "./blobs";
-import { jsonToLex } from "@atproto/lexicon";
+import { jsonToLex } from "@atproto/lex-json";
 import type { PDSEnv } from "./types";
 
 /**
