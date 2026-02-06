@@ -27,7 +27,7 @@ import {
 	type CommitData,
 } from "./sequencer";
 import { BlobStore, type BlobRef } from "./blobs";
-import { normalizeRecordLinks } from "./format";
+import { jsonToLex } from "@atproto/lexicon";
 import type { PDSEnv } from "./types";
 
 /**
@@ -331,7 +331,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			action: WriteOpAction.Create,
 			collection,
 			rkey: actualRkey,
-			record: normalizeRecordLinks(record) as RepoRecord,
+			record: jsonToLex(record) as RepoRecord,
 		};
 
 		const prevRev = repo.commit.rev;
@@ -472,7 +472,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		const existing = await repo.getRecord(collection, rkey);
 		const isUpdate = existing !== null;
 
-		const normalizedRecord = normalizeRecordLinks(record) as RepoRecord;
+		const normalizedRecord = jsonToLex(record) as RepoRecord;
 		const op: RecordWriteOp = isUpdate
 			? ({
 					action: WriteOpAction.Update,
@@ -583,7 +583,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 					action: WriteOpAction.Create,
 					collection: write.collection,
 					rkey,
-					record: normalizeRecordLinks(write.value) as RepoRecord,
+					record: jsonToLex(write.value) as RepoRecord,
 				};
 				ops.push(op);
 				results.push({
@@ -600,7 +600,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 					action: WriteOpAction.Update,
 					collection: write.collection,
 					rkey: write.rkey,
-					record: normalizeRecordLinks(write.value) as RepoRecord,
+					record: jsonToLex(write.value) as RepoRecord,
 				};
 				ops.push(op);
 				results.push({

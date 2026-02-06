@@ -1,5 +1,3 @@
-export { jsonToLex as normalizeRecordLinks } from "@atproto/lexicon";
-
 /**
  * Detect content type from file magic bytes.
  * Returns the detected MIME type or null if unknown.
