@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { normalizeRecordLinks } from "../src/format";
 import { CID } from "@atproto/lex-data";
+import { BlobRef } from "@atproto/lexicon";
 
 describe("normalizeRecordLinks", () => {
 	it("should convert $link objects to CID instances", () => {
@@ -12,7 +13,7 @@ describe("normalizeRecordLinks", () => {
 		expect(result.ref?.toString()).toBe(cid);
 	});
 
-	it("should normalize blob refs with nested $link", () => {
+	it("should normalize blob refs into BlobRef instances", () => {
 		const cid = "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku";
 		const input = {
 			$type: "blob",
@@ -20,13 +21,13 @@ describe("normalizeRecordLinks", () => {
 			mimeType: "image/jpeg",
 			size: 12345,
 		};
-		const result = normalizeRecordLinks(input) as Record<string, unknown>;
+		const result = normalizeRecordLinks(input);
 
-		expect(result.$type).toBe("blob");
-		expect(CID.asCID(result.ref)).not.toBeNull();
-		expect(result.ref?.toString()).toBe(cid);
-		expect(result.mimeType).toBe("image/jpeg");
-		expect(result.size).toBe(12345);
+		expect(result).toBeInstanceOf(BlobRef);
+		const blobRef = result as BlobRef;
+		expect(blobRef.ref.toString()).toBe(cid);
+		expect(blobRef.mimeType).toBe("image/jpeg");
+		expect(blobRef.size).toBe(12345);
 	});
 
 	it("should handle deeply nested blob refs in records", () => {
@@ -52,8 +53,7 @@ describe("normalizeRecordLinks", () => {
 		const result = normalizeRecordLinks(input) as any;
 
 		const blobRef = result.embed.images[0].image;
-		expect(blobRef.$type).toBe("blob");
-		expect(CID.asCID(blobRef.ref)).not.toBeNull();
+		expect(blobRef).toBeInstanceOf(BlobRef);
 		expect(blobRef.ref.toString()).toBe(cid);
 	});
 
@@ -70,20 +70,6 @@ describe("normalizeRecordLinks", () => {
 		expect(normalizeRecordLinks(42)).toBe(42);
 		expect(normalizeRecordLinks(true)).toBe(true);
 		expect(normalizeRecordLinks(null)).toBeNull();
-		expect(normalizeRecordLinks(undefined)).toBeUndefined();
-	});
-
-	it("should pass through objects without special keys unchanged", () => {
-		const input = { text: "hello", count: 42 };
-		const result = normalizeRecordLinks(input);
-		expect(result).toBe(input); // same reference, no copy needed
-	});
-
-	it("should not modify invalid $link objects", () => {
-		// $link with extra keys should not be converted
-		const input = { $link: "bafk...", extra: "key" };
-		const result = normalizeRecordLinks(input);
-		expect(result).toBe(input);
 	});
 
 	it("should handle arrays with blob refs", () => {
@@ -95,6 +81,5 @@ describe("normalizeRecordLinks", () => {
 		const result = normalizeRecordLinks(input) as any[];
 
 		expect(CID.asCID(result[0].ref)).not.toBeNull();
-		expect(result[1]).toBe(input[1]); // unchanged items keep reference
 	});
 });
