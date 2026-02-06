@@ -1,3 +1,80 @@
+import { CID } from "@atproto/lex-data";
+
+/**
+ * Normalize a JSON record for IPLD/CBOR encoding.
+ *
+ * Incoming API records contain JSON representations of CID links as
+ * `{ "$link": "bafk..." }` objects. For correct dag-cbor encoding,
+ * these must be converted to actual CID instances before the record
+ * is passed to `@atproto/repo` (which calls `lexToIpld` → `dataToCborBlock`).
+ *
+ * Without this normalization, blob refs like:
+ *   `{ "$type": "blob", "ref": { "$link": "bafk..." }, ... }`
+ * get CBOR-encoded with `ref` as a nested map instead of a CID tag,
+ * producing incorrect block hashes that cause blob resolution failures.
+ */
+export function normalizeRecordLinks(obj: unknown): unknown {
+	if (obj === null || obj === undefined) return obj;
+
+	if (Array.isArray(obj)) {
+		let copy: unknown[] | undefined;
+		for (let i = 0; i < obj.length; i++) {
+			const normalized = normalizeRecordLinks(obj[i]);
+			if (normalized !== obj[i]) {
+				copy ??= [...obj];
+				copy[i] = normalized;
+			}
+		}
+		return copy ?? obj;
+	}
+
+	if (typeof obj === "object") {
+		const record = obj as Record<string, unknown>;
+
+		// Convert { "$link": "<cid>" } to CID instance
+		if (
+			typeof record.$link === "string" &&
+			Object.keys(record).length === 1
+		) {
+			try {
+				return CID.parse(record.$link);
+			} catch {
+				return obj;
+			}
+		}
+
+		// Convert { "$bytes": "<base64>" } to Uint8Array
+		if (
+			typeof record.$bytes === "string" &&
+			Object.keys(record).length === 1
+		) {
+			try {
+				const binary = atob(record.$bytes);
+				const bytes = new Uint8Array(binary.length);
+				for (let i = 0; i < binary.length; i++) {
+					bytes[i] = binary.charCodeAt(i);
+				}
+				return bytes;
+			} catch {
+				return obj;
+			}
+		}
+
+		// Recursively normalize all properties
+		let copy: Record<string, unknown> | undefined;
+		for (const key of Object.keys(record)) {
+			const normalized = normalizeRecordLinks(record[key]);
+			if (normalized !== record[key]) {
+				copy ??= { ...record };
+				copy[key] = normalized;
+			}
+		}
+		return copy ?? obj;
+	}
+
+	return obj;
+}
+
 /**
  * Detect content type from file magic bytes.
  * Returns the detected MIME type or null if unknown.

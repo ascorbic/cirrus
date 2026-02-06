@@ -27,6 +27,7 @@ import {
 	type CommitData,
 } from "./sequencer";
 import { BlobStore, type BlobRef } from "./blobs";
+import { normalizeRecordLinks } from "./format";
 import type { PDSEnv } from "./types";
 
 /**
@@ -330,7 +331,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			action: WriteOpAction.Create,
 			collection,
 			rkey: actualRkey,
-			record: record as RepoRecord,
+			record: normalizeRecordLinks(record) as RepoRecord,
 		};
 
 		const prevRev = repo.commit.rev;
@@ -471,18 +472,19 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		const existing = await repo.getRecord(collection, rkey);
 		const isUpdate = existing !== null;
 
+		const normalizedRecord = normalizeRecordLinks(record) as RepoRecord;
 		const op: RecordWriteOp = isUpdate
 			? ({
 					action: WriteOpAction.Update,
 					collection,
 					rkey,
-					record: record as RepoRecord,
+					record: normalizedRecord,
 				} as RecordUpdateOp)
 			: ({
 					action: WriteOpAction.Create,
 					collection,
 					rkey,
-					record: record as RepoRecord,
+					record: normalizedRecord,
 				} as RecordCreateOp);
 
 		const prevRev = repo.commit.rev;
@@ -581,7 +583,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 					action: WriteOpAction.Create,
 					collection: write.collection,
 					rkey,
-					record: write.value as RepoRecord,
+					record: normalizeRecordLinks(write.value) as RepoRecord,
 				};
 				ops.push(op);
 				results.push({
@@ -598,7 +600,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 					action: WriteOpAction.Update,
 					collection: write.collection,
 					rkey: write.rkey,
-					record: write.value as RepoRecord,
+					record: normalizeRecordLinks(write.value) as RepoRecord,
 				};
 				ops.push(op);
 				results.push({
@@ -1526,6 +1528,15 @@ function serializeRecord(obj: unknown): unknown {
 	const cid = asCid(obj);
 	if (cid) {
 		return { $link: cid.toString() };
+	}
+
+	// Convert Uint8Array to { $bytes: "<base64>" }
+	if (obj instanceof Uint8Array) {
+		let binary = "";
+		for (let i = 0; i < obj.length; i++) {
+			binary += String.fromCharCode(obj[i]!);
+		}
+		return { $bytes: btoa(binary) };
 	}
 
 	if (Array.isArray(obj)) {
