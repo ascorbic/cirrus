@@ -284,7 +284,7 @@ export class PDSClient {
 	async getAccountStatus(): Promise<MigrationStatus> {
 		// Use raw fetch because this endpoint may not be in standard lexicons
 		const url = new URL(
-			"/xrpc/com.atproto.server.getAccountStatus",
+			"/xrpc/com.atproto.server.checkAccountStatus",
 			this.baseUrl,
 		);
 		const headers: Record<string, string> = {};

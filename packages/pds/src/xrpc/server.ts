@@ -254,7 +254,7 @@ export async function deleteSession(c: Context<AppEnv>): Promise<Response> {
 /**
  * Get account status - used for migration checks and progress tracking
  */
-export async function getAccountStatus(
+export async function checkAccountStatus(
 	c: Context<AuthedAppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
