@@ -50,7 +50,7 @@
 		"@arethetypeswrong/cli": "^0.18.2",
 		"@atproto/api": "^0.18.9",
 		"@cloudflare/vite-plugin": "^1.17.0",
-		"@cloudflare/vitest-pool-workers": "https://pkg.pr.new/@cloudflare/vitest-pool-workers@11632",
+		"@cloudflare/vitest-pool-workers": "https://pkg.pr.new/@cloudflare/vitest-pool-workers@79a1932669f44a24342c1ffd66c29decd8a8fee9",
 		"@cloudflare/workers-types": "^4.20251225.0",
 		"@ipld/car": "^5.4.2",
 		"@types/qrcode": "^1.5.6",
