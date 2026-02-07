@@ -189,7 +189,7 @@ export function createOAuthApp(
 		// an unknown bot hitting an OAuth URL is legitimately suspicious.
 		const ua = c.req.header("User-Agent") ?? "";
 		if (
-			/TelegramBot|Slackbot|Discordbot|Twitterbot|facebookexternalhit/i.test(
+			/TelegramBot|Slackbot|Discordbot|Twitterbot|facebookexternalhit|WhatsApp/i.test(
 				ua,
 			)
 		) {
