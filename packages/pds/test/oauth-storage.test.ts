@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { env, runInDurableObject } from "./helpers";
 import { AccountDurableObject } from "../src/account-do";
-import { SqliteOAuthStorage } from "../src/oauth-storage";
 
 describe("SqliteOAuthStorage", () => {
 	describe("cleanup", () => {
@@ -53,6 +52,9 @@ describe("SqliteOAuthStorage", () => {
 				stub,
 				async (instance: AccountDurableObject) => {
 					const storage = await instance.getOAuthStorage();
+					// Access raw SQLite to verify row existence directly
+					// (getTokenByAccess returns null for revoked tokens even before cleanup)
+					const sql = (instance as unknown as { ctx: { storage: { sql: SqlStorage } } }).ctx.storage.sql;
 
 					// Save a revoked token with a future expiry (access token not yet expired)
 					const futureExpiry = Date.now() + 60 * 60 * 1000; // 1 hour from now
@@ -70,18 +72,27 @@ describe("SqliteOAuthStorage", () => {
 					// Revoke it
 					await storage.revokeToken("revoked-access");
 
-					// Verify it's revoked (getTokenByRefresh returns null for revoked)
-					const revoked =
-						await storage.getTokenByRefresh("revoked-refresh");
-					expect(revoked).toBeNull();
+					// Verify the row still exists in the database (revoked but not yet cleaned up)
+					const beforeCleanup = sql
+						.exec(
+							"SELECT access_token, revoked FROM oauth_tokens WHERE access_token = ?",
+							"revoked-access",
+						)
+						.toArray();
+					expect(beforeCleanup).toHaveLength(1);
+					expect(beforeCleanup[0]!.revoked).toBe(1);
 
 					// Run cleanup — should delete all revoked tokens
 					storage.cleanup();
 
-					// Token row should be gone from the database entirely
-					const afterCleanup =
-						await storage.getTokenByAccess("revoked-access");
-					expect(afterCleanup).toBeNull();
+					// Verify the row was actually deleted from the database
+					const afterCleanup = sql
+						.exec(
+							"SELECT access_token FROM oauth_tokens WHERE access_token = ?",
+							"revoked-access",
+						)
+						.toArray();
+					expect(afterCleanup).toHaveLength(0);
 				},
 			);
 		});
