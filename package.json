@@ -22,5 +22,11 @@
 		"typescript": "^5.9.3",
 		"vitest": "4.1.0-beta.1"
 	},
-	"packageManager": "pnpm@10.26.2"
+	"packageManager": "pnpm@10.26.2",
+	"pnpm": {
+		"overrides": {
+			"wrangler": "^4.63.0",
+			"miniflare": "^4.20260205.0"
+		}
+	}
 }
