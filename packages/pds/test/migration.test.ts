@@ -15,10 +15,10 @@ describe("Account Migration", () => {
 			env,
 		);
 	});
-	describe("com.atproto.server.getAccountStatus", () => {
+	describe("com.atproto.server.checkAccountStatus", () => {
 		it("requires authentication", async () => {
 			const response = await worker.fetch(
-				new Request(`http://pds.test/xrpc/com.atproto.server.getAccountStatus`),
+				new Request(`http://pds.test/xrpc/com.atproto.server.checkAccountStatus`),
 				env,
 			);
 
@@ -51,7 +51,7 @@ describe("Account Migration", () => {
 
 			const response = await worker.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.server.getAccountStatus`,
+					`http://pds.test/xrpc/com.atproto.server.checkAccountStatus`,
 					{
 						headers: {
 							Authorization: `Bearer ${env.AUTH_TOKEN}`,
@@ -75,7 +75,7 @@ describe("Account Migration", () => {
 			// This test just verifies the endpoint returns valid data.
 			const response = await worker.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.server.getAccountStatus`,
+					`http://pds.test/xrpc/com.atproto.server.checkAccountStatus`,
 					{
 						headers: {
 							Authorization: `Bearer ${env.AUTH_TOKEN}`,
@@ -519,7 +519,7 @@ describe("Account Migration", () => {
 		});
 	});
 
-	describe("getAccountStatus with migration metrics", () => {
+	describe("checkAccountStatus with migration metrics", () => {
 		it("returns block and record counts", async () => {
 			// Create a record to ensure there's data
 			await worker.fetch(
@@ -544,7 +544,7 @@ describe("Account Migration", () => {
 
 			const response = await worker.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.server.getAccountStatus`,
+					`http://pds.test/xrpc/com.atproto.server.checkAccountStatus`,
 					{
 						headers: {
 							Authorization: `Bearer ${env.AUTH_TOKEN}`,
@@ -608,7 +608,7 @@ describe("Account Migration", () => {
 			// Step 2: Check account status before export
 			const statusBeforeResponse = await worker.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.server.getAccountStatus`,
+					`http://pds.test/xrpc/com.atproto.server.checkAccountStatus`,
 					{
 						headers: {
 							Authorization: `Bearer ${env.AUTH_TOKEN}`,
@@ -689,7 +689,7 @@ describe("Account Migration", () => {
 
 			// Verify deactivated
 			const statusResponse1 = await worker.fetch(
-				new Request(`http://pds.test/xrpc/com.atproto.server.getAccountStatus`, {
+				new Request(`http://pds.test/xrpc/com.atproto.server.checkAccountStatus`, {
 					headers: {
 						Authorization: `Bearer ${env.AUTH_TOKEN}`,
 					},
@@ -716,7 +716,7 @@ describe("Account Migration", () => {
 
 			// Verify activated
 			const statusResponse2 = await worker.fetch(
-				new Request(`http://pds.test/xrpc/com.atproto.server.getAccountStatus`, {
+				new Request(`http://pds.test/xrpc/com.atproto.server.checkAccountStatus`, {
 					headers: {
 						Authorization: `Bearer ${env.AUTH_TOKEN}`,
 					},
@@ -781,7 +781,7 @@ describe("Account Migration", () => {
 
 			// Verify deactivated
 			const statusResponse = await worker.fetch(
-				new Request(`http://pds.test/xrpc/com.atproto.server.getAccountStatus`, {
+				new Request(`http://pds.test/xrpc/com.atproto.server.checkAccountStatus`, {
 					headers: {
 						Authorization: `Bearer ${env.AUTH_TOKEN}`,
 					},
