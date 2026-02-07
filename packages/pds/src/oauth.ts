@@ -181,6 +181,33 @@ export function createOAuthApp(
 
 	// Authorization endpoint
 	oauth.get("/oauth/authorize", async (c) => {
+		// Messaging platform link preview bots pre-fetch URLs shared in DMs and
+		// channels, which consumes the one-time PAR request URI before the user
+		// can open it. Return a minimal HTML page for known preview bots instead
+		// of processing the OAuth request. Only specific messaging platforms are
+		// matched — generic crawlers and spiders should consume the token since
+		// an unknown bot hitting an OAuth URL is legitimately suspicious.
+		const ua = c.req.header("User-Agent") ?? "";
+		if (
+			/TelegramBot|Slackbot|Discordbot|Twitterbot|facebookexternalhit/i.test(
+				ua,
+			)
+		) {
+			return c.html(`<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Cirrus Authorization</title>
+	<meta name="description" content="Cirrus PDS authorization page. Open this link in your browser to continue.">
+	<meta property="og:title" content="Cirrus Authorization">
+	<meta property="og:description" content="Open this link in your browser to continue.">
+</head>
+<body>
+	<p>Open this link in your browser to continue.</p>
+</body>
+</html>`);
+		}
 		const provider = getProvider(c.env);
 		return provider.handleAuthorize(c.req.raw);
 	});
