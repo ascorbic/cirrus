@@ -1,7 +1,8 @@
 import type { Context } from "hono";
 import { isDid, isNsid, isRecordKey } from "@atcute/lexicons/syntax";
 import type { AccountDurableObject } from "../account-do.js";
-import type { AppEnv } from "../types";
+import type { AppEnv } from "../types.js";
+import { detectContentType } from "../format.js";
 
 export async function getRepo(
 	c: Context<AppEnv>,
@@ -289,11 +290,37 @@ export async function getBlob(
 		);
 	}
 
+	// Determine content type, with fallback for missing or invalid values
+	let contentType = blob.httpMetadata?.contentType;
+
+	// If no content type or invalid wildcard, try to detect from content
+	if (!contentType || contentType === "*/*") {
+		// Read first few bytes to detect content type
+		const [headerStream, bodyStream] = blob.body.tee();
+		const reader = headerStream.getReader();
+		const { value: headerBytes } = await reader.read();
+		reader.releaseLock();
+
+		if (headerBytes && headerBytes.length >= 12) {
+			contentType =
+				detectContentType(headerBytes) || "application/octet-stream";
+		} else {
+			contentType = "application/octet-stream";
+		}
+
+		return new Response(bodyStream, {
+			status: 200,
+			headers: {
+				"Content-Type": contentType,
+				"Content-Length": blob.size.toString(),
+			},
+		});
+	}
+
 	return new Response(blob.body, {
 		status: 200,
 		headers: {
-			"Content-Type":
-				blob.httpMetadata?.contentType || "application/octet-stream",
+			"Content-Type": contentType,
 			"Content-Length": blob.size.toString(),
 		},
 	});
@@ -348,7 +375,10 @@ export async function getRecord(
 	// Validate collection is an NSID
 	if (!isNsid(collection)) {
 		return c.json(
-			{ error: "InvalidRequest", message: "Invalid collection format (must be NSID)" },
+			{
+				error: "InvalidRequest",
+				message: "Invalid collection format (must be NSID)",
+			},
 			400,
 		);
 	}
