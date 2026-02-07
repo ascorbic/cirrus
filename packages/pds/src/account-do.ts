@@ -1112,6 +1112,22 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
+	 * RPC method: Get stored email
+	 */
+	async rpcGetEmail(): Promise<{ email: string | null }> {
+		const storage = await this.getStorage();
+		return { email: storage.getEmail() };
+	}
+
+	/**
+	 * RPC method: Update stored email
+	 */
+	async rpcUpdateEmail(email: string): Promise<void> {
+		const storage = await this.getStorage();
+		storage.setEmail(email);
+	}
+
+	/**
 	 * RPC method: Get account activation state
 	 */
 	async rpcGetActive(): Promise<boolean> {
