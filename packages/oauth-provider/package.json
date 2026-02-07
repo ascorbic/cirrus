@@ -30,7 +30,7 @@
 		"publint": "^0.3.16",
 		"tsdown": "^0.18.3",
 		"typescript": "^5.9.3",
-		"vitest": "^4.0.0"
+		"vitest": "4.1.0-beta.1"
 	},
 	"repository": {
 		"type": "git",
