@@ -1,5 +1,30 @@
 # @getcirrus/pds
 
+## 0.10.2
+
+### Patch Changes
+
+- [#120](https://github.com/ascorbic/cirrus/pull/120) [`82301c5`](https://github.com/ascorbic/cirrus/commit/82301c5ca70ee2fcc1f69900cf55b8fdbbf92bdc) Thanks [@ascorbic](https://github.com/ascorbic)! - Skip OAuth authorization for messaging platform link preview bots
+
+  Messaging platforms (Telegram, Slack, Discord, Twitter/X, Facebook/iMessage) pre-fetch URLs shared in DMs and channels. When an OAuth authorization link with a one-time PAR request URI is shared, the preview bot consumes it before the user can open it. The authorize endpoint now detects these specific bots by User-Agent and returns a minimal HTML page with appropriate meta tags instead of processing the OAuth request.
+
+  Only known messaging platform bots are matched — generic crawlers and spiders are not excluded, since an unknown bot hitting an OAuth URL should still consume the token.
+
+- [#116](https://github.com/ascorbic/cirrus/pull/116) [`a06516a`](https://github.com/ascorbic/cirrus/commit/a06516a8898b5be50ea4de0f68b5360140d4d990) Thanks [@ascorbic](https://github.com/ascorbic)! - Detect content type of blobs
+
+- [#119](https://github.com/ascorbic/cirrus/pull/119) [`92a2b39`](https://github.com/ascorbic/cirrus/commit/92a2b39cdf53df0d4478e83ff679995e3fabc78c) Thanks [@ascorbic](https://github.com/ascorbic)! - Normalize JSON blob references for correct dag-cbor encoding
+
+  Incoming API records contain blob references with nested `$link` objects
+  (for example, `{ "$type": "blob", "ref": { "$link": "bafk..." } }`). These
+  must be converted to actual CID instances before CBOR encoding, otherwise
+  the blob ref's `ref` field gets encoded as a map instead of a proper CID tag.
+  This causes incorrect block hashes, which can lead to blob resolution failures
+  on the Bluesky network.
+
+  Uses `jsonToLex` from `@atproto/lex-json` to convert `$link` → CID and
+  `$bytes` → Uint8Array on all record write paths (createRecord, putRecord,
+  applyWrites).
+
 ## 0.10.1
 
 ### Patch Changes
