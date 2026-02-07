@@ -95,8 +95,10 @@ export class SqliteOAuthStorage implements OAuthStorage {
 	cleanup(): void {
 		const now = Date.now();
 		this.sql.exec("DELETE FROM oauth_auth_codes WHERE expires_at < ?", now);
+		// Only clean up revoked tokens after their access token has expired.
+		// Non-revoked tokens must persist so clients can refresh after access token expiry.
 		this.sql.exec(
-			"DELETE FROM oauth_tokens WHERE expires_at < ? AND revoked = 0",
+			"DELETE FROM oauth_tokens WHERE expires_at < ? AND revoked = 1",
 			now,
 		);
 		this.sql.exec("DELETE FROM oauth_par_requests WHERE expires_at < ?", now);
