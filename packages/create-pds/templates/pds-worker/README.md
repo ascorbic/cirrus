@@ -52,7 +52,7 @@ pnpm dev
 The PDS is now running at http://localhost:5173. Test it with:
 
 ```bash
-curl http://localhost:5173/health
+curl http://localhost:5173/xrpc/_health
 curl http://localhost:5173/.well-known/did.json
 ```
 
