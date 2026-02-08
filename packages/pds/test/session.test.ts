@@ -244,6 +244,90 @@ describe("Session Authentication", () => {
 		});
 	});
 
+	describe("updateEmail", () => {
+		it("sets email and returns it in getSession", async () => {
+			// Login
+			const loginRes = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.server.createSession", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						identifier: "alice.test",
+						password: "test-password",
+					}),
+				}),
+				env,
+			);
+			const { accessJwt } = (await loginRes.json()) as { accessJwt: string };
+
+			// Update email
+			const updateRes = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.server.updateEmail", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${accessJwt}`,
+					},
+					body: JSON.stringify({ email: "alice@example.com" }),
+				}),
+				env,
+			);
+			expect(updateRes.status).toBe(200);
+
+			// Verify getSession returns email
+			const sessionRes = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.server.getSession", {
+					headers: { Authorization: `Bearer ${accessJwt}` },
+				}),
+				env,
+			);
+			expect(sessionRes.status).toBe(200);
+			const session = (await sessionRes.json()) as Record<string, unknown>;
+			expect(session.email).toBe("alice@example.com");
+			expect(session.emailConfirmed).toBe(true);
+		});
+
+		it("requires auth", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.server.updateEmail", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ email: "alice@example.com" }),
+				}),
+				env,
+			);
+			expect(response.status).toBe(401);
+		});
+
+		it("rejects missing email field", async () => {
+			const loginRes = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.server.createSession", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						identifier: "alice.test",
+						password: "test-password",
+					}),
+				}),
+				env,
+			);
+			const { accessJwt } = (await loginRes.json()) as { accessJwt: string };
+
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.server.updateEmail", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${accessJwt}`,
+					},
+					body: JSON.stringify({}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(400);
+		});
+	});
+
 	describe("authenticated requests", () => {
 		it("accepts access token for write operations", async () => {
 			// First login

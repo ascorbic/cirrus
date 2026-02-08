@@ -648,6 +648,18 @@ export const initCommand = defineCommand({
 			},
 		);
 
+		// Optional email - some clients (deck.blue, official app) expect it
+		const email = await promptText({
+			message:
+				"Email address (optional, some clients expect it - press Enter to skip)",
+			placeholder: "you@example.com",
+			defaultValue: "",
+			validate: (value) => {
+				if (!value) return;
+				if (!value.includes("@")) return "Must be a valid email address";
+			},
+		});
+
 		// Always set public vars and worker name in wrangler.jsonc
 		spinner.start("Updating wrangler.jsonc...");
 		setWorkerName(workerName);
@@ -658,6 +670,7 @@ export const initCommand = defineCommand({
 			SIGNING_KEY_PUBLIC: signingKeyPublic,
 			INITIAL_ACTIVE: initialActive,
 			DATA_LOCATION: dataLocation,
+			...(email ? { EMAIL: email } : {}),
 		});
 		setCustomDomains([hostname]);
 		spinner.stop("wrangler.jsonc updated");

@@ -313,9 +313,15 @@ app.get(
 );
 
 // Session management
-app.post("/xrpc/com.atproto.server.createSession", server.createSession);
-app.post("/xrpc/com.atproto.server.refreshSession", server.refreshSession);
-app.get("/xrpc/com.atproto.server.getSession", server.getSession);
+app.post("/xrpc/com.atproto.server.createSession", (c) =>
+	server.createSession(c, getAccountDO(c.env)),
+);
+app.post("/xrpc/com.atproto.server.refreshSession", (c) =>
+	server.refreshSession(c, getAccountDO(c.env)),
+);
+app.get("/xrpc/com.atproto.server.getSession", (c) =>
+	server.getSession(c, getAccountDO(c.env)),
+);
 app.post("/xrpc/com.atproto.server.deleteSession", server.deleteSession);
 
 // Account lifecycle
@@ -330,6 +336,19 @@ app.post("/xrpc/com.atproto.server.deactivateAccount", requireAuth, (c) =>
 );
 app.post("/xrpc/gg.mk.experimental.resetMigration", requireAuth, (c) =>
 	server.resetMigration(c, getAccountDO(c.env)),
+);
+app.post(
+	"/xrpc/com.atproto.server.requestEmailUpdate",
+	requireAuth,
+	server.requestEmailUpdate,
+);
+app.post(
+	"/xrpc/com.atproto.server.requestEmailConfirmation",
+	requireAuth,
+	server.requestEmailConfirmation,
+);
+app.post("/xrpc/com.atproto.server.updateEmail", requireAuth, (c) =>
+	server.updateEmail(c, getAccountDO(c.env)),
 );
 
 // Service auth - used by clients to get JWTs for external services (video, etc.)

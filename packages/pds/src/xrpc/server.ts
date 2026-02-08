@@ -22,7 +22,10 @@ export async function describeServer(c: Context<AppEnv>): Promise<Response> {
 /**
  * Create a new session (login)
  */
-export async function createSession(c: Context<AppEnv>): Promise<Response> {
+export async function createSession(
+	c: Context<AppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
 	const body = await c.req.json<{
 		identifier: string;
 		password: string;
@@ -76,13 +79,16 @@ export async function createSession(c: Context<AppEnv>): Promise<Response> {
 		serviceDid,
 	);
 
+	const { email: storedEmail } = await accountDO.rpcGetEmail();
+	const email = storedEmail || c.env.EMAIL;
+
 	return c.json({
 		accessJwt,
 		refreshJwt,
 		handle: c.env.HANDLE,
 		did: c.env.DID,
-		// Match official PDS response - client checks for emailConfirmed
-		emailConfirmed: false, // Cirrus doesn't support email yet
+		...(email ? { email } : {}),
+		emailConfirmed: true,
 		active: true,
 	});
 }
@@ -90,7 +96,10 @@ export async function createSession(c: Context<AppEnv>): Promise<Response> {
 /**
  * Refresh a session
  */
-export async function refreshSession(c: Context<AppEnv>): Promise<Response> {
+export async function refreshSession(
+	c: Context<AppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
 	const authHeader = c.req.header("Authorization");
 
 	if (!authHeader?.startsWith("Bearer ")) {
@@ -136,13 +145,16 @@ export async function refreshSession(c: Context<AppEnv>): Promise<Response> {
 			serviceDid,
 		);
 
+		const { email: storedEmail } = await accountDO.rpcGetEmail();
+		const email = storedEmail || c.env.EMAIL;
+
 		return c.json({
 			accessJwt,
 			refreshJwt,
 			handle: c.env.HANDLE,
 			did: c.env.DID,
-			// Match official PDS response - client checks for emailConfirmed
-			emailConfirmed: false, // Cirrus doesn't support email yet
+			...(email ? { email } : {}),
+			emailConfirmed: true,
 			active: true,
 		});
 	} catch (err) {
@@ -169,7 +181,10 @@ export async function refreshSession(c: Context<AppEnv>): Promise<Response> {
 /**
  * Get current session info
  */
-export async function getSession(c: Context<AppEnv>): Promise<Response> {
+export async function getSession(
+	c: Context<AppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
 	const authHeader = c.req.header("Authorization");
 
 	if (!authHeader?.startsWith("Bearer ")) {
@@ -187,10 +202,13 @@ export async function getSession(c: Context<AppEnv>): Promise<Response> {
 
 	// First try static token
 	if (token === c.env.AUTH_TOKEN) {
+		const { email: storedEmail } = await accountDO.rpcGetEmail();
+		const email = storedEmail || c.env.EMAIL;
 		return c.json({
 			handle: c.env.HANDLE,
 			did: c.env.DID,
-			emailConfirmed: false, // Cirrus doesn't support email yet
+			...(email ? { email } : {}),
+			emailConfirmed: true,
 			active: true,
 		});
 	}
@@ -213,10 +231,13 @@ export async function getSession(c: Context<AppEnv>): Promise<Response> {
 			);
 		}
 
+		const { email: storedEmail } = await accountDO.rpcGetEmail();
+		const email = storedEmail || c.env.EMAIL;
 		return c.json({
 			handle: c.env.HANDLE,
 			did: c.env.DID,
-			emailConfirmed: false, // Cirrus doesn't support email yet
+			...(email ? { email } : {}),
+			emailConfirmed: true,
 			active: true,
 		});
 	} catch (err) {
@@ -376,6 +397,49 @@ export async function deactivateAccount(
 			500,
 		);
 	}
+}
+
+/**
+ * Request a token to update the account email.
+ * Single-user PDS: no token needed, always returns tokenRequired: false.
+ */
+export async function requestEmailUpdate(
+	c: Context<AuthedAppEnv>,
+): Promise<Response> {
+	return c.json({ tokenRequired: false });
+}
+
+/**
+ * Request email confirmation.
+ * Single-user PDS: email is always confirmed, nothing to do.
+ */
+export async function requestEmailConfirmation(
+	c: Context<AuthedAppEnv>,
+): Promise<Response> {
+	return c.json({});
+}
+
+/**
+ * Update the account email address
+ */
+export async function updateEmail(
+	c: Context<AuthedAppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
+	const body = await c.req.json<{ email: string }>();
+
+	if (!body.email) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required field: email",
+			},
+			400,
+		);
+	}
+
+	await accountDO.rpcUpdateEmail(body.email);
+	return c.json({});
 }
 
 /**

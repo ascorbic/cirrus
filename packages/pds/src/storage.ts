@@ -37,7 +37,8 @@ export class SqliteRepoStorage
 				root_cid TEXT,
 				rev TEXT,
 				seq INTEGER NOT NULL DEFAULT 0,
-				active INTEGER NOT NULL DEFAULT 1
+				active INTEGER NOT NULL DEFAULT 1,
+				email TEXT
 			);
 
 			-- Initialize with empty state if not exists
@@ -98,6 +99,13 @@ export class SqliteRepoStorage
 				name TEXT
 			);
 		`);
+
+		// Migration: add email column for existing databases
+		try {
+			this.sql.exec("ALTER TABLE repo_state ADD COLUMN email TEXT");
+		} catch {
+			// Column already exists
+		}
 	}
 
 	/**
@@ -336,6 +344,23 @@ export class SqliteRepoStorage
 			"UPDATE repo_state SET active = ? WHERE id = 1",
 			active ? 1 : 0,
 		);
+	}
+
+	/**
+	 * Get the stored email address.
+	 */
+	getEmail(): string | null {
+		const rows = this.sql
+			.exec("SELECT email FROM repo_state WHERE id = 1")
+			.toArray();
+		return rows.length > 0 ? ((rows[0]!.email as string) ?? null) : null;
+	}
+
+	/**
+	 * Set the email address.
+	 */
+	setEmail(email: string): void {
+		this.sql.exec("UPDATE repo_state SET email = ? WHERE id = 1", email);
 	}
 
 	// ============================================
