@@ -337,6 +337,11 @@ app.post("/xrpc/com.atproto.server.deactivateAccount", requireAuth, (c) =>
 app.post("/xrpc/gg.mk.experimental.resetMigration", requireAuth, (c) =>
 	server.resetMigration(c, getAccountDO(c.env)),
 );
+app.post(
+	"/xrpc/com.atproto.server.requestEmailUpdate",
+	requireAuth,
+	server.requestEmailUpdate,
+);
 app.post("/xrpc/com.atproto.server.updateEmail", requireAuth, (c) =>
 	server.updateEmail(c, getAccountDO(c.env)),
 );

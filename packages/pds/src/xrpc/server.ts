@@ -400,6 +400,16 @@ export async function deactivateAccount(
 }
 
 /**
+ * Request a token to update the account email.
+ * Single-user PDS: no token needed, always returns tokenRequired: false.
+ */
+export async function requestEmailUpdate(
+	c: Context<AuthedAppEnv>,
+): Promise<Response> {
+	return c.json({ tokenRequired: false });
+}
+
+/**
  * Update the account email address
  */
 export async function updateEmail(
