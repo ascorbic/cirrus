@@ -1,5 +1,15 @@
 # @getcirrus/pds
 
+## 0.10.3
+
+### Patch Changes
+
+- [#123](https://github.com/ascorbic/cirrus/pull/123) [`4e3d4e9`](https://github.com/ascorbic/cirrus/commit/4e3d4e9e3aa1ae7783ab8536e9ab74c6fa87b6eb) Thanks [@ascorbic](https://github.com/ascorbic)! - Rename getAccountStatus endpoint to checkAccountStatus to match AT Protocol lexicon
+
+- [#126](https://github.com/ascorbic/cirrus/pull/126) [`99272ea`](https://github.com/ascorbic/cirrus/commit/99272ea4f6e2d1a338bb5818da8927b743263c4f) Thanks [@ascorbic](https://github.com/ascorbic)! - Add updateEmail endpoint and include email in session responses
+
+  Store email in DO storage and return it from getSession, createSession, and refreshSession responses. Fixes deck.blue and official app complaints about missing email field.
+
 ## 0.10.2
 
 ### Patch Changes
