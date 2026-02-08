@@ -342,6 +342,11 @@ app.post(
 	requireAuth,
 	server.requestEmailUpdate,
 );
+app.post(
+	"/xrpc/com.atproto.server.requestEmailConfirmation",
+	requireAuth,
+	server.requestEmailConfirmation,
+);
 app.post("/xrpc/com.atproto.server.updateEmail", requireAuth, (c) =>
 	server.updateEmail(c, getAccountDO(c.env)),
 );

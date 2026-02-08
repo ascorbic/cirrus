@@ -410,6 +410,16 @@ export async function requestEmailUpdate(
 }
 
 /**
+ * Request email confirmation.
+ * Single-user PDS: email is always confirmed, nothing to do.
+ */
+export async function requestEmailConfirmation(
+	c: Context<AuthedAppEnv>,
+): Promise<Response> {
+	return c.json({});
+}
+
+/**
  * Update the account email address
  */
 export async function updateEmail(
