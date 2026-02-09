@@ -1,5 +1,11 @@
 # @getcirrus/pds
 
+## 0.10.4
+
+### Patch Changes
+
+- [#127](https://github.com/ascorbic/cirrus/pull/127) [`e09a661`](https://github.com/ascorbic/cirrus/commit/e09a6614079abed82a57226dddf675f6c289bc1e) Thanks [@ascorbic](https://github.com/ascorbic)! - Cache collection names in SQLite for describeRepo performance
+
 ## 0.10.3
 
 ### Patch Changes
