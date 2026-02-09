@@ -216,19 +216,22 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		cid: string;
 	}> {
 		const repo = await this.getRepo();
-		const collections: string[] = [];
-		const seenCollections = new Set<string>();
+		const storage = await this.getStorage();
 
-		for await (const record of repo.walkRecords()) {
-			if (!seenCollections.has(record.collection)) {
-				seenCollections.add(record.collection);
-				collections.push(record.collection);
+		// Lazy backfill: if the cache is empty and the repo has content, populate it
+		if (!storage.hasCollections() && (await storage.getRoot())) {
+			const seen = new Set<string>();
+			for await (const record of repo.walkRecords()) {
+				if (!seen.has(record.collection)) {
+					seen.add(record.collection);
+					storage.addCollection(record.collection);
+				}
 			}
 		}
 
 		return {
 			did: repo.did,
-			collections,
+			collections: storage.getCollections(),
 			cid: repo.cid.toString(),
 		};
 	}
@@ -345,6 +348,9 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		if (!recordCid) {
 			throw new Error(`Failed to create record: ${collection}/${actualRkey}`);
 		}
+
+		// Update collections cache
+		this.storage!.addCollection(collection);
 
 		// Sequence the commit for firehose
 		if (this.sequencer) {
@@ -499,6 +505,9 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			throw new Error(`Failed to put record: ${collection}/${rkey}`);
 		}
 
+		// Update collections cache
+		this.storage!.addCollection(collection);
+
 		// Sequence the commit for firehose
 		if (this.sequencer) {
 			const newBlocks = new BlockMap();
@@ -633,6 +642,13 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		const prevRev = repo.commit.rev;
 		const updatedRepo = await repo.applyWrites(ops, keypair);
 		this.repo = updatedRepo;
+
+		// Update collections cache for create/update ops
+		for (const op of ops) {
+			if (op.action !== WriteOpAction.Delete) {
+				this.storage!.addCollection(op.collection);
+			}
+		}
 
 		// Build final results with CIDs and prepare ops with CIDs for firehose
 		const finalResults: Array<{
@@ -869,8 +885,13 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		this.repoInitialized = true;
 
-		// Extract blob references from all imported records for tracking
+		// Extract blob references and collection names from all imported records
+		const seenCollections = new Set<string>();
 		for await (const record of this.repo.walkRecords()) {
+			if (!seenCollections.has(record.collection)) {
+				seenCollections.add(record.collection);
+				this.storage!.addCollection(record.collection);
+			}
 			const blobCids = extractBlobCids(record.record);
 			if (blobCids.length > 0) {
 				const uri = `at://${this.repo.did}/${record.collection}/${record.rkey}`;
