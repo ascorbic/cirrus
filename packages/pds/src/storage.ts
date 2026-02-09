@@ -81,6 +81,11 @@ export class SqliteRepoStorage
 				createdAt TEXT NOT NULL DEFAULT (datetime('now'))
 			);
 
+			-- Collection name cache (for describeRepo)
+			CREATE TABLE IF NOT EXISTS collections (
+				collection TEXT PRIMARY KEY
+			);
+
 			-- Passkey credentials (WebAuthn)
 			CREATE TABLE IF NOT EXISTS passkeys (
 				credential_id TEXT PRIMARY KEY,
@@ -361,6 +366,40 @@ export class SqliteRepoStorage
 	 */
 	setEmail(email: string): void {
 		this.sql.exec("UPDATE repo_state SET email = ? WHERE id = 1", email);
+	}
+
+	// ============================================
+	// Collection Cache Methods
+	// ============================================
+
+	/**
+	 * Get all cached collection names.
+	 */
+	getCollections(): string[] {
+		const rows = this.sql
+			.exec("SELECT collection FROM collections ORDER BY collection")
+			.toArray();
+		return rows.map((row) => row.collection as string);
+	}
+
+	/**
+	 * Add a collection name to the cache (no-op if already present).
+	 */
+	addCollection(collection: string): void {
+		this.sql.exec(
+			"INSERT OR IGNORE INTO collections (collection) VALUES (?)",
+			collection,
+		);
+	}
+
+	/**
+	 * Check if the collections cache has been populated.
+	 */
+	hasCollections(): boolean {
+		const rows = this.sql
+			.exec("SELECT 1 FROM collections LIMIT 1")
+			.toArray();
+		return rows.length > 0;
 	}
 
 	// ============================================
