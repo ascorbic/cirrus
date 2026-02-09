@@ -95,10 +95,8 @@ export class SqliteOAuthStorage implements OAuthStorage {
 	cleanup(): void {
 		const now = Date.now();
 		this.sql.exec("DELETE FROM oauth_auth_codes WHERE expires_at < ?", now);
-		this.sql.exec(
-			"DELETE FROM oauth_tokens WHERE expires_at < ? AND revoked = 0",
-			now,
-		);
+		// Delete all revoked tokens — once revoked, they're never valid again.
+		this.sql.exec("DELETE FROM oauth_tokens WHERE revoked = 1");
 		this.sql.exec("DELETE FROM oauth_par_requests WHERE expires_at < ?", now);
 		// Nonces expire after 5 minutes
 		const nonceExpiry = now - 5 * 60 * 1000;
