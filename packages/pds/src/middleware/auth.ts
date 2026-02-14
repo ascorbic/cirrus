@@ -2,7 +2,7 @@
  * Authentication middleware for multi-tenant PDS.
  *
  * Verifies session JWTs and extracts the DID from the JWT subject claim.
- * In per-user subdomain mode, the JWT audience is derived from the request hostname.
+ * The JWT audience is derived from the request hostname.
  */
 
 import type { Context, Next } from "hono";
@@ -52,12 +52,34 @@ export async function requireAuth(
 
 	const token = auth.slice(7);
 
-	// Derive service DID from request hostname (per-user subdomain mode)
+	// Derive service DID from request hostname for JWT audience verification.
+	// Hostname patterns:
+	// 1. User subdomain (NNN.fid.is) → audience = did:web:NNN.fid.is (enforced)
+	// 2. Management host (my.fid.is or base domain) → audience not checked
+	//    (tokens have aud = user's PDS DID; management endpoints only need sub claim)
+	// 3. Unknown hostnames → rejected
 	const hostname = new URL(c.req.url).hostname;
 	const domain = c.env.WEBFID_DOMAIN;
 	const fid = hostnameToFid(hostname, domain);
-	// If on a valid subdomain, use that user's DID for JWT audience
-	const serviceDid = fid ? fidToDid(fid, domain) : `did:web:${hostname}`;
+
+	let serviceDid: string | undefined;
+	if (fid) {
+		// User subdomain (123.fid.is) → audience must match the user's PDS service DID
+		serviceDid = fidToDid(fid, domain);
+	} else if (hostname === `my.${domain}` || hostname === domain) {
+		// Management host → verify signature/expiry but skip audience check.
+		// Matches both my.fid.is (production) and the bare domain (dev tunnels
+		// where sub-subdomains aren't available).
+		serviceDid = undefined;
+	} else {
+		return c.json(
+			{
+				error: "AuthMissing",
+				message: "Invalid hostname for authentication",
+			},
+			401,
+		);
+	}
 
 	try {
 		const payload = await verifyAccessToken(

@@ -40,7 +40,18 @@ import {
 import type { PDSEnv, AppEnv } from "./types";
 import type { AccountDurableObject } from "./account-do";
 
+import { env } from "cloudflare:workers";
 import { version } from "../package.json" with { type: "json" };
+
+// Validate required environment variables at module load
+const pdsEnv = env as unknown as PDSEnv;
+const required = ["WEBFID_DOMAIN", "JWT_SECRET", "ACCOUNT"] as const;
+
+for (const key of required) {
+	if (!pdsEnv[key]) {
+		throw new Error(`Missing required environment variable: ${key}`);
+	}
+}
 
 const didResolver = new DidResolver({
 	didCache: new WorkersDidCache(),

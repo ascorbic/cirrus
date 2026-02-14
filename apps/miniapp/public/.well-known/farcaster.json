@@ -1,0 +1,17 @@
+{
+	"accountAssociation": {
+		"header": "eyJmaWQiOjE4OTgsInR5cGUiOiJhdXRoIiwia2V5IjoiMHhDM0I4ZTVmYzk1MTRDQjQzREJDNkFiZkFhNDk4RTI3MGM3YjRhNTVjIn0",
+		"payload": "eyJkb21haW4iOiJnZW9ncmFwaGljYWwtZGl2ZS1ibG93aW5nLWJvYXRpbmcudHJ5Y2xvdWRmbGFyZS5jb20ifQ",
+		"signature": "7Z4vx2niP6Z/c/t949UPXeqN44huYMAWLXii+LyXUGcTwmQSRouImAzuAYzOaMZIrhZ2sEh1Yf3RDoIsRx9xEBw="
+	},
+	"miniapp": {
+		"version": "1",
+		"name": "WebFID",
+		"iconUrl": "https://yoink.party/logo.png",
+		"homeUrl": "https://geographical-dive-blowing-boating.trycloudflare.com",
+		"splashImageUrl": "https://yoink.party/logo.png",
+		"splashBackgroundColor": "#0a0a0a",
+		"subtitle": "AT Protocol on Farcaster",
+		"description": "Create an AT Protocol identity using your Farcaster account. Access Bluesky and the AT Protocol ecosystem."
+	}
+}

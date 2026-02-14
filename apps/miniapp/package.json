@@ -1,0 +1,25 @@
+{
+	"name": "@getcirrus/miniapp",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "tsc -b && vite build",
+		"preview": "vite preview"
+	},
+	"dependencies": {
+		"@farcaster/auth-kit": "^0.7.0",
+		"@farcaster/miniapp-sdk": "^0.2.2",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0"
+	},
+	"devDependencies": {
+		"@types/react": "^19.0.0",
+		"@types/react-dom": "^19.0.0",
+		"@vitejs/plugin-react": "^4.4.1",
+		"buffer": "^6.0.3",
+		"typescript": "^5.9.3",
+		"vite": "^6.4.1"
+	}
+}

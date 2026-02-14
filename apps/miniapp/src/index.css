@@ -1,0 +1,244 @@
+* {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+}
+
+:root {
+	--bg: #0a0a0a;
+	--fg: #fafafa;
+	--muted: #a1a1aa;
+	--accent: #3b82f6;
+	--success: #22c55e;
+	--error: #ef4444;
+	--border: #27272a;
+}
+
+body {
+	font-family:
+		-apple-system,
+		BlinkMacSystemFont,
+		"Segoe UI",
+		Roboto,
+		sans-serif;
+	background: var(--bg);
+	color: var(--fg);
+	min-height: 100vh;
+}
+
+#root {
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+}
+
+button {
+	background: var(--accent);
+	color: white;
+	border: none;
+	padding: 12px 24px;
+	border-radius: 8px;
+	font-size: 16px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: opacity 0.2s;
+}
+
+button:hover {
+	opacity: 0.9;
+}
+
+button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.container {
+	max-width: 400px;
+	margin: 0 auto;
+	padding: 24px;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+}
+
+.card {
+	background: #18181b;
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	padding: 24px;
+}
+
+.title {
+	font-size: 24px;
+	font-weight: 600;
+	margin-bottom: 8px;
+}
+
+.subtitle {
+	color: var(--muted);
+	margin-bottom: 24px;
+}
+
+.info {
+	background: #27272a;
+	border-radius: 8px;
+	padding: 16px;
+	margin-bottom: 16px;
+}
+
+.info-label {
+	font-size: 12px;
+	color: var(--muted);
+	text-transform: uppercase;
+	margin-bottom: 4px;
+}
+
+.info-value {
+	font-family: monospace;
+	font-size: 14px;
+	word-break: break-all;
+}
+
+.error {
+	color: var(--error);
+	margin-bottom: 16px;
+}
+
+.success {
+	color: var(--success);
+	margin-bottom: 16px;
+}
+
+.loading {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 200px;
+	color: var(--muted);
+}
+
+.siwf-button-container {
+	display: flex;
+	justify-content: center;
+}
+
+/* Override auth-kit button styles to match our theme */
+.fc-authkit-signin-button {
+	width: 100% !important;
+}
+
+/* Settings Section */
+.settings-section {
+	margin-top: 24px;
+	padding-top: 24px;
+	border-top: 1px solid var(--border);
+}
+
+.settings-header {
+	font-size: 16px;
+	font-weight: 600;
+	margin-bottom: 12px;
+}
+
+.settings-description {
+	font-size: 13px;
+	color: var(--muted);
+	margin-bottom: 16px;
+	line-height: 1.5;
+}
+
+.custom-pds-badge {
+	display: inline-block;
+	background: var(--accent);
+	color: white;
+	font-size: 11px;
+	font-weight: 500;
+	padding: 4px 8px;
+	border-radius: 4px;
+	margin-bottom: 12px;
+}
+
+.pds-toggle {
+	margin-bottom: 16px;
+}
+
+.toggle-label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	cursor: pointer;
+	font-size: 14px;
+}
+
+.toggle-label input[type="checkbox"] {
+	width: 18px;
+	height: 18px;
+	accent-color: var(--accent);
+}
+
+.custom-url-input {
+	margin-bottom: 16px;
+}
+
+.custom-url-input input {
+	width: 100%;
+	padding: 12px;
+	background: #27272a;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	color: var(--fg);
+	font-size: 14px;
+	font-family: monospace;
+}
+
+.custom-url-input input:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.custom-url-input input:disabled {
+	opacity: 0.5;
+}
+
+.current-pds {
+	background: #27272a;
+	border-radius: 8px;
+	padding: 12px;
+	margin-bottom: 12px;
+	font-size: 13px;
+}
+
+.current-pds .label {
+	color: var(--muted);
+	margin-right: 8px;
+}
+
+.current-pds .value {
+	font-family: monospace;
+	word-break: break-all;
+}
+
+.default-pds-note {
+	font-size: 12px;
+	color: var(--muted);
+	margin-bottom: 12px;
+}
+
+.settings-error {
+	color: var(--error);
+	font-size: 13px;
+	margin-bottom: 12px;
+}
+
+.settings-success {
+	color: var(--success);
+	font-size: 13px;
+	margin-bottom: 12px;
+}
+
+.save-button {
+	width: 100%;
+	margin-top: 8px;
+}

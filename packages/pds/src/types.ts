@@ -59,7 +59,7 @@ export interface AtprotoIdentity {
 export interface PDSEnv {
 	/** Base domain for WebFID subdomains (e.g., "fid.is") */
 	WEBFID_DOMAIN: string;
-	/** Domain for Quick Auth token verification (defaults to WEBFID_DOMAIN) */
+	/** Miniapp domain for Quick Auth JWT audience verification. Required for Quick Auth flows. */
 	QUICKAUTH_DOMAIN?: string;
 	/** Secret for signing session JWTs */
 	JWT_SECRET: string;

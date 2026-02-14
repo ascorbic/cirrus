@@ -1,0 +1,19 @@
+# Multi-tenant PDS config for local development
+# Copy this file to .dev.vars and fill in appropriate values
+
+# Domain for WebFID DIDs (did:web:NNN.{domain})
+# Also used for the management subdomain (my.{domain})
+# For localhost testing:
+# WEBFID_DOMAIN=localhost:8787
+# For Warpcast testing via tunnel:
+WEBFID_DOMAIN=your-tunnel.trycloudflare.com
+
+# Quick Auth token audience domain (mini app domain)
+# This is the domain Farcaster Quick Auth JWTs are issued for
+QUICKAUTH_DOMAIN=your-miniapp-tunnel.trycloudflare.com
+
+# JWT signing secret (at least 32 characters)
+JWT_SECRET=your-jwt-secret-at-least-32-chars-long
+
+# Initial activation state for new accounts
+INITIAL_ACTIVE=true

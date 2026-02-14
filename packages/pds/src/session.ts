@@ -70,7 +70,7 @@ export async function createRefreshToken(
 export async function verifyAccessToken(
 	token: string,
 	jwtSecret: string,
-	serviceDid: string,
+	serviceDid?: string,
 ): Promise<JWTPayload> {
 	const secret = createSecretKey(jwtSecret);
 

@@ -1,0 +1,22 @@
+{
+	"name": "fid-pds",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"deploy": "wrangler deploy",
+		"preview": "vite preview",
+		"pds": "pds",
+		"wrangler": "wrangler"
+	},
+	"dependencies": {
+		"@getcirrus/pds": "workspace:*"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "^1.17.0",
+		"@cloudflare/workers-types": "^4.20251225.0",
+		"vite": "^6.4.1",
+		"wrangler": "^4.54.0"
+	}
+}

@@ -53,15 +53,25 @@ export async function createAccount(
 		);
 	}
 
-	// Get domains from environment
-	// QUICKAUTH_DOMAIN is for token verification (mini app domain)
-	// WEBFID_DOMAIN is for DID/handle generation (PDS domain)
-	const quickAuthDomain = c.env.QUICKAUTH_DOMAIN || c.env.WEBFID_DOMAIN;
-	const webfidDomain = c.env.WEBFID_DOMAIN;
+	// QUICKAUTH_DOMAIN is the miniapp domain — the audience of the Quick Auth JWT
+	// issued by auth.farcaster.xyz. Required so we verify the token was intended
+	// for our miniapp, not some other Farcaster app.
+	if (!c.env.QUICKAUTH_DOMAIN) {
+		return c.json(
+			{
+				error: "ServerError",
+				message: "QUICKAUTH_DOMAIN not configured",
+			},
+			500,
+		);
+	}
 
 	let fid: string;
 	try {
-		fid = await verifyQuickAuthToken(body.farcasterToken, quickAuthDomain);
+		fid = await verifyQuickAuthToken(
+			body.farcasterToken,
+			c.env.QUICKAUTH_DOMAIN,
+		);
 	} catch (err) {
 		return c.json(
 			{
@@ -76,8 +86,9 @@ export async function createAccount(
 	}
 
 	// Derive DID and handle from FID (deterministic)
-	const did = fidToDid(fid, webfidDomain);
-	const handle = fidToHandle(fid, webfidDomain);
+	// WEBFID_DOMAIN is the PDS domain used for DID/handle generation
+	const did = fidToDid(fid, c.env.WEBFID_DOMAIN);
+	const handle = fidToHandle(fid, c.env.WEBFID_DOMAIN);
 
 	// Get the account's Durable Object (route by DID)
 	const accountDO = getAccountDO(c.env, did);
@@ -137,8 +148,7 @@ export async function createAccount(
 		await registerUser(c.env.USER_REGISTRY, fid, signingKeyPublic);
 	}
 
-	// Create session tokens
-	// The user's DID is also the service DID (they're the same in per-user subdomain mode)
+	// Create session tokens with aud = user's PDS DID (did:web:NNN.fid.is)
 	const accessJwt = await createAccessToken(c.env.JWT_SECRET, did, did);
 	const refreshJwt = await createRefreshToken(c.env.JWT_SECRET, did, did);
 
@@ -179,15 +189,23 @@ export async function loginWithFarcaster(
 		);
 	}
 
-	// Get domains from environment
-	// QUICKAUTH_DOMAIN is for token verification (mini app domain)
-	// WEBFID_DOMAIN is for DID/handle generation (PDS domain)
-	const quickAuthDomain = c.env.QUICKAUTH_DOMAIN || c.env.WEBFID_DOMAIN;
-	const webfidDomain = c.env.WEBFID_DOMAIN;
+	// QUICKAUTH_DOMAIN is the miniapp domain — the audience of the Quick Auth JWT
+	if (!c.env.QUICKAUTH_DOMAIN) {
+		return c.json(
+			{
+				error: "ServerError",
+				message: "QUICKAUTH_DOMAIN not configured",
+			},
+			500,
+		);
+	}
 
 	let fid: string;
 	try {
-		fid = await verifyQuickAuthToken(body.farcasterToken, quickAuthDomain);
+		fid = await verifyQuickAuthToken(
+			body.farcasterToken,
+			c.env.QUICKAUTH_DOMAIN,
+		);
 	} catch (err) {
 		return c.json(
 			{
@@ -201,9 +219,9 @@ export async function loginWithFarcaster(
 		);
 	}
 
-	// Derive DID and handle from FID
-	const did = fidToDid(fid, webfidDomain);
-	const handle = fidToHandle(fid, webfidDomain);
+	// Derive DID and handle from FID (deterministic)
+	const did = fidToDid(fid, c.env.WEBFID_DOMAIN);
+	const handle = fidToHandle(fid, c.env.WEBFID_DOMAIN);
 
 	// Get the account's Durable Object (route by DID)
 	const accountDO = getAccountDO(c.env, did);
@@ -220,8 +238,7 @@ export async function loginWithFarcaster(
 		);
 	}
 
-	// Create session tokens
-	// The user's DID is also the service DID (they're the same in per-user subdomain mode)
+	// Create session tokens with aud = user's PDS DID (did:web:NNN.fid.is)
 	const accessJwt = await createAccessToken(c.env.JWT_SECRET, did, did);
 	const refreshJwt = await createRefreshToken(c.env.JWT_SECRET, did, did);
 
@@ -349,7 +366,7 @@ export async function loginWithSiwf(
 		isNew = true;
 	}
 
-	// Create session tokens
+	// Create session tokens with aud = user's PDS DID (did:web:NNN.fid.is)
 	const accessJwt = await createAccessToken(c.env.JWT_SECRET, did, did);
 	const refreshJwt = await createRefreshToken(c.env.JWT_SECRET, did, did);
 
