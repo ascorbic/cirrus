@@ -117,7 +117,9 @@ export const addCommand = defineCommand({
 		}
 
 		// Display the URL and QR code
-		const expiresIn = Math.round((registration.expiresAt - Date.now()) / 1000 / 60);
+		const expiresIn = Math.round(
+			(registration.expiresAt - Date.now()) / 1000 / 60,
+		);
 
 		p.log.info("");
 		p.log.info(pc.bold("Scan this QR code on your phone, or open the URL:"));
@@ -156,7 +158,9 @@ export const addCommand = defineCommand({
 			const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
 			const found = result.passkeys.some((pk) => {
 				// Handle both SQLite format and ISO format
-				const createdTime = new Date(pk.createdAt.replace(" ", "T") + "Z").getTime();
+				const createdTime = new Date(
+					pk.createdAt.replace(" ", "T") + "Z",
+				).getTime();
 				return createdTime > twoMinutesAgo;
 			});
 			if (found) {
@@ -164,7 +168,9 @@ export const addCommand = defineCommand({
 				p.log.success("Your passkey is ready to use.");
 			} else {
 				spinner.stop("Registration not detected");
-				p.log.warn("Could not verify registration. Check 'pds passkey list' to see your passkeys.");
+				p.log.warn(
+					"Could not verify registration. Check 'pds passkey list' to see your passkeys.",
+				);
 			}
 		} catch {
 			spinner.stop("Could not verify registration");

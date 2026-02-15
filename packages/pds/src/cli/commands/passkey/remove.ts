@@ -84,7 +84,14 @@ export const removeCommand = defineCommand({
 
 		if (!credentialId) {
 			spinner.start("Fetching passkeys...");
-			let result: { passkeys: Array<{ id: string; name: string | null; createdAt: string; lastUsedAt: string | null }> };
+			let result: {
+				passkeys: Array<{
+					id: string;
+					name: string | null;
+					createdAt: string;
+					lastUsedAt: string | null;
+				}>;
+			};
 			try {
 				result = await client.listPasskeys();
 				spinner.stop("Passkeys retrieved");

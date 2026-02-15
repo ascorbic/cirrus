@@ -2,7 +2,11 @@
  * Shared CLI utilities for PDS commands
  */
 import * as p from "@clack/prompts";
-import type { TextOptions, ConfirmOptions, SelectOptions } from "@clack/prompts";
+import type {
+	TextOptions,
+	ConfirmOptions,
+	SelectOptions,
+} from "@clack/prompts";
 import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -140,7 +144,9 @@ export async function is1PasswordAvailable(): Promise<boolean> {
 	}
 
 	return new Promise((resolve) => {
-		const child = spawn("which", ["op"], { stdio: ["ignore", "pipe", "ignore"] });
+		const child = spawn("which", ["op"], {
+			stdio: ["ignore", "pipe", "ignore"],
+		});
 
 		child.on("error", () => resolve(false));
 		child.on("close", (code) => resolve(code === 0));

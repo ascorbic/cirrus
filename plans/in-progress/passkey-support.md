@@ -13,14 +13,14 @@ Add passkey (WebAuthn) authentication support with CLI-driven registration and m
 
 ### Components
 
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| `pds passkey add` | CLI | Initiate registration, generate token, output URL |
-| `pds passkey list` | CLI | Show registered passkeys |
-| `pds passkey remove <id>` | CLI | Remove a passkey |
-| `/passkey/register?token=xxx` | Worker | Minimal web page for WebAuthn ceremony |
-| `/passkey/register` POST | Worker | Handle registration response |
-| Storage | Durable Object SQLite | Store passkey credentials |
+| Component                     | Location              | Purpose                                           |
+| ----------------------------- | --------------------- | ------------------------------------------------- |
+| `pds passkey add`             | CLI                   | Initiate registration, generate token, output URL |
+| `pds passkey list`            | CLI                   | Show registered passkeys                          |
+| `pds passkey remove <id>`     | CLI                   | Remove a passkey                                  |
+| `/passkey/register?token=xxx` | Worker                | Minimal web page for WebAuthn ceremony            |
+| `/passkey/register` POST      | Worker                | Handle registration response                      |
+| Storage                       | Durable Object SQLite | Store passkey credentials                         |
 
 ### Dependencies
 
@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS passkeys (
 ```
 
 RPC methods to add to `AccountDurableObject`:
+
 - `rpcSavePasskey(credentialId, publicKey, counter, name)`
 - `rpcGetPasskey(credentialId)`
 - `rpcListPasskeys()`
@@ -67,12 +68,14 @@ RPC methods to add to `AccountDurableObject`:
 **File:** `packages/pds/src/passkey-ui.ts` (new)
 
 Minimal page matching existing OAuth consent UI style:
+
 - Dark gradient background (#1a1a2e → #16213e)
 - Centered card with shadow
 - Single "Register Passkey" button
 - Success/error states
 
 The page:
+
 1. Fetches registration options from server (includes challenge)
 2. Calls `navigator.credentials.create()` with options
 3. POSTs attestation response back to server
@@ -83,6 +86,7 @@ The page:
 **File:** `packages/pds/src/index.ts`
 
 New routes:
+
 ```typescript
 app.get("/passkey/register", handlePasskeyRegisterPage);
 app.post("/passkey/register", handlePasskeyRegisterSubmit);
@@ -110,6 +114,7 @@ pds passkey remove <id>
 ### Phase 6: OAuth Integration (Optional - Phase 2)
 
 Update OAuth consent UI to offer passkey login when available:
+
 - Check if passkeys exist for user
 - Show "Sign in with passkey" button
 - Fall back to password if needed
@@ -117,6 +122,7 @@ Update OAuth consent UI to offer passkey login when available:
 ## File Changes Summary
 
 ### New Files
+
 - `packages/pds/src/passkey.ts` - Registration token logic, WebAuthn verification
 - `packages/pds/src/passkey-ui.ts` - HTML rendering for registration page
 - `packages/pds/src/cli/commands/passkey/index.ts` - CLI command group
@@ -125,6 +131,7 @@ Update OAuth consent UI to offer passkey login when available:
 - `packages/pds/src/cli/commands/passkey/remove.ts`
 
 ### Modified Files
+
 - `packages/pds/src/index.ts` - Add passkey routes
 - `packages/pds/src/account-do.ts` - Add passkey storage RPC methods
 - `packages/pds/src/storage.ts` - Add passkey table schema

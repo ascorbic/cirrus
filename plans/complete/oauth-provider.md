@@ -14,6 +14,7 @@ OAuth 2.1 provider with AT Protocol extensions enabling "Login with Bluesky" eco
 A purpose-built OAuth 2.1 provider (not extending Cloudflare's OAuth provider) with:
 
 #### Core OAuth 2.1
+
 - **PKCE** (RFC 7636) - S256 challenge method only (per AT Protocol spec)
 - **DPoP** (RFC 9449) - Demonstrating Proof of Possession for token binding
 - **PAR** (RFC 9126) - Pushed Authorization Requests
@@ -21,12 +22,14 @@ A purpose-built OAuth 2.1 provider (not extending Cloudflare's OAuth provider) w
 - Refresh token rotation
 
 #### AT Protocol Extensions
+
 - **DID-based client discovery** - Resolves client metadata from `did:web` DIDs
 - **URL-based client IDs** - Also supports HTTPS URLs as client IDs
 - **Zod validation** - Uses `@atproto/oauth-types` for metadata validation
 - **atproto scope** - Single scope for AT Protocol access
 
 #### Security Features
+
 - CSP headers on consent UI
 - DPoP key binding (prevents token theft)
 - Nonce replay prevention
@@ -86,25 +89,25 @@ packages/pds/src/
 
 ## OAuth Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/.well-known/oauth-authorization-server` | GET | Server metadata discovery |
-| `/oauth/authorize` | GET | Authorization endpoint (shows consent UI) |
-| `/oauth/authorize` | POST | Consent form submission |
-| `/oauth/token` | POST | Token endpoint (code exchange, refresh) |
-| `/oauth/revoke` | POST | Token revocation |
-| `/oauth/par` | POST | Pushed Authorization Request |
+| Endpoint                                  | Method | Description                               |
+| ----------------------------------------- | ------ | ----------------------------------------- |
+| `/.well-known/oauth-authorization-server` | GET    | Server metadata discovery                 |
+| `/oauth/authorize`                        | GET    | Authorization endpoint (shows consent UI) |
+| `/oauth/authorize`                        | POST   | Consent form submission                   |
+| `/oauth/token`                            | POST   | Token endpoint (code exchange, refresh)   |
+| `/oauth/revoke`                           | POST   | Token revocation                          |
+| `/oauth/par`                              | POST   | Pushed Authorization Request              |
 
 ## Dependencies
 
 ```json
 {
-  "dependencies": {
-    "@atproto/crypto": "^0.4.5",
-    "@atproto/oauth-types": "^0.5.2",
-    "@atproto/syntax": "^0.4.2",
-    "jose": "^6.1.3"
-  }
+	"dependencies": {
+		"@atproto/crypto": "^0.4.5",
+		"@atproto/oauth-types": "^0.5.2",
+		"@atproto/syntax": "^0.4.2",
+		"jose": "^6.1.3"
+	}
 }
 ```
 
@@ -120,12 +123,12 @@ packages/pds/src/
 import { ATProtoOAuthProvider } from "@getcirrus/oauth-provider";
 
 const provider = new ATProtoOAuthProvider({
-  issuer: "https://your-pds.com",
-  storage: yourOAuthStorage,
-  clientResolver: new ClientResolver({ storage: yourOAuthStorage }),
-  authenticateUser: async (username, password) => {
-    // Verify credentials, return DID or null
-  },
+	issuer: "https://your-pds.com",
+	storage: yourOAuthStorage,
+	clientResolver: new ClientResolver({ storage: yourOAuthStorage }),
+	authenticateUser: async (username, password) => {
+		// Verify credentials, return DID or null
+	},
 });
 
 // Mount routes

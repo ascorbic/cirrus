@@ -4,7 +4,11 @@
  */
 
 // Core provider
-export { ATProtoOAuthProvider, parseRequestBody, RequestBodyError } from "./provider.js";
+export {
+	ATProtoOAuthProvider,
+	parseRequestBody,
+	RequestBodyError,
+} from "./provider.js";
 export type { OAuthProviderConfig } from "./provider.js";
 
 // Storage interface and types
@@ -30,8 +34,15 @@ export { PARHandler } from "./par.js";
 export type { OAuthParResponse, OAuthErrorResponse } from "./par.js";
 
 // Client resolution
-export { ClientResolver, createClientResolver, ClientResolutionError } from "./client-resolver.js";
-export type { ClientResolverOptions, OAuthClientMetadata } from "./client-resolver.js";
+export {
+	ClientResolver,
+	createClientResolver,
+	ClientResolutionError,
+} from "./client-resolver.js";
+export type {
+	ClientResolverOptions,
+	OAuthClientMetadata,
+} from "./client-resolver.js";
 
 // Tokens
 export {
@@ -49,7 +60,12 @@ export {
 export type { GeneratedTokens, GenerateTokensOptions } from "./tokens.js";
 
 // UI
-export { renderConsentUI, renderErrorPage, getConsentUiCsp, getPasskeyAuthScriptHash } from "./ui.js";
+export {
+	renderConsentUI,
+	renderErrorPage,
+	getConsentUiCsp,
+	getPasskeyAuthScriptHash,
+} from "./ui.js";
 export type { ConsentUIOptions } from "./ui.js";
 
 // Client authentication

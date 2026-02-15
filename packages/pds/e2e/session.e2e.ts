@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-	createAgent,
-	TEST_DID,
-	TEST_HANDLE,
-	TEST_PASSWORD,
-} from "./helpers";
+import { createAgent, TEST_DID, TEST_HANDLE, TEST_PASSWORD } from "./helpers";
 
 describe("Session Authentication", () => {
 	describe("createSession", () => {

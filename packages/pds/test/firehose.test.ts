@@ -395,14 +395,10 @@ describe("Firehose (subscribeRepos)", () => {
 				const seqBefore = sequencer.getLatestSeq();
 
 				// Create a record
-				await instance.rpcCreateRecord(
-					"app.bsky.feed.post",
-					"dispatch-test",
-					{
-						text: "Test dispatch",
-						createdAt: new Date().toISOString(),
-					},
-				);
+				await instance.rpcCreateRecord("app.bsky.feed.post", "dispatch-test", {
+					text: "Test dispatch",
+					createdAt: new Date().toISOString(),
+				});
 
 				const events = await sequencer.getEventsSince(seqBefore, 1);
 				const commitEvent = events[0] as SeqCommitEvent;

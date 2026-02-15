@@ -5,7 +5,8 @@ import type { OAuthStorage, ClientMetadata } from "../src/storage.js";
 describe("ClientResolver", () => {
 	describe("localhost clients", () => {
 		it("resolves localhost client from URL without network request", async () => {
-			const clientId = "http://localhost?redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Fcallback&scope=atproto";
+			const clientId =
+				"http://localhost?redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Fcallback&scope=atproto";
 
 			const mockFetch = vi.fn();
 			const resolver = new ClientResolver({
@@ -30,7 +31,10 @@ describe("ClientResolver", () => {
 			const resolver = new ClientResolver();
 			const result = await resolver.resolveClient(clientId);
 
-			expect(result.redirectUris).toEqual(["http://127.0.0.1/", "http://[::1]/"]);
+			expect(result.redirectUris).toEqual([
+				"http://127.0.0.1/",
+				"http://[::1]/",
+			]);
 		});
 
 		it("rejects localhost with port number", async () => {
@@ -38,7 +42,9 @@ describe("ClientResolver", () => {
 
 			const resolver = new ClientResolver();
 
-			await expect(resolver.resolveClient(clientId)).rejects.toThrow("Invalid client ID format");
+			await expect(resolver.resolveClient(clientId)).rejects.toThrow(
+				"Invalid client ID format",
+			);
 		});
 
 		it("does not treat https://localhost as localhost client", async () => {
@@ -60,20 +66,43 @@ describe("ClientResolver", () => {
 
 	describe("localhost redirect URI validation", () => {
 		it("matches redirect URI ignoring port number", async () => {
-			const clientId = "http://localhost?redirect_uri=http%3A%2F%2F127.0.0.1%2Fcallback";
+			const clientId =
+				"http://localhost?redirect_uri=http%3A%2F%2F127.0.0.1%2Fcallback";
 
 			const resolver = new ClientResolver();
 
 			// Should match with any port
-			expect(await resolver.validateRedirectUri(clientId, "http://127.0.0.1/callback")).toBe(true);
-			expect(await resolver.validateRedirectUri(clientId, "http://127.0.0.1:8080/callback")).toBe(true);
-			expect(await resolver.validateRedirectUri(clientId, "http://127.0.0.1:19284/callback")).toBe(true);
+			expect(
+				await resolver.validateRedirectUri(
+					clientId,
+					"http://127.0.0.1/callback",
+				),
+			).toBe(true);
+			expect(
+				await resolver.validateRedirectUri(
+					clientId,
+					"http://127.0.0.1:8080/callback",
+				),
+			).toBe(true);
+			expect(
+				await resolver.validateRedirectUri(
+					clientId,
+					"http://127.0.0.1:19284/callback",
+				),
+			).toBe(true);
 
 			// Should not match different path
-			expect(await resolver.validateRedirectUri(clientId, "http://127.0.0.1/other")).toBe(false);
+			expect(
+				await resolver.validateRedirectUri(clientId, "http://127.0.0.1/other"),
+			).toBe(false);
 
 			// Should not match different scheme
-			expect(await resolver.validateRedirectUri(clientId, "https://127.0.0.1/callback")).toBe(false);
+			expect(
+				await resolver.validateRedirectUri(
+					clientId,
+					"https://127.0.0.1/callback",
+				),
+			).toBe(false);
 		});
 
 		it("matches default redirect URIs for localhost client", async () => {
@@ -82,10 +111,18 @@ describe("ClientResolver", () => {
 			const resolver = new ClientResolver();
 
 			// Default redirect URIs are http://127.0.0.1/ and http://[::1]/
-			expect(await resolver.validateRedirectUri(clientId, "http://127.0.0.1/")).toBe(true);
-			expect(await resolver.validateRedirectUri(clientId, "http://127.0.0.1:3000/")).toBe(true);
-			expect(await resolver.validateRedirectUri(clientId, "http://[::1]/")).toBe(true);
-			expect(await resolver.validateRedirectUri(clientId, "http://[::1]:8080/")).toBe(true);
+			expect(
+				await resolver.validateRedirectUri(clientId, "http://127.0.0.1/"),
+			).toBe(true);
+			expect(
+				await resolver.validateRedirectUri(clientId, "http://127.0.0.1:3000/"),
+			).toBe(true);
+			expect(
+				await resolver.validateRedirectUri(clientId, "http://[::1]/"),
+			).toBe(true);
+			expect(
+				await resolver.validateRedirectUri(clientId, "http://[::1]:8080/"),
+			).toBe(true);
 		});
 	});
 

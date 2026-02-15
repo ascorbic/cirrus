@@ -1,4 +1,8 @@
-import { create as createCid, CODEC_RAW, toString as cidToString } from "@atcute/cid";
+import {
+	create as createCid,
+	CODEC_RAW,
+	toString as cidToString,
+} from "@atcute/cid";
 
 export interface BlobRef {
 	$type: "blob";

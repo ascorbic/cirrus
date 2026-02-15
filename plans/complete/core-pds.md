@@ -11,17 +11,20 @@ A single-user AT Protocol Personal Data Server (PDS) implemented on Cloudflare W
 ## Implemented Features
 
 ### Storage Layer (Phase 1)
+
 - ✅ `SqliteRepoStorage` implementing `@atproto/repo` RepoStorage interface
 - ✅ SQLite schema for blocks, repo state, and firehose events
 - ✅ Atomic commit operations with transaction support
 
 ### Durable Object Architecture (Phase 2)
+
 - ✅ `AccountDurableObject` with Repo integration
 - ✅ Lazy initialization with `blockConcurrencyWhile`
 - ✅ RPC-first architecture following DO best practices
 - ✅ Signing key import from environment with validation
 
 ### XRPC Endpoints (Phase 3)
+
 - ✅ Sync endpoints: `getRepo`, `getRepoStatus`, `subscribeRepos`
 - ✅ Repository operations: `describeRepo`, `getRecord`, `listRecords`, `createRecord`, `deleteRecord`, `putRecord`, `applyWrites`
 - ✅ Server identity: `describeServer`, `resolveHandle`
@@ -32,6 +35,7 @@ A single-user AT Protocol Personal Data Server (PDS) implemented on Cloudflare W
 - ✅ Preferences: `getPreferences`, `putPreferences`
 
 ### Firehose Implementation (Phase 4)
+
 - ✅ WebSocket hibernation API handlers
 - ✅ DAG-CBOR frame encoding using `@atproto/lex-cbor`
 - ✅ Event broadcasting to connected clients
@@ -40,17 +44,20 @@ A single-user AT Protocol Personal Data Server (PDS) implemented on Cloudflare W
 - ✅ SQLite `firehose_events` table with automatic pruning
 
 ### Blob Storage (Phase 5)
+
 - ✅ R2 integration with `BlobStore` class
 - ✅ CID generation using `cidForRawBytes()` from `@atproto/lex-cbor`
 - ✅ 5MB upload limit enforcement
 - ✅ Direct R2 access in endpoints
 
 ### Identity & DID Documents (Phase 6)
+
 - ✅ DID document served at `/.well-known/did.json`
 - ✅ Handle verification at `/.well-known/atproto-did`
 - ✅ Support for both did:web and did:plc identifiers
 
 ### Authentication (Phase 7)
+
 - ✅ Bearer token middleware for write endpoints
 - ✅ Static token auth (AUTH_TOKEN)
 - ✅ JWT-based session authentication
@@ -58,24 +65,28 @@ A single-user AT Protocol Personal Data Server (PDS) implemented on Cloudflare W
 - ✅ Access token + refresh token flow
 
 ### Session Authentication (Phase 8)
+
 - ✅ JWT signing with HS256 (using jose library)
 - ✅ 60-minute access tokens, 90-day refresh tokens
 - ✅ Compatible with Bluesky app authentication
 - ✅ Password verification with bcryptjs
 
 ### Lexicon Validation (Phase 8)
+
 - ✅ `RecordValidator` class using `@atproto/lexicon`
 - ✅ Optimistic validation strategy (fail-open)
 - ✅ Dynamic schema loading via Vite glob imports
 - ✅ Validation integrated into mutation endpoints
 
 ### Account Migration (Phase 9)
+
 - ✅ CAR file import using `readCarWithRoot()`
 - ✅ Export/import workflow with validation
 - ✅ DID matching verification
 - ✅ Prevention of overwrites
 
 ### Protocol Helpers
+
 - ✅ All operations use official @atproto utilities
 - ✅ TID generation via `TID.nextStr()`
 - ✅ AT-URI construction via `AtUri.make()`
@@ -84,18 +95,21 @@ A single-user AT Protocol Personal Data Server (PDS) implemented on Cloudflare W
 - ✅ CAR export via `blocksToCarFile()`
 
 ### CLI Setup Wizard
+
 - ✅ `pds init` - Interactive setup for production
 - ✅ `pds init --local` - Setup for local development
 - ✅ Secret management commands
 - ✅ Integration with wrangler config
 
 ### Testing
+
 - ✅ 140+ tests covering all features
 - ✅ Vitest 4 with Cloudflare Workers pool
 - ✅ Durable Object testing support
 - ✅ Integration tests for federation
 
 ### DID Resolution & XRPC Proxy
+
 - ✅ Full DID resolver for did:web and did:plc
 - ✅ DID caching with stale-while-revalidate
 - ✅ XRPC proxy with atproto-proxy header support
@@ -127,24 +141,28 @@ A single-user AT Protocol Personal Data Server (PDS) implemented on Cloudflare W
 ## Configuration
 
 ### Environment Variables
+
 - `PDS_HOSTNAME` - Public hostname of the PDS
 - `HANDLE` - Account handle
 - `DID` - Account DID
 - `SIGNING_KEY_PUBLIC` - Public key for DID document
 
 ### Secrets
+
 - `SIGNING_KEY` - Private signing key (secp256k1)
 - `AUTH_TOKEN` - Bearer token for API access
 - `JWT_SECRET` - Secret for JWT signing
 - `PASSWORD_HASH` - bcrypt password hash
 
 ### Bindings
+
 - `ACCOUNT` - DurableObjectNamespace
 - `BLOBS` - R2Bucket
 
 ## Dependencies
 
 All dependencies are Workers-compatible:
+
 - `@atproto/repo` - Core MST and repository operations
 - `@atproto/crypto` - Cryptographic operations
 - `@atproto/syntax` - Protocol utilities

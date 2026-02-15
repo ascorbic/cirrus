@@ -3,7 +3,13 @@
  * Implements RFC 9449 using jose library for JWT operations
  */
 
-import { jwtVerify, EmbeddedJWK, calculateJwkThumbprint, errors, base64url } from "jose";
+import {
+	jwtVerify,
+	EmbeddedJWK,
+	calculateJwkThumbprint,
+	errors,
+	base64url,
+} from "jose";
 import type { JWK } from "jose";
 import { randomString } from "./encoding.js";
 
@@ -73,7 +79,10 @@ function parseHtu(htu: string): string {
 	}
 
 	if (url.password || url.username) {
-		throw new DpopError('DPoP "htu" must not contain credentials', "invalid_dpop");
+		throw new DpopError(
+			'DPoP "htu" must not contain credentials',
+			"invalid_dpop",
+		);
 	}
 
 	if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -93,9 +102,14 @@ function parseHtu(htu: string): string {
  */
 export async function verifyDpopProof(
 	request: Request,
-	options: DpopVerifyOptions = {}
+	options: DpopVerifyOptions = {},
 ): Promise<DpopProof> {
-	const { allowedAlgorithms = ["ES256"], accessToken, expectedNonce, maxTokenAge = 60 } = options;
+	const {
+		allowedAlgorithms = ["ES256"],
+		accessToken,
+		expectedNonce,
+		maxTokenAge = 60,
+	} = options;
 
 	const dpopHeader = request.headers.get("DPoP");
 	if (!dpopHeader) {
@@ -123,9 +137,15 @@ export async function verifyDpopProof(
 		payload = result.payload as typeof payload;
 	} catch (err) {
 		if (err instanceof JOSEError) {
-			throw new DpopError(`DPoP verification failed: ${err.message}`, "invalid_dpop", { cause: err });
+			throw new DpopError(
+				`DPoP verification failed: ${err.message}`,
+				"invalid_dpop",
+				{ cause: err },
+			);
 		}
-		throw new DpopError("DPoP verification failed", "invalid_dpop", { cause: err });
+		throw new DpopError("DPoP verification failed", "invalid_dpop", {
+			cause: err,
+		});
 	}
 
 	if (!payload.jti || typeof payload.jti !== "string") {
@@ -158,17 +178,26 @@ export async function verifyDpopProof(
 	// Verify ath (access token hash) binding per RFC 9449 Section 4.3
 	if (accessToken) {
 		if (!payload.ath) {
-			throw new DpopError('DPoP "ath" missing when access token provided', "invalid_dpop");
+			throw new DpopError(
+				'DPoP "ath" missing when access token provided',
+				"invalid_dpop",
+			);
 		}
 
-		const tokenHash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(accessToken));
+		const tokenHash = await crypto.subtle.digest(
+			"SHA-256",
+			new TextEncoder().encode(accessToken),
+		);
 		const expectedAth = base64url.encode(new Uint8Array(tokenHash));
 
 		if (payload.ath !== expectedAth) {
 			throw new DpopError('DPoP "ath" mismatch', "invalid_dpop");
 		}
 	} else if (payload.ath !== undefined) {
-		throw new DpopError('DPoP "ath" claim not allowed without access token', "invalid_dpop");
+		throw new DpopError(
+			'DPoP "ath" claim not allowed without access token',
+			"invalid_dpop",
+		);
 	}
 
 	const jwk = protectedHeader.jwk!;

@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { AtpAgent } from "@atproto/api";
 import { CarReader } from "@ipld/car";
-import { createAgent, getBaseUrl, TEST_DID, TEST_HANDLE, TEST_PASSWORD, uniqueRkey } from "./helpers";
+import {
+	createAgent,
+	getBaseUrl,
+	TEST_DID,
+	TEST_HANDLE,
+	TEST_PASSWORD,
+	uniqueRkey,
+} from "./helpers";
 
 describe("CAR Export", () => {
 	let agent: AtpAgent;

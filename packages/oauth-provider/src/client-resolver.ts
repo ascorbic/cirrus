@@ -18,7 +18,7 @@ export type { OAuthClientMetadata };
 export class ClientResolutionError extends Error {
 	constructor(
 		message: string,
-		public readonly code: string
+		public readonly code: string,
 	) {
 		super(message);
 		this.name = "ClientResolutionError";
@@ -59,7 +59,9 @@ function isLocalhostClient(value: string): boolean {
 	try {
 		const url = new URL(value);
 		// Must be http://localhost with no port
-		return url.protocol === "http:" && url.hostname === "localhost" && !url.port;
+		return (
+			url.protocol === "http:" && url.hostname === "localhost" && !url.port
+		);
 	} catch {
 		return false;
 	}
@@ -158,7 +160,7 @@ export class ClientResolver {
 		if (!isHttpsUrl(clientId) && !isValidDid(clientId)) {
 			throw new ClientResolutionError(
 				`Invalid client ID format: ${clientId}`,
-				"invalid_client"
+				"invalid_client",
 			);
 		}
 
@@ -166,9 +168,12 @@ export class ClientResolver {
 			const cached = await this.storage.getClient(clientId);
 			// Check cache validity: must have timestamp, not expired, and have auth method set
 			// (entries without tokenEndpointAuthMethod are from before we added that field)
-			if (cached && cached.cachedAt &&
+			if (
+				cached &&
+				cached.cachedAt &&
 				Date.now() - cached.cachedAt < this.cacheTtl &&
-				cached.tokenEndpointAuthMethod !== undefined) {
+				cached.tokenEndpointAuthMethod !== undefined
+			) {
 				return cached;
 			}
 		}
@@ -177,7 +182,7 @@ export class ClientResolver {
 		if (!metadataUrl) {
 			throw new ClientResolutionError(
 				`Unsupported client ID format: ${clientId}`,
-				"invalid_client"
+				"invalid_client",
 			);
 		}
 
@@ -191,14 +196,14 @@ export class ClientResolver {
 		} catch (e) {
 			throw new ClientResolutionError(
 				`Failed to fetch client metadata: ${e}`,
-				"invalid_client"
+				"invalid_client",
 			);
 		}
 
 		if (!response.ok) {
 			throw new ClientResolutionError(
 				`Client metadata fetch failed with status ${response.status}`,
-				"invalid_client"
+				"invalid_client",
 			);
 		}
 
@@ -209,14 +214,14 @@ export class ClientResolver {
 		} catch (e) {
 			throw new ClientResolutionError(
 				`Invalid client metadata: ${e instanceof Error ? e.message : "validation failed"}`,
-				"invalid_client"
+				"invalid_client",
 			);
 		}
 
 		if (doc.client_id !== clientId) {
 			throw new ClientResolutionError(
 				`Client ID mismatch: expected ${clientId}, got ${doc.client_id}`,
-				"invalid_client"
+				"invalid_client",
 			);
 		}
 
@@ -226,7 +231,9 @@ export class ClientResolver {
 			redirectUris: doc.redirect_uris,
 			logoUri: doc.logo_uri,
 			clientUri: doc.client_uri,
-			tokenEndpointAuthMethod: (doc.token_endpoint_auth_method as "none" | "private_key_jwt") ?? "none",
+			tokenEndpointAuthMethod:
+				(doc.token_endpoint_auth_method as "none" | "private_key_jwt") ??
+				"none",
 			jwks: doc.jwks as { keys: JWK[] } | undefined,
 			jwksUri: doc.jwks_uri,
 			cachedAt: Date.now(),
@@ -245,14 +252,20 @@ export class ClientResolver {
 	 * @param redirectUri The redirect URI to validate
 	 * @returns true if the redirect URI is allowed
 	 */
-	async validateRedirectUri(clientId: string, redirectUri: string): Promise<boolean> {
+	async validateRedirectUri(
+		clientId: string,
+		redirectUri: string,
+	): Promise<boolean> {
 		try {
 			const metadata = await this.resolveClient(clientId);
 
 			// For localhost clients, use relaxed matching per AT Protocol spec:
 			// Port numbers are not matched, only scheme, host, and path
 			if (isLocalhostClient(clientId)) {
-				return this.matchesLocalhostRedirectUri(metadata.redirectUris, redirectUri);
+				return this.matchesLocalhostRedirectUri(
+					metadata.redirectUris,
+					redirectUri,
+				);
 			}
 
 			return metadata.redirectUris.includes(redirectUri);
@@ -265,7 +278,10 @@ export class ClientResolver {
 	 * Check if a redirect URI matches any allowed URI for localhost clients.
 	 * Per AT Protocol spec, port numbers are not matched for localhost.
 	 */
-	private matchesLocalhostRedirectUri(allowedUris: string[], redirectUri: string): boolean {
+	private matchesLocalhostRedirectUri(
+		allowedUris: string[],
+		redirectUri: string,
+	): boolean {
 		try {
 			const redirect = new URL(redirectUri);
 
@@ -290,6 +306,8 @@ export class ClientResolver {
 /**
  * Create a client resolver with optional caching
  */
-export function createClientResolver(options: ClientResolverOptions = {}): ClientResolver {
+export function createClientResolver(
+	options: ClientResolverOptions = {},
+): ClientResolver {
 	return new ClientResolver(options);
 }

@@ -161,7 +161,9 @@ export const identityCommand = defineCommand({
 			if (isDev) {
 				p.log.info(`Start it with: ${formatCommand(pm, "dev")}`);
 			} else {
-				p.log.info(`Make sure your worker is deployed: ${formatCommand(pm, "deploy")}`);
+				p.log.info(
+					`Make sure your worker is deployed: ${formatCommand(pm, "deploy")}`,
+				);
 			}
 			p.outro("Identity update cancelled.");
 			process.exit(1);
@@ -222,18 +224,23 @@ export const identityCommand = defineCommand({
 				spinner.stop("Authenticated");
 			} catch (err) {
 				spinner.stop("Login failed");
-				p.log.error(err instanceof Error ? err.message : "Authentication failed");
+				p.log.error(
+					err instanceof Error ? err.message : "Authentication failed",
+				);
 				p.outro("Identity update cancelled.");
 				process.exit(1);
 			}
 
 			// Request PLC operation signature (sends email)
 			spinner.start("Requesting identity update token...");
-			const signatureRequest = await sourcePdsClient.requestPlcOperationSignature();
+			const signatureRequest =
+				await sourcePdsClient.requestPlcOperationSignature();
 
 			if (!signatureRequest.success) {
 				spinner.stop("Failed to request token");
-				p.log.error(signatureRequest.error ?? "Could not request PLC operation signature");
+				p.log.error(
+					signatureRequest.error ?? "Could not request PLC operation signature",
+				);
 				p.outro("Identity update cancelled.");
 				process.exit(1);
 			}
@@ -282,7 +289,10 @@ export const identityCommand = defineCommand({
 		const plcClient = new PlcDirectoryClient();
 
 		spinner.start("Submitting to PLC directory...");
-		const submitResult = await plcClient.submitOperation(did, signResult.signedOperation);
+		const submitResult = await plcClient.submitOperation(
+			did,
+			signResult.signedOperation,
+		);
 
 		if (!submitResult.success) {
 			spinner.stop("Failed to submit operation");

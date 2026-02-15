@@ -29,28 +29,28 @@ import { OAuthStorage } from "./your-storage-implementation";
 
 // Initialize the provider
 const provider = new OAuthProvider({
-  issuer: "https://your-pds.example.com",
-  storage: new OAuthStorage(),
+	issuer: "https://your-pds.example.com",
+	storage: new OAuthStorage(),
 });
 
 // Handle OAuth endpoints in your Worker
 app.post("/oauth/par", async (c) => {
-  const result = await provider.handlePAR(await c.req.formData());
-  return c.json(result);
+	const result = await provider.handlePAR(await c.req.formData());
+	return c.json(result);
 });
 
 app.get("/oauth/authorize", async (c) => {
-  const result = await provider.handleAuthorize(c.req.url);
-  // Show authorization UI to user
-  return c.html(renderAuthUI(result));
+	const result = await provider.handleAuthorize(c.req.url);
+	// Show authorization UI to user
+	return c.html(renderAuthUI(result));
 });
 
 app.post("/oauth/token", async (c) => {
-  const result = await provider.handleToken(
-    await c.req.formData(),
-    c.req.header("DPoP"),
-  );
-  return c.json(result);
+	const result = await provider.handleToken(
+		await c.req.formData(),
+		c.req.header("DPoP"),
+	);
+	return c.json(result);
 });
 ```
 
@@ -72,29 +72,29 @@ The provider uses a storage interface that you implement for your backend:
 
 ```typescript
 export interface OAuthProviderStorage {
-  // Authorization codes
-  saveAuthCode(code: string, data: AuthCodeData): Promise<void>;
-  getAuthCode(code: string): Promise<AuthCodeData | null>;
-  deleteAuthCode(code: string): Promise<void>;
+	// Authorization codes
+	saveAuthCode(code: string, data: AuthCodeData): Promise<void>;
+	getAuthCode(code: string): Promise<AuthCodeData | null>;
+	deleteAuthCode(code: string): Promise<void>;
 
-  // Access/refresh tokens
-  saveTokens(data: TokenData): Promise<void>;
-  getTokenByAccess(accessToken: string): Promise<TokenData | null>;
-  getTokenByRefresh(refreshToken: string): Promise<TokenData | null>;
-  revokeToken(accessToken: string): Promise<void>;
-  revokeAllTokens(sub: string): Promise<void>;
+	// Access/refresh tokens
+	saveTokens(data: TokenData): Promise<void>;
+	getTokenByAccess(accessToken: string): Promise<TokenData | null>;
+	getTokenByRefresh(refreshToken: string): Promise<TokenData | null>;
+	revokeToken(accessToken: string): Promise<void>;
+	revokeAllTokens(sub: string): Promise<void>;
 
-  // Client metadata cache
-  saveClient(clientId: string, metadata: ClientMetadata): Promise<void>;
-  getClient(clientId: string): Promise<ClientMetadata | null>;
+	// Client metadata cache
+	saveClient(clientId: string, metadata: ClientMetadata): Promise<void>;
+	getClient(clientId: string): Promise<ClientMetadata | null>;
 
-  // PAR (Pushed Authorization Requests)
-  savePAR(requestUri: string, data: PARData): Promise<void>;
-  getPAR(requestUri: string): Promise<PARData | null>;
-  deletePAR(requestUri: string): Promise<void>;
+	// PAR (Pushed Authorization Requests)
+	savePAR(requestUri: string, data: PARData): Promise<void>;
+	getPAR(requestUri: string): Promise<PARData | null>;
+	deletePAR(requestUri: string): Promise<void>;
 
-  // DPoP nonce tracking
-  checkAndSaveNonce(nonce: string): Promise<boolean>;
+	// DPoP nonce tracking
+	checkAndSaveNonce(nonce: string): Promise<boolean>;
 }
 ```
 
@@ -122,8 +122,8 @@ Response:
 
 ```json
 {
-  "request_uri": "urn:ietf:params:oauth:request_uri:XXXXXX",
-  "expires_in": 90
+	"request_uri": "urn:ietf:params:oauth:request_uri:XXXXXX",
+	"expires_in": 90
 }
 ```
 
@@ -162,12 +162,12 @@ Response:
 
 ```json
 {
-  "access_token": "XXXXXX",
-  "token_type": "DPoP",
-  "expires_in": 3600,
-  "refresh_token": "YYYYYY",
-  "scope": "atproto",
-  "sub": "did:plc:abc123"
+	"access_token": "XXXXXX",
+	"token_type": "DPoP",
+	"expires_in": 3600,
+	"refresh_token": "YYYYYY",
+	"scope": "atproto",
+	"sub": "did:plc:abc123"
 }
 ```
 
@@ -202,14 +202,14 @@ Clients are identified by a URL pointing to their metadata document:
 
 ```json
 {
-  "client_id": "https://client.example.com/client-metadata.json",
-  "client_name": "Example App",
-  "redirect_uris": ["https://client.example.com/callback"],
-  "grant_types": ["authorization_code", "refresh_token"],
-  "response_types": ["code"],
-  "scope": "atproto",
-  "token_endpoint_auth_method": "none",
-  "application_type": "web"
+	"client_id": "https://client.example.com/client-metadata.json",
+	"client_name": "Example App",
+	"redirect_uris": ["https://client.example.com/callback"],
+	"grant_types": ["authorization_code", "refresh_token"],
+	"response_types": ["code"],
+	"scope": "atproto",
+	"token_endpoint_auth_method": "none",
+	"application_type": "web"
 }
 ```
 
@@ -224,15 +224,15 @@ This provider is designed to work seamlessly with `@atproto/oauth-client`:
 import { OAuthClient } from "@atproto/oauth-client";
 
 const client = new OAuthClient({
-  clientMetadata: {
-    client_id: "https://my-app.example.com/client-metadata.json",
-    redirect_uris: ["https://my-app.example.com/callback"],
-  },
+	clientMetadata: {
+		client_id: "https://my-app.example.com/client-metadata.json",
+		redirect_uris: ["https://my-app.example.com/callback"],
+	},
 });
 
 // Initiate login
 const authUrl = await client.authorize("https://user-pds.example.com", {
-  scope: "atproto",
+	scope: "atproto",
 });
 
 // Handle callback
@@ -245,8 +245,8 @@ The provider returns standard OAuth 2.1 error responses:
 
 ```json
 {
-  "error": "invalid_request",
-  "error_description": "Missing required parameter: code_challenge"
+	"error": "invalid_request",
+	"error_description": "Missing required parameter: code_challenge"
 }
 ```
 

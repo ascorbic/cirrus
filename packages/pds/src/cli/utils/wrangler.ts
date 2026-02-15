@@ -200,7 +200,9 @@ export interface CloudflareAccount {
  * Detect available Cloudflare accounts by running wrangler whoami.
  * Returns array of accounts if multiple found, null if single account or already configured.
  */
-export async function detectCloudflareAccounts(): Promise<CloudflareAccount[] | null> {
+export async function detectCloudflareAccounts(): Promise<
+	CloudflareAccount[] | null
+> {
 	if (getAccountId()) {
 		return null;
 	}

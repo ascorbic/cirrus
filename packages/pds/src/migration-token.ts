@@ -55,7 +55,6 @@ async function hmacVerify(
 	return crypto.subtle.verify("HMAC", key, signature, encoder.encode(data));
 }
 
-
 /**
  * Create a migration token for outbound migration
  *
@@ -102,7 +101,11 @@ export async function validateMigrationToken(
 	try {
 		// Verify signature
 		const signatureBytes = base64url.decode(signatureB64);
-		const isValid = await hmacVerify(payloadB64, signatureBytes.buffer, jwtSecret);
+		const isValid = await hmacVerify(
+			payloadB64,
+			signatureBytes.buffer,
+			jwtSecret,
+		);
 		if (!isValid) {
 			return null;
 		}

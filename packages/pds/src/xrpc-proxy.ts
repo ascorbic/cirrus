@@ -92,7 +92,9 @@ export async function handleXrpcProxy(
 			const serviceId = parsed.serviceId.startsWith("#")
 				? parsed.serviceId
 				: `#${parsed.serviceId}`;
-			const endpoint = getAtprotoServiceEndpoint(didDoc, { id: serviceId as `#${string}` });
+			const endpoint = getAtprotoServiceEndpoint(didDoc, {
+				id: serviceId as `#${string}`,
+			});
 
 			if (!endpoint) {
 				return c.json(

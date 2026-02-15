@@ -31,7 +31,8 @@ export type { DidDocument };
  * @atcute resolvers capture the fetch reference at construction time,
  * so we need this indirection to allow test mocking.
  */
-const stubbableFetch: typeof fetch = (input, init) => globalThis.fetch(input, init);
+const stubbableFetch: typeof fetch = (input, init) =>
+	globalThis.fetch(input, init);
 
 export class DidResolver {
 	private resolver: CompositeDidDocumentResolver<"plc" | "web">;

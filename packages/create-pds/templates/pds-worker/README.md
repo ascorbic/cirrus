@@ -37,6 +37,7 @@ pnpm pds init
 ```
 
 This prompts for:
+
 - **PDS hostname** – The deployment domain (e.g., `pds.example.com`)
 - **Handle** – The Bluesky username (e.g., `alice.example.com`)
 - **Password** – For logging in from Bluesky apps
@@ -97,6 +98,7 @@ pnpm pds identity
 ```
 
 This updates your DID document to point to your new PDS. You'll need to:
+
 1. Enter your password for the source PDS
 2. Enter the confirmation token sent to your email
 
@@ -129,19 +131,19 @@ pnpm pds status                  # Verify everything is working
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `pnpm pds init` | Interactive setup wizard (prompts for Cloudflare deploy) |
-| `pnpm pds migrate` | Transfer account from source PDS |
-| `pnpm pds migrate --clean` | Reset and re-import data |
-| `pnpm pds identity` | Update DID document to point to new PDS |
-| `pnpm pds activate` | Enable writes (go live) |
-| `pnpm pds deactivate` | Disable writes (for re-import) |
-| `pnpm pds status` | Check account and repository status |
-| `pnpm pds passkey add` | Register a passkey for passwordless login |
-| `pnpm pds secret key` | Generate new signing keypair |
-| `pnpm pds secret jwt` | Generate new JWT secret |
-| `pnpm pds secret password` | Set account password |
+| Command                    | Description                                              |
+| -------------------------- | -------------------------------------------------------- |
+| `pnpm pds init`            | Interactive setup wizard (prompts for Cloudflare deploy) |
+| `pnpm pds migrate`         | Transfer account from source PDS                         |
+| `pnpm pds migrate --clean` | Reset and re-import data                                 |
+| `pnpm pds identity`        | Update DID document to point to new PDS                  |
+| `pnpm pds activate`        | Enable writes (go live)                                  |
+| `pnpm pds deactivate`      | Disable writes (for re-import)                           |
+| `pnpm pds status`          | Check account and repository status                      |
+| `pnpm pds passkey add`     | Register a passkey for passwordless login                |
+| `pnpm pds secret key`      | Generate new signing keypair                             |
+| `pnpm pds secret jwt`      | Generate new JWT secret                                  |
+| `pnpm pds secret password` | Set account password                                     |
 
 Add `--dev` to target your local development server instead of production.
 
@@ -149,27 +151,28 @@ Add `--dev` to target your local development server instead of production.
 
 ### Public Variables (wrangler.jsonc)
 
-| Variable | Description |
-|----------|-------------|
-| `PDS_HOSTNAME` | Public hostname (e.g., pds.example.com) |
-| `DID` | Account DID |
-| `HANDLE` | Account handle |
-| `SIGNING_KEY_PUBLIC` | Public key for DID document |
+| Variable             | Description                             |
+| -------------------- | --------------------------------------- |
+| `PDS_HOSTNAME`       | Public hostname (e.g., pds.example.com) |
+| `DID`                | Account DID                             |
+| `HANDLE`             | Account handle                          |
+| `SIGNING_KEY_PUBLIC` | Public key for DID document             |
 
 ### Secrets (.dev.vars or Cloudflare)
 
-| Variable | Description |
-|----------|-------------|
-| `AUTH_TOKEN` | Bearer token for API write operations |
-| `SIGNING_KEY` | Private signing key |
-| `JWT_SECRET` | Secret for session tokens |
-| `PASSWORD_HASH` | Bcrypt hash of the account password |
+| Variable        | Description                           |
+| --------------- | ------------------------------------- |
+| `AUTH_TOKEN`    | Bearer token for API write operations |
+| `SIGNING_KEY`   | Private signing key                   |
+| `JWT_SECRET`    | Secret for session tokens             |
+| `PASSWORD_HASH` | Bcrypt hash of the account password   |
 
 ## Handle Verification
 
 Bluesky verifies control of the handle domain.
 
 **If the handle matches the PDS hostname** (for example, both are `pds.example.com`):
+
 - No extra setup needed. The PDS handles verification automatically.
 
 **If the handle is on a different domain** (for example, handle `alice.example.com`, PDS at `pds.example.com`):
@@ -205,12 +208,14 @@ Ensure the worker is deployed (`pnpm run deploy`) or the dev server is running (
 ### "Failed to resolve handle"
 
 Check the handle configuration:
+
 - For DNS verification: ensure the TXT record has propagated (`dig TXT _atproto.yourhandle.com`)
 - For same-domain handles: ensure the PDS is accessible at `https://yourdomain.com/.well-known/atproto-did`
 
 ### Migration issues
 
 If migration fails partway through:
+
 - Run `pnpm pds migrate` again to resume from where you left off
 - Use `pnpm pds migrate --clean` to start fresh (only on deactivated accounts)
 

@@ -143,7 +143,12 @@ describe("Passkey Security", () => {
 			const challenge = "test-challenge-" + crypto.randomUUID();
 			const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
 
-			await stub.rpcSavePasskeyToken(token, challenge, expiresAt, "Test Passkey");
+			await stub.rpcSavePasskeyToken(
+				token,
+				challenge,
+				expiresAt,
+				"Test Passkey",
+			);
 			const tokenData = await stub.rpcConsumePasskeyToken(token);
 
 			expect(tokenData).not.toBeNull();
@@ -269,7 +274,9 @@ describe("Passkey Security", () => {
 			const id = env.ACCOUNT.newUniqueId();
 			const stub = env.ACCOUNT.get(id);
 
-			const deleted = await stub.rpcDeletePasskey("nonexistent-" + crypto.randomUUID());
+			const deleted = await stub.rpcDeletePasskey(
+				"nonexistent-" + crypto.randomUUID(),
+			);
 			expect(deleted).toBe(false);
 		});
 	});

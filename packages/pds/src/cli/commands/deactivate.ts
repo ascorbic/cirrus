@@ -20,7 +20,8 @@ import {
 } from "../utils/checks.js";
 
 // Helper to override clack's dim styling in notes
-const brightNote = (lines: string[]) => lines.map((l) => `\x1b[0m${l}`).join("\n");
+const brightNote = (lines: string[]) =>
+	lines.map((l) => `\x1b[0m${l}`).join("\n");
 const bold = (text: string) => pc.bold(text);
 
 interface IdentityCheck {
@@ -124,7 +125,9 @@ export const deactivateCommand = defineCommand({
 			spinner.stop(`PDS not responding at ${targetDomain}`);
 			p.log.error(`Your PDS isn't responding at ${targetUrl}`);
 			if (!isDev) {
-				p.log.info(`Make sure your worker is deployed: ${formatCommand(pm, "deploy")}`);
+				p.log.info(
+					`Make sure your worker is deployed: ${formatCommand(pm, "deploy")}`,
+				);
 			}
 			p.outro("Deactivation cancelled.");
 			process.exit(1);

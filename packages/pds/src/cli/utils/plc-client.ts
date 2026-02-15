@@ -141,8 +141,7 @@ export class SourcePdsPlcClient {
 				credentialInfo: { type: "email" },
 			};
 		} catch (err) {
-			const errorMessage =
-				err instanceof Error ? err.message : "Network error";
+			const errorMessage = err instanceof Error ? err.message : "Network error";
 
 			return {
 				success: false,
@@ -191,8 +190,7 @@ export class SourcePdsPlcClient {
 				signedOperation: result.operation as SignedPlcOperation,
 			};
 		} catch (err) {
-			const errorMessage =
-				err instanceof Error ? err.message : "Network error";
+			const errorMessage = err instanceof Error ? err.message : "Network error";
 
 			// Check for specific error types
 			if (
@@ -285,4 +283,3 @@ export class PlcDirectoryClient {
 		}
 	}
 }
-

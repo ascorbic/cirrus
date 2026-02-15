@@ -136,7 +136,10 @@ describe("PAR Handler", () => {
 			const pushResponse = await handler.handlePushRequest(request);
 			const pushJson = (await pushResponse.json()) as { request_uri: string };
 
-			const params = await handler.retrieveParams(pushJson.request_uri, clientId);
+			const params = await handler.retrieveParams(
+				pushJson.request_uri,
+				clientId,
+			);
 			expect(params).not.toBeNull();
 			expect(params!.client_id).toBe(clientId);
 			expect(params!.code_challenge).toBe(challenge);
@@ -145,7 +148,7 @@ describe("PAR Handler", () => {
 		it("returns null for non-existent request_uri", async () => {
 			const params = await handler.retrieveParams(
 				"urn:ietf:params:oauth:request_uri:nonexistent",
-				"did:web:client.example.com"
+				"did:web:client.example.com",
 			);
 			expect(params).toBeNull();
 		});
@@ -168,7 +171,7 @@ describe("PAR Handler", () => {
 
 			const params = await handler.retrieveParams(
 				pushJson.request_uri,
-				"did:web:other.example.com"
+				"did:web:other.example.com",
 			);
 			expect(params).toBeNull();
 		});
@@ -191,18 +194,26 @@ describe("PAR Handler", () => {
 			const pushJson = (await pushResponse.json()) as { request_uri: string };
 
 			// First retrieval should work
-			const params1 = await handler.retrieveParams(pushJson.request_uri, clientId);
+			const params1 = await handler.retrieveParams(
+				pushJson.request_uri,
+				clientId,
+			);
 			expect(params1).not.toBeNull();
 
 			// Second retrieval should return null
-			const params2 = await handler.retrieveParams(pushJson.request_uri, clientId);
+			const params2 = await handler.retrieveParams(
+				pushJson.request_uri,
+				clientId,
+			);
 			expect(params2).toBeNull();
 		});
 	});
 
 	describe("isRequestUri", () => {
 		it("returns true for valid request_uri format", () => {
-			expect(PARHandler.isRequestUri("urn:ietf:params:oauth:request_uri:abc123")).toBe(true);
+			expect(
+				PARHandler.isRequestUri("urn:ietf:params:oauth:request_uri:abc123"),
+			).toBe(true);
 		});
 
 		it("returns false for invalid format", () => {

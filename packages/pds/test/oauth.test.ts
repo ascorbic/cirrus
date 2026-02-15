@@ -5,9 +5,7 @@ describe("OAuth 2.1 Endpoints", () => {
 	describe("Server Metadata", () => {
 		it("should return OAuth authorization server metadata", async () => {
 			const response = await worker.fetch(
-				new Request(
-					"http://pds.test/.well-known/oauth-authorization-server",
-				),
+				new Request("http://pds.test/.well-known/oauth-authorization-server"),
 				env,
 			);
 			expect(response.status).toBe(200);
@@ -32,9 +30,7 @@ describe("OAuth 2.1 Endpoints", () => {
 
 		it("should include PAR endpoint in metadata", async () => {
 			const response = await worker.fetch(
-				new Request(
-					"http://pds.test/.well-known/oauth-authorization-server",
-				),
+				new Request("http://pds.test/.well-known/oauth-authorization-server"),
 				env,
 			);
 			const metadata = await response.json();
@@ -45,9 +41,7 @@ describe("OAuth 2.1 Endpoints", () => {
 
 		it("should return protected resource metadata", async () => {
 			const response = await worker.fetch(
-				new Request(
-					"http://pds.test/.well-known/oauth-protected-resource",
-				),
+				new Request("http://pds.test/.well-known/oauth-protected-resource"),
 				env,
 			);
 			expect(response.status).toBe(200);

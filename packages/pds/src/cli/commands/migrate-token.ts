@@ -84,7 +84,9 @@ export const migrateTokenCommand = defineCommand({
 			if (isDev) {
 				p.log.info(`Start it with: ${formatCommand(pm, "dev")}`);
 			} else {
-				p.log.info(`Make sure your worker is deployed: ${formatCommand(pm, "deploy")}`);
+				p.log.info(
+					`Make sure your worker is deployed: ${formatCommand(pm, "deploy")}`,
+				);
 			}
 			p.outro("Token generation cancelled.");
 			process.exit(1);

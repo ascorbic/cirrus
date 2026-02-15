@@ -338,7 +338,7 @@ export class SqliteRepoStorage
 		const rows = this.sql
 			.exec("SELECT active FROM repo_state WHERE id = 1")
 			.toArray();
-		return rows.length > 0 ? ((rows[0]!.active as number) === 1) : true;
+		return rows.length > 0 ? (rows[0]!.active as number) === 1 : true;
 	}
 
 	/**
@@ -396,9 +396,7 @@ export class SqliteRepoStorage
 	 * Check if the collections cache has been populated.
 	 */
 	hasCollections(): boolean {
-		const rows = this.sql
-			.exec("SELECT 1 FROM collections LIMIT 1")
-			.toArray();
+		const rows = this.sql.exec("SELECT 1 FROM collections LIMIT 1").toArray();
 		return rows.length > 0;
 	}
 
@@ -638,7 +636,12 @@ export class SqliteRepoStorage
 	/**
 	 * Save a registration token with challenge and optional name.
 	 */
-	savePasskeyToken(token: string, challenge: string, expiresAt: number, name?: string): void {
+	savePasskeyToken(
+		token: string,
+		challenge: string,
+		expiresAt: number,
+		name?: string,
+	): void {
 		this.sql.exec(
 			`INSERT INTO passkey_tokens (token, challenge, expires_at, name) VALUES (?, ?, ?, ?)`,
 			token,
@@ -651,7 +654,9 @@ export class SqliteRepoStorage
 	/**
 	 * Get and consume a registration token.
 	 */
-	consumePasskeyToken(token: string): { challenge: string; name: string | null } | null {
+	consumePasskeyToken(
+		token: string,
+	): { challenge: string; name: string | null } | null {
 		const rows = this.sql
 			.exec(
 				`SELECT challenge, expires_at, name FROM passkey_tokens WHERE token = ?`,
@@ -670,7 +675,10 @@ export class SqliteRepoStorage
 		// Check if expired
 		if (Date.now() > expiresAt) return null;
 
-		return { challenge: row.challenge as string, name: (row.name as string) ?? null };
+		return {
+			challenge: row.challenge as string,
+			name: (row.name as string) ?? null,
+		};
 	}
 
 	/**

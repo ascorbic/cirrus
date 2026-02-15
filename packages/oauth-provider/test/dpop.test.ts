@@ -4,7 +4,11 @@ import { verifyDpopProof, generateDpopNonce, DpopError } from "../src/dpop.js";
 import { createDpopProof, generateDpopKeyPair } from "./helpers.js";
 
 describe("DPoP", () => {
-	let keyPair: { privateKey: CryptoKey; publicKey: CryptoKey; publicJwk: JsonWebKey };
+	let keyPair: {
+		privateKey: CryptoKey;
+		publicKey: CryptoKey;
+		publicJwk: JsonWebKey;
+	};
 
 	beforeEach(async () => {
 		keyPair = await generateDpopKeyPair("ES256");
@@ -58,14 +62,16 @@ describe("DPoP", () => {
 				keyPair.privateKey,
 				keyPair.publicJwk,
 				{ htm: "POST", htu: "https://example.com/token" },
-				"ES256"
+				"ES256",
 			);
 
 			expect(proof).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
 
 			// Parse and verify header
 			const [headerB64] = proof.split(".");
-			const header = JSON.parse(atob(headerB64!.replace(/-/g, "+").replace(/_/g, "/")));
+			const header = JSON.parse(
+				atob(headerB64!.replace(/-/g, "+").replace(/_/g, "/")),
+			);
 			expect(header.typ).toBe("dpop+jwt");
 			expect(header.alg).toBe("ES256");
 			expect(header.jwk).toBeDefined();
@@ -75,9 +81,11 @@ describe("DPoP", () => {
 			const accessToken = "test-access-token";
 			const tokenHash = await crypto.subtle.digest(
 				"SHA-256",
-				new TextEncoder().encode(accessToken)
+				new TextEncoder().encode(accessToken),
 			);
-			const expectedAth = btoa(String.fromCharCode(...new Uint8Array(tokenHash)))
+			const expectedAth = btoa(
+				String.fromCharCode(...new Uint8Array(tokenHash)),
+			)
 				.replace(/\+/g, "-")
 				.replace(/\//g, "_")
 				.replace(/=+$/, "");
@@ -86,11 +94,13 @@ describe("DPoP", () => {
 				keyPair.privateKey,
 				keyPair.publicJwk,
 				{ htm: "GET", htu: "https://example.com/api", ath: expectedAth },
-				"ES256"
+				"ES256",
 			);
 
 			const [, payloadB64] = proof.split(".");
-			const payload = JSON.parse(atob(payloadB64!.replace(/-/g, "+").replace(/_/g, "/")));
+			const payload = JSON.parse(
+				atob(payloadB64!.replace(/-/g, "+").replace(/_/g, "/")),
+			);
 			expect(payload.ath).toBe(expectedAth);
 		});
 	});
@@ -101,7 +111,7 @@ describe("DPoP", () => {
 				keyPair.privateKey,
 				keyPair.publicJwk,
 				{ htm: "POST", htu: "https://example.com/token" },
-				"ES256"
+				"ES256",
 			);
 
 			const request = new Request("https://example.com/token", {
@@ -140,7 +150,7 @@ describe("DPoP", () => {
 				keyPair.privateKey,
 				keyPair.publicJwk,
 				{ htm: "POST", htu: "https://example.com/token" },
-				"ES256"
+				"ES256",
 			);
 
 			const request = new Request("https://example.com/token", {
@@ -156,7 +166,7 @@ describe("DPoP", () => {
 				keyPair.privateKey,
 				keyPair.publicJwk,
 				{ htm: "POST", htu: "https://example.com/token" },
-				"ES256"
+				"ES256",
 			);
 
 			const request = new Request("https://other.com/token", {
@@ -172,7 +182,7 @@ describe("DPoP", () => {
 				keyPair.privateKey,
 				keyPair.publicJwk,
 				{ htm: "POST", htu: "https://example.com/token" },
-				"ES256"
+				"ES256",
 			);
 
 			const request = new Request("https://example.com/token?foo=bar", {
@@ -188,7 +198,7 @@ describe("DPoP", () => {
 			const accessToken = "test-access-token";
 			const tokenHash = await crypto.subtle.digest(
 				"SHA-256",
-				new TextEncoder().encode(accessToken)
+				new TextEncoder().encode(accessToken),
 			);
 			const ath = btoa(String.fromCharCode(...new Uint8Array(tokenHash)))
 				.replace(/\+/g, "-")
@@ -199,7 +209,7 @@ describe("DPoP", () => {
 				keyPair.privateKey,
 				keyPair.publicJwk,
 				{ htm: "GET", htu: "https://example.com/api", ath },
-				"ES256"
+				"ES256",
 			);
 
 			const request = new Request("https://example.com/api", {
@@ -221,7 +231,7 @@ describe("DPoP", () => {
 				keyPair.privateKey,
 				keyPair.publicJwk,
 				{ htm: "GET", htu: "https://example.com/api", ath },
-				"ES256"
+				"ES256",
 			);
 
 			const request = new Request("https://example.com/api", {
@@ -230,7 +240,7 @@ describe("DPoP", () => {
 			});
 
 			await expect(
-				verifyDpopProof(request, { accessToken: "different-token" })
+				verifyDpopProof(request, { accessToken: "different-token" }),
 			).rejects.toThrow(DpopError);
 		});
 
@@ -239,7 +249,7 @@ describe("DPoP", () => {
 				keyPair.privateKey,
 				keyPair.publicJwk,
 				{ htm: "POST", htu: "https://example.com/token" },
-				"ES256"
+				"ES256",
 			);
 
 			const request = new Request("https://example.com/token", {
@@ -248,7 +258,7 @@ describe("DPoP", () => {
 			});
 
 			await expect(
-				verifyDpopProof(request, { allowedAlgorithms: ["RS256"] })
+				verifyDpopProof(request, { allowedAlgorithms: ["RS256"] }),
 			).rejects.toThrow(DpopError);
 		});
 	});

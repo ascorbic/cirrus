@@ -171,7 +171,9 @@ export async function getPasskeyAuthScriptHash(): Promise<string> {
  * use form-action without breaking the flow in Chrome.
  * See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/form-action
  */
-export async function getConsentUiCsp(includePasskeyScript: boolean): Promise<string> {
+export async function getConsentUiCsp(
+	includePasskeyScript: boolean,
+): Promise<string> {
 	const scriptSrc = includePasskeyScript
 		? await getPasskeyAuthScriptHash()
 		: "'none'";
@@ -189,7 +191,6 @@ function escapeHtml(text: string): string {
 		.replace(/"/g, "&quot;")
 		.replace(/'/g, "&#039;");
 }
-
 
 /**
  * Parse scope string into human-readable descriptions
@@ -255,7 +256,17 @@ export interface ConsentUIOptions {
  * @returns HTML string
  */
 export function renderConsentUI(options: ConsentUIOptions): string {
-	const { client, scope, authorizeUrl, oauthParams, userHandle, showLogin, error, passkeyAvailable, passkeyOptions } = options;
+	const {
+		client,
+		scope,
+		authorizeUrl,
+		oauthParams,
+		userHandle,
+		showLogin,
+		error,
+		passkeyAvailable,
+		passkeyOptions,
+	} = options;
 
 	const clientName = escapeHtml(client.clientName);
 	const scopeDescriptions = getScopeDescriptions(scope);
@@ -271,13 +282,17 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 		? `
 			<div class="login-form">
 				<p>Sign in to continue</p>
-				${passkeyAvailable ? `
+				${
+					passkeyAvailable
+						? `
 				<button type="button" class="btn-passkey" id="passkey-btn">
 					<span class="passkey-icon">🔐</span>
 					Sign in with Passkey
 				</button>
 				<div class="or-divider"><span>or</span></div>
-				` : ""}
+				`
+						: ""
+				}
 				<input type="password" name="password" placeholder="Password" autocomplete="current-password" required />
 			</div>
 		`
@@ -285,7 +300,10 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 
 	// Render OAuth params as hidden form fields
 	const hiddenFieldsHtml = Object.entries(oauthParams)
-		.map(([key, value]) => `<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(value)}" />`)
+		.map(
+			([key, value]) =>
+				`<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(value)}" />`,
+		)
 		.join("\n\t\t\t");
 
 	return `<!DOCTYPE html>
@@ -588,9 +606,13 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 
 		<p class="info">You can revoke access anytime in your account settings.</p>
 	</div>
-	${passkeyAvailable && passkeyOptions ? `
+	${
+		passkeyAvailable && passkeyOptions
+			? `
 	<script data-passkey-options="${escapeHtml(JSON.stringify(passkeyOptions))}" data-oauth-params="${escapeHtml(JSON.stringify(oauthParams))}">${PASSKEY_AUTH_SCRIPT}</script>
-	` : ""}
+	`
+			: ""
+	}
 </body>
 </html>`;
 }
@@ -605,7 +627,7 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 export function renderErrorPage(
 	error: string,
 	description: string,
-	redirectUri?: string
+	redirectUri?: string,
 ): string {
 	const escapedError = escapeHtml(error);
 	const escapedDescription = escapeHtml(description);

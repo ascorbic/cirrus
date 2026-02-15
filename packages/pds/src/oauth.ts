@@ -116,7 +116,10 @@ export function getProvider(env: PDSEnv): ATProtoOAuthProvider {
 		},
 		// Passkey authentication options
 		getPasskeyOptions: async (): Promise<Record<string, unknown> | null> => {
-			const options = await getAuthenticationOptions(accountDO, env.PDS_HOSTNAME);
+			const options = await getAuthenticationOptions(
+				accountDO,
+				env.PDS_HOSTNAME,
+			);
 			return options as Record<string, unknown> | null;
 		},
 		// Passkey verification
@@ -243,7 +246,10 @@ export function createOAuthApp(
 
 		if (!tokenData) {
 			return c.json(
-				{ error: "invalid_token", error_description: "Invalid or expired token" },
+				{
+					error: "invalid_token",
+					error_description: "Invalid or expired token",
+				},
 				401,
 			);
 		}
@@ -286,7 +292,10 @@ export function createOAuthApp(
 			}
 		} catch {
 			return c.json(
-				{ error: "invalid_request", error_description: "Failed to parse request body" },
+				{
+					error: "invalid_request",
+					error_description: "Failed to parse request body",
+				},
 				400,
 			);
 		}
