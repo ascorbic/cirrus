@@ -1551,6 +1551,52 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	// ============================================
+	// Account Deletion
+	// ============================================
+
+	/**
+	 * RPC method: Delete the entire account.
+	 * Removes R2 blobs, wipes all DO storage, and resets in-memory state.
+	 * After this, rpcGetAtprotoPublicKey() returns null so the DID doc 404s.
+	 */
+	async rpcDeleteAccount(): Promise<void> {
+		// 1. Delete all R2 blobs (must happen before storage wipe)
+		if (this.blobStore) {
+			await this.blobStore.deleteAllBlobs();
+		} else if (this.env.BLOBS && this.cachedIdentity) {
+			// Blob store not yet initialized — create temporary one
+			const blobStore = new BlobStore(this.env.BLOBS, this.cachedIdentity.did);
+			await blobStore.deleteAllBlobs();
+		}
+
+		// 2. Close all firehose WebSocket connections
+		for (const ws of this.ctx.getWebSockets()) {
+			try {
+				ws.close(1001, "Account deleted");
+			} catch {
+				// Already closed
+			}
+		}
+
+		// 3. Delete any pending alarms
+		await this.ctx.storage.deleteAlarm();
+
+		// 4. Wipe all DO storage (SQLite tables, KV, alarms)
+		await this.ctx.storage.deleteAll();
+
+		// 5. Reset in-memory state
+		this.repo = null;
+		this.keypair = null;
+		this.blobStore = null;
+		this.sequencer = null;
+		this.storage = null;
+		this.oauthStorage = null;
+		this.cachedIdentity = null;
+		this.storageInitialized = false;
+		this.repoInitialized = false;
+	}
+
+	// ============================================
 	// AT Protocol Identity RPC Methods (Multi-tenant FID PDS)
 	// ============================================
 

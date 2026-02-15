@@ -74,6 +74,24 @@ export async function registerUser(
 }
 
 /**
+ * Delete a user registration by FID.
+ *
+ * @param db - D1 database instance
+ * @param fid - Farcaster ID
+ * @returns true if a row was deleted, false if not found
+ */
+export async function deleteUser(
+	db: D1Database,
+	fid: string,
+): Promise<boolean> {
+	const result = await db
+		.prepare("DELETE FROM user_registry WHERE fid = ?")
+		.bind(fid)
+		.run();
+	return (result.meta.changes ?? 0) > 0;
+}
+
+/**
  * Get a user registration by FID.
  *
  * @param db - D1 database instance

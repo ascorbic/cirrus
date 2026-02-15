@@ -30,6 +30,7 @@ import {
 	verifyPasskeyAuthentication,
 	type AuthenticationResponseJSON,
 } from "./passkey";
+import { createAppClient, viemConnector } from "@farcaster/auth-client";
 
 /**
  * Proxy storage class that delegates to DO RPC methods
@@ -100,7 +101,7 @@ class DOProxyOAuthStorage implements OAuthStorage {
 
 /** Context for OAuth operations extracted from request hostname */
 interface OAuthContext {
-	fid: number;
+	fid: string;
 	did: string;
 	handle: string;
 	hostname: string;
@@ -146,8 +147,31 @@ function createProvider(ctx: OAuthContext): ATProtoOAuthProvider {
 		dpopRequired: true,
 		enablePAR: true,
 		// Password auth is not supported in multi-tenant mode
-		// TODO: Add Farcaster Quick Auth support in consent UI
 		verifyUser: undefined,
+		// SIWF (Sign In With Farcaster) authentication
+		verifySiwf: async (message: string, signature: string, fid: string, nonce: string) => {
+			try {
+				const appClient = createAppClient({ ethereum: viemConnector() });
+				const verifyResult = await appClient.verifySignInMessage({
+					message,
+					signature: signature as `0x${string}`,
+					domain: ctx.hostname,
+					nonce,
+				});
+				if (!verifyResult.success) {
+					console.error("SIWF verify failed:", JSON.stringify(verifyResult));
+					return null;
+				}
+				if (String(verifyResult.fid) !== ctx.fid) {
+					console.error(`SIWF FID mismatch: got ${verifyResult.fid}, expected ${ctx.fid}`);
+					return null;
+				}
+				return { sub: ctx.did, handle: ctx.handle };
+			} catch (e) {
+				console.error("SIWF verification error:", e);
+				return null;
+			}
+		},
 		// Passkey authentication options
 		getPasskeyOptions: async (): Promise<Record<string, unknown> | null> => {
 			const options = await getAuthenticationOptions(ctx.accountDO, ctx.hostname);
@@ -294,6 +318,14 @@ export function createOAuthApp(accountDOGetter: GetAccountDO) {
 		if (!ctx) return invalidHostnameError(c);
 		const provider = createProvider(ctx);
 		return provider.handlePasskeyAuth(c.req.raw);
+	});
+
+	// SIWF authentication endpoint
+	oauth.post("/oauth/siwf-auth", async (c) => {
+		const ctx = getCtx(c);
+		if (!ctx) return invalidHostnameError(c);
+		const provider = createProvider(ctx);
+		return provider.handleSiwfAuth(c.req.raw);
 	});
 
 	// Token endpoint

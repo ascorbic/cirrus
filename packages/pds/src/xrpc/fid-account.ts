@@ -15,7 +15,9 @@ import {
 import { createAccessToken, createRefreshToken } from "../session";
 import type { PDSEnv, AppEnv } from "../types";
 import type { AccountDurableObject } from "../account-do";
-import { registerUser } from "../user-registry";
+import { registerUser, deleteUser } from "../user-registry";
+import { didToFid } from "../farcaster-auth";
+import type { AuthedAppEnv } from "../types";
 
 /** Function type for getting Account DO by DID */
 type GetAccountDO = (
@@ -255,7 +257,7 @@ export async function loginWithFarcaster(
  * Login or create account with Sign In With Farcaster (SIWF).
  *
  * POST /xrpc/is.fid.auth.siwf
- * Input: { message: string, signature: string, fid: number, nonce: string }
+ * Input: { message: string, signature: string, fid: string, nonce: string }
  *
  * This endpoint verifies a SIWF signature and creates/logs in the account.
  * Used for browser-based authentication where Quick Auth isn't available.
@@ -268,7 +270,7 @@ export async function loginWithSiwf(
 		.json<{
 			message: string;
 			signature: `0x${string}`;
-			fid: number;
+			fid: string;
 			nonce: string;
 		}>()
 		.catch(() => null);
@@ -309,8 +311,18 @@ export async function loginWithSiwf(
 		);
 	}
 
-	// Verify the FID matches
-	if (Number(verifyResult.fid) !== body.fid) {
+	// Verify the FID matches (verifyResult.fid is a number from the library)
+	const fid = String(verifyResult.fid);
+	if (!/^[1-9]\d*$/.test(fid)) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Invalid FID from SIWF verification",
+			},
+			400,
+		);
+	}
+	if (fid !== body.fid) {
 		return c.json(
 			{
 				error: "AuthenticationRequired",
@@ -319,8 +331,6 @@ export async function loginWithSiwf(
 			401,
 		);
 	}
-
-	const fid = body.fid.toString();
 
 	// Derive DID and handle from FID
 	const did = fidToDid(fid, domain);
@@ -378,4 +388,57 @@ export async function loginWithSiwf(
 		active: true,
 		isNew,
 	});
+}
+
+/**
+ * Delete the authenticated user's account.
+ *
+ * POST /xrpc/is.fid.account.delete
+ * Auth: Bearer token (requireAuth middleware)
+ *
+ * This endpoint:
+ * 1. Derives the FID from the authenticated DID
+ * 2. Verifies the account exists
+ * 3. Deletes R2 blobs and wipes DO storage
+ * 4. Removes the D1 user registry entry
+ */
+export async function deleteAccount(
+	c: Context<AuthedAppEnv>,
+	getAccountDO: GetAccountDO,
+): Promise<Response> {
+	const did: string = c.get("did");
+	const domain = c.env.WEBFID_DOMAIN;
+	const fid = didToFid(did, domain);
+
+	if (!fid) {
+		return c.json(
+			{ error: "InvalidDID", message: "Cannot derive FID from DID" },
+			400,
+		);
+	}
+
+	const accountDO = getAccountDO(c.env, did);
+
+	// Verify account exists
+	const exists = await accountDO.rpcHasAtprotoIdentity();
+	if (!exists) {
+		return c.json(
+			{ error: "AccountNotFound", message: "Account not found" },
+			404,
+		);
+	}
+
+	// Delete R2 blobs + wipe DO storage
+	await accountDO.rpcDeleteAccount();
+
+	// Delete from D1 user registry (best-effort — table may not exist)
+	if (c.env.USER_REGISTRY) {
+		try {
+			await deleteUser(c.env.USER_REGISTRY, fid);
+		} catch (err) {
+			console.warn("Failed to delete user from registry:", err);
+		}
+	}
+
+	return c.json({ success: true });
 }

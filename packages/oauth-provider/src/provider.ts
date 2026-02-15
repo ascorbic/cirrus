@@ -43,6 +43,13 @@ export interface OAuthProviderConfig {
 	getPasskeyOptions?: () => Promise<Record<string, unknown> | null>;
 	/** Verify passkey authentication */
 	verifyPasskey?: (response: unknown, challenge: string) => Promise<{ sub: string; handle: string } | null>;
+	/** Verify a SIWF (Sign In With Farcaster) authentication */
+	verifySiwf?: (
+		message: string,
+		signature: string,
+		fid: string,
+		nonce: string,
+	) => Promise<{ sub: string; handle: string } | null>;
 }
 
 /**
@@ -117,6 +124,7 @@ export class ATProtoOAuthProvider {
 	private getCurrentUser?: () => Promise<{ sub: string; handle: string } | null>;
 	private getPasskeyOptions?: () => Promise<Record<string, unknown> | null>;
 	private verifyPasskey?: (response: unknown, challenge: string) => Promise<{ sub: string; handle: string } | null>;
+	private verifySiwf?: (message: string, signature: string, fid: string, nonce: string) => Promise<{ sub: string; handle: string } | null>;
 
 	constructor(config: OAuthProviderConfig) {
 		this.storage = config.storage;
@@ -129,6 +137,7 @@ export class ATProtoOAuthProvider {
 		this.getCurrentUser = config.getCurrentUser;
 		this.getPasskeyOptions = config.getPasskeyOptions;
 		this.verifyPasskey = config.verifyPasskey;
+		this.verifySiwf = config.verifySiwf;
 	}
 
 	/**
@@ -224,6 +233,7 @@ export class ATProtoOAuthProvider {
 		}
 
 		const passkeyAvailable = !user && !!passkeyOptions;
+		const siwfAvailable = !user && !!this.verifySiwf;
 
 		// Show consent UI
 		const scope = params.scope ?? "atproto";
@@ -234,12 +244,14 @@ export class ATProtoOAuthProvider {
 			state: params.state!,
 			oauthParams: params,
 			userHandle: user?.handle,
-			showLogin: !user && !!this.verifyUser,
+			showLogin: !user && (!!this.verifyUser || siwfAvailable || passkeyAvailable),
+			showPassword: !user && !!this.verifyUser,
+			siwfAvailable,
 			passkeyAvailable,
 			passkeyOptions: passkeyOptions ?? undefined,
 		});
 
-		const csp = await getConsentUiCsp(passkeyAvailable);
+		const csp = await getConsentUiCsp(passkeyAvailable, siwfAvailable);
 
 		return new Response(html, {
 			status: 200,
@@ -304,6 +316,15 @@ export class ATProtoOAuthProvider {
 			// Show login form with error
 			const url = new URL(request.url);
 			const scope = params.scope ?? "atproto";
+
+			// Re-check available auth methods for re-render
+			let passkeyOptions: Record<string, unknown> | null = null;
+			if (this.getPasskeyOptions) {
+				passkeyOptions = await this.getPasskeyOptions();
+			}
+			const passkeyAvailable = !!passkeyOptions;
+			const siwfAvailable = !!this.verifySiwf;
+
 			const html = renderConsentUI({
 				client,
 				scope,
@@ -311,9 +332,13 @@ export class ATProtoOAuthProvider {
 				state,
 				oauthParams: params,
 				showLogin: true,
+				showPassword: !!this.verifyUser,
+				siwfAvailable,
+				passkeyAvailable,
+				passkeyOptions: passkeyOptions ?? undefined,
 				error: "Invalid password",
 			});
-			const csp = await getConsentUiCsp(false);
+			const csp = await getConsentUiCsp(passkeyAvailable, siwfAvailable);
 			return new Response(html, {
 				status: 401,
 				headers: {
@@ -744,44 +769,13 @@ export class ATProtoOAuthProvider {
 	}
 
 	/**
-	 * Handle passkey authentication (POST /oauth/passkey-auth)
-	 *
-	 * This endpoint is called by the client-side JavaScript after a successful
-	 * WebAuthn authentication. It verifies the passkey and returns a redirect URL
-	 * to complete the OAuth authorization flow.
+	 * Complete auth by generating an auth code and building the redirect URL.
+	 * Shared by passkey and SIWF auth handlers.
 	 */
-	async handlePasskeyAuth(request: Request): Promise<Response> {
-		if (!this.verifyPasskey) {
-			return oauthError("unsupported_auth_method", "Passkey authentication is not configured", 400);
-		}
-
-		let body: {
-			response: unknown;
-			challenge: string;
-			oauthParams: Record<string, string>;
-		};
-
-		try {
-			body = await request.json();
-		} catch {
-			return oauthError("invalid_request", "Invalid JSON body", 400);
-		}
-
-		const { response, challenge, oauthParams } = body;
-
-		if (!response || !challenge || !oauthParams) {
-			return oauthError("invalid_request", "Missing required parameters", 400);
-		}
-
-		// Verify the passkey
-		const user = await this.verifyPasskey(response, challenge);
-		if (!user) {
-			return new Response(JSON.stringify({ error: "Authentication failed" }), {
-				status: 401,
-				headers: { "Content-Type": "application/json" },
-			});
-		}
-
+	private async completeAuthWithRedirect(
+		user: { sub: string; handle: string },
+		oauthParams: Record<string, string>,
+	): Promise<Response> {
 		// Validate OAuth params
 		const required = ["client_id", "redirect_uri", "state", "code_challenge"];
 		for (const param of required) {
@@ -850,11 +844,97 @@ export class ATProtoOAuthProvider {
 	}
 
 	/**
+	 * Handle passkey authentication (POST /oauth/passkey-auth)
+	 *
+	 * This endpoint is called by the client-side JavaScript after a successful
+	 * WebAuthn authentication. It verifies the passkey and returns a redirect URL
+	 * to complete the OAuth authorization flow.
+	 */
+	async handlePasskeyAuth(request: Request): Promise<Response> {
+		if (!this.verifyPasskey) {
+			return oauthError("unsupported_auth_method", "Passkey authentication is not configured", 400);
+		}
+
+		let body: {
+			response: unknown;
+			challenge: string;
+			oauthParams: Record<string, string>;
+		};
+
+		try {
+			body = await request.json();
+		} catch {
+			return oauthError("invalid_request", "Invalid JSON body", 400);
+		}
+
+		const { response, challenge, oauthParams } = body;
+
+		if (!response || !challenge || !oauthParams) {
+			return oauthError("invalid_request", "Missing required parameters", 400);
+		}
+
+		// Verify the passkey
+		const user = await this.verifyPasskey(response, challenge);
+		if (!user) {
+			return new Response(JSON.stringify({ error: "Authentication failed" }), {
+				status: 401,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
+		return this.completeAuthWithRedirect(user, oauthParams);
+	}
+
+	/**
+	 * Handle SIWF authentication (POST /oauth/siwf-auth)
+	 *
+	 * This endpoint is called by the client-side JavaScript after a successful
+	 * Sign In With Farcaster ceremony. It verifies the signature and returns a
+	 * redirect URL to complete the OAuth authorization flow.
+	 */
+	async handleSiwfAuth(request: Request): Promise<Response> {
+		if (!this.verifySiwf) {
+			return oauthError("unsupported_auth_method", "SIWF authentication is not configured", 400);
+		}
+
+		let body: {
+			message: string;
+			signature: string;
+			fid: string;
+			nonce: string;
+			oauthParams: Record<string, string>;
+		};
+
+		try {
+			body = await request.json();
+		} catch {
+			return oauthError("invalid_request", "Invalid JSON body", 400);
+		}
+
+		const { message, signature, fid, nonce, oauthParams } = body;
+
+		if (!message || !signature || !fid || !nonce || !oauthParams) {
+			return oauthError("invalid_request", "Missing required parameters", 400);
+		}
+
+		// Verify the SIWF signature
+		const user = await this.verifySiwf(message, signature, fid, nonce);
+		if (!user) {
+			return new Response(JSON.stringify({ error: "Authentication failed" }), {
+				status: 401,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
+		return this.completeAuthWithRedirect(user, oauthParams);
+	}
+
+	/**
 	 * Render an error page
 	 */
 	private async renderError(error: string, description: string): Promise<Response> {
 		const html = renderErrorPage(error, description);
-		const csp = await getConsentUiCsp(false);
+		const csp = await getConsentUiCsp(false, false);
 		return new Response(html, {
 			status: 400,
 			headers: {

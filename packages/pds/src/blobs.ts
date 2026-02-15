@@ -55,4 +55,24 @@ export class BlobStore {
 		const head = await this.r2.head(key);
 		return head !== null;
 	}
+
+	/**
+	 * Delete all blobs for this account from R2.
+	 * Paginates through the R2 list (up to 1000 per page).
+	 */
+	async deleteAllBlobs(): Promise<number> {
+		let deleted = 0;
+		let cursor: string | undefined;
+		do {
+			const listed = await this.r2.list({ prefix: `${this.did}/`, cursor });
+			if (listed.objects.length > 0) {
+				await Promise.all(
+					listed.objects.map((obj) => this.r2.delete(obj.key)),
+				);
+				deleted += listed.objects.length;
+			}
+			cursor = listed.truncated ? listed.cursor : undefined;
+		} while (cursor);
+		return deleted;
+	}
 }

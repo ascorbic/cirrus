@@ -14,6 +14,7 @@ export { AccountDurableObject } from "./account-do";
 export type { PDSEnv, DataLocation } from "./types";
 export {
 	registerUser,
+	deleteUser,
 	getUserByFid,
 	getUserByNumber,
 	getUserCount,
@@ -45,7 +46,7 @@ import { version } from "../package.json" with { type: "json" };
 
 // Validate required environment variables at module load
 const pdsEnv = env as unknown as PDSEnv;
-const required = ["WEBFID_DOMAIN", "JWT_SECRET", "ACCOUNT"] as const;
+const required = ["WEBFID_DOMAIN", "JWT_SECRET"] as const;
 
 for (const key of required) {
 	if (!pdsEnv[key]) {
@@ -279,6 +280,11 @@ app.get("/xrpc/com.atproto.server.describeServer", (c) => {
 // Create account with Farcaster auth
 app.post("/xrpc/is.fid.account.create", (c) =>
 	fidAccount.createAccount(c, getAccountDO),
+);
+
+// Delete account (requires auth)
+app.post("/xrpc/is.fid.account.delete", requireAuth, (c: any) =>
+	fidAccount.deleteAccount(c, getAccountDO),
 );
 
 // Login with Farcaster auth

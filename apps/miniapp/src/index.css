@@ -242,3 +242,56 @@ button:disabled {
 	width: 100%;
 	margin-top: 8px;
 }
+
+/* Danger Zone / Delete Account */
+.danger-zone {
+	border-top-color: #7f1d1d;
+}
+
+.danger-zone .settings-header {
+	color: var(--error);
+}
+
+.delete-button {
+	background: var(--error);
+	width: 100%;
+}
+
+.delete-button:hover {
+	opacity: 0.9;
+}
+
+.delete-button:disabled {
+	opacity: 0.4;
+}
+
+.cancel-button {
+	background: #27272a;
+	width: 100%;
+}
+
+.confirm-handle-input {
+	width: 100%;
+	padding: 12px;
+	background: #27272a;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	color: var(--fg);
+	font-size: 14px;
+	font-family: monospace;
+	margin-bottom: 12px;
+}
+
+.confirm-handle-input:focus {
+	outline: none;
+	border-color: var(--error);
+}
+
+.confirm-handle-input:disabled {
+	opacity: 0.5;
+}
+
+.delete-actions {
+	display: flex;
+	gap: 12px;
+}

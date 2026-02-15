@@ -88,7 +88,7 @@ export async function loginOrCreate(
 export interface SiwfCredentials {
 	message: string;
 	signature: string;
-	fid: number;
+	fid: string;
 	nonce: string;
 }
 
@@ -235,6 +235,31 @@ export async function registerPasskey(
 	}
 
 	return data as { success: boolean };
+}
+
+// ============================================
+// Account Deletion
+// ============================================
+
+/**
+ * Delete the authenticated user's account.
+ * This permanently removes the AT Protocol identity, repository, and all blobs.
+ */
+export async function deleteAccount(accessToken: string): Promise<void> {
+	const response = await fetch(`${API_BASE}/xrpc/is.fid.account.delete`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${accessToken}`,
+		},
+	});
+
+	if (!response.ok) {
+		const data = await response.json().catch(() => ({}));
+		throw new Error(
+			(data as ErrorResponse).message || "Failed to delete account",
+		);
+	}
 }
 
 // ============================================

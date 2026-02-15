@@ -9,6 +9,7 @@ import "@farcaster/auth-kit/styles.css";
 import {
 	loginOrCreate,
 	loginWithSiwf,
+	deleteAccount,
 	getPdsUrl,
 	setPdsUrl,
 	type SessionResponse,
@@ -140,6 +141,92 @@ function SettingsSection({ accessToken }: { accessToken: string }) {
 	);
 }
 
+// Delete Account component
+function DeleteAccountSection({
+	accessToken,
+	handle,
+	onDeleted,
+}: {
+	accessToken: string;
+	handle: string;
+	onDeleted: () => void;
+}) {
+	const [confirming, setConfirming] = useState(false);
+	const [confirmText, setConfirmText] = useState("");
+	const [deleting, setDeleting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const handleDelete = async () => {
+		setError(null);
+		setDeleting(true);
+
+		try {
+			await deleteAccount(accessToken);
+			onDeleted();
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Failed to delete account");
+			setDeleting(false);
+		}
+	};
+
+	if (!confirming) {
+		return (
+			<div className="settings-section danger-zone">
+				<div className="settings-header">Danger Zone</div>
+				<div className="settings-description">
+					Permanently delete your AT Protocol identity and all associated data.
+					This cannot be undone.
+				</div>
+				<button
+					className="delete-button"
+					onClick={() => setConfirming(true)}
+				>
+					Delete Account
+				</button>
+			</div>
+		);
+	}
+
+	return (
+		<div className="settings-section danger-zone">
+			<div className="settings-header">Confirm Account Deletion</div>
+			<div className="settings-description">
+				This will permanently delete your AT Protocol identity, repository, and
+				all stored data. Type your handle to confirm.
+			</div>
+			<input
+				type="text"
+				placeholder={handle}
+				value={confirmText}
+				onChange={(e) => setConfirmText(e.target.value)}
+				disabled={deleting}
+				className="confirm-handle-input"
+			/>
+			{error && <div className="settings-error">{error}</div>}
+			<div className="delete-actions">
+				<button
+					className="cancel-button"
+					onClick={() => {
+						setConfirming(false);
+						setConfirmText("");
+						setError(null);
+					}}
+					disabled={deleting}
+				>
+					Cancel
+				</button>
+				<button
+					className="delete-button"
+					onClick={handleDelete}
+					disabled={deleting || confirmText !== handle}
+				>
+					{deleting ? "Deleting..." : "Permanently Delete"}
+				</button>
+			</div>
+		</div>
+	);
+}
+
 /**
  * Check if we're running inside a Farcaster client.
  */
@@ -206,7 +293,7 @@ function AppContent() {
 			const result = await loginWithSiwf({
 				message: res.message,
 				signature: res.signature,
-				fid: res.fid,
+				fid: String(res.fid),
 				nonce: res.nonce,
 			});
 
@@ -319,6 +406,12 @@ function AppContent() {
 				)}
 
 				<SettingsSection accessToken={session.accessJwt} />
+
+				<DeleteAccountSection
+					accessToken={session.accessJwt}
+					handle={session.handle}
+					onDeleted={() => setState({ status: "browser-mode" })}
+				/>
 			</div>
 		</div>
 	);

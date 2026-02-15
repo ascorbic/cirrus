@@ -79,11 +79,12 @@ Uses strict TypeScript configuration with:
 
 ### Testing with Cloudflare Workers
 
-The PDS package uses **vitest 4** with `@cloudflare/vitest-pool-workers` PR build (#11632):
+The PDS package uses **vitest 3.2.x** with `@cloudflare/vitest-pool-workers@0.12.x`:
 
-- Test configuration in `vitest.config.ts` using `cloudflareTest` plugin
-- Pool options: `maxWorkers: 1` and `isolate: false` for Durable Object testing
-- Test environment bindings configured in `.dev.vars` (not checked into git)
+- Test configuration in `vitest.config.ts` using `defineWorkersConfig` from `@cloudflare/vitest-pool-workers/config`
+- Pool options: `singleWorker: true` for Durable Object testing
+- Module bundling: `deps.optimizer.ssr.include` bundles `multiformats`, `@atproto/*`, `@ipld/*` etc. for workerd compatibility
+- Test environment bindings configured in `vitest.config.ts` via `poolOptions.workers.miniflare.bindings`
 - Use `cloudflare:test` module for `env` and `runInDurableObject` helpers
 - Use `cloudflare:workers` module for type imports like `DurableObject`, `Env`
 
@@ -163,9 +164,9 @@ The codebase uses @atcute packages for most protocol operations, with @atproto p
 
 ### Vitest Configuration Notes
 
-- **Module Shimming**: Uses `resolve: { conditions: ["node", "require"] }` to force CJS builds for multiformats
+- **Module Bundling**: Uses `deps.optimizer.ssr.include` to bundle multiformats and @atproto packages for workerd compatibility
 - **BlockMap/CidSet**: Access internal Map/Set via `(blocks as unknown as { map: Map<...> }).map` when iterating
-- **Test Count**: 170 unit tests across 13 test files, 31 CLI tests across 3 test files
+- **Test Count**: 227 unit tests across 17 test files, 84 CLI tests across 5 test files
 
 ### Firehose Implementation
 

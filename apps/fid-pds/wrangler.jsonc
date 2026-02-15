@@ -6,6 +6,14 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": {
+		"logs": {
+		"enabled": false,
+		"invocation_logs": true
+		}
+	},
 	"durable_objects": {
 		"bindings": [
 			{
@@ -21,6 +29,15 @@
 				"AccountDurableObject"
 			]
 		}
+	],
+	"vars": {
+		"WEBFID_DOMAIN": "fid.is",
+		"QUICKAUTH_DOMAIN": "my.fid.is",
+		"INITIAL_ACTIVE": "true"
+	},
+	"routes": [
+		{ "pattern": "fid.is/*", "zone_name": "fid.is" },
+		{ "pattern": "*.fid.is/*", "zone_name": "fid.is" }
 	],
 	"r2_buckets": [
 		{

@@ -131,6 +131,117 @@ if (passkeyBtn) {
 `;
 
 /**
+ * The SIWF (Sign In With Farcaster) authentication script.
+ * Dynamic data is passed via data attributes on the script element.
+ */
+const SIWF_AUTH_SCRIPT = `
+// Get dynamic data from script element
+const siwfScriptEl = document.currentScript;
+const siwfOauthParams = JSON.parse(siwfScriptEl.dataset.oauthParams);
+
+async function authenticateWithSiwf() {
+	const btn = document.getElementById('siwf-btn');
+	const container = btn.parentNode;
+
+	btn.disabled = true;
+	btn.textContent = 'Connecting...';
+
+	try {
+		// Generate a random nonce
+		const nonceBytes = new Uint8Array(16);
+		crypto.getRandomValues(nonceBytes);
+		const nonce = Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+
+		const siweUri = window.location.origin;
+		const domain = window.location.hostname;
+
+		// Create a channel on the Farcaster relay
+		const channelRes = await fetch('https://relay.farcaster.xyz/v1/channel', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ siweUri, domain, nonce }),
+		});
+		if (!channelRes.ok) throw new Error('Failed to create relay channel');
+		const channel = await channelRes.json();
+
+		// Replace button with inline QR + link
+		const qrUrl = channel.url;
+		const qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&bgcolor=1e1e30&color=e0e0e0&data=' + encodeURIComponent(qrUrl);
+
+		// Build inline sign-in UI
+		const signInArea = document.createElement('div');
+		signInArea.className = 'siwf-signin-area';
+		signInArea.innerHTML =
+			'<p class="siwf-instruction">Scan with Warpcast</p>' +
+			'<img src="' + qrImg + '" alt="QR Code" class="siwf-qr" width="200" height="200" />' +
+			'<a href="' + qrUrl + '" class="siwf-open-link" target="_blank">Open in Warpcast</a>' +
+			'<p class="siwf-waiting">Waiting for approval...</p>';
+
+		btn.replaceWith(signInArea);
+
+		// Poll for completion (every 1.5s, 5 min timeout)
+		const deadline = Date.now() + 5 * 60 * 1000;
+		let result = null;
+		while (Date.now() < deadline) {
+			await new Promise(r => setTimeout(r, 1500));
+			const statusRes = await fetch('https://relay.farcaster.xyz/v1/channel/status', {
+				headers: { 'Authorization': 'Bearer ' + channel.channelToken },
+			});
+			if (!statusRes.ok) continue;
+			const statusData = await statusRes.json();
+			if (statusData.state === 'completed') {
+				result = statusData;
+				break;
+			}
+		}
+
+		if (!result) throw new Error('Timed out waiting for Warpcast approval');
+
+		// Update UI
+		const waitingEl = signInArea.querySelector('.siwf-waiting');
+		if (waitingEl) waitingEl.textContent = 'Signed in! Redirecting...';
+
+		// POST to server
+		const authRes = await fetch('/oauth/siwf-auth', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				message: result.message,
+				signature: result.signature,
+				fid: String(result.fid),
+				nonce,
+				oauthParams: siwfOauthParams,
+			}),
+		});
+
+		const data = await authRes.json();
+		if (data.redirectUrl) {
+			window.location.href = data.redirectUrl;
+		} else {
+			throw new Error(data.error || 'Authentication failed');
+		}
+	} catch (err) {
+		console.error('SIWF auth error:', err);
+		// Show error with retry button
+		const errorArea = document.querySelector('.siwf-signin-area');
+		if (errorArea) {
+			errorArea.innerHTML =
+				'<p class="siwf-status error">' + (err.message || 'Authentication failed') + '</p>' +
+				'<button type="button" class="btn-siwf" id="siwf-btn" onclick="authenticateWithSiwf()">Try again</button>';
+		} else {
+			btn.disabled = false;
+			btn.textContent = 'Sign in with Farcaster';
+		}
+	}
+}
+
+const siwfBtn = document.getElementById('siwf-btn');
+if (siwfBtn) {
+	siwfBtn.addEventListener('click', authenticateWithSiwf);
+}
+`;
+
+/**
  * Compute SHA-256 hash for CSP script-src
  */
 async function computeScriptHash(script: string): Promise<string> {
@@ -142,8 +253,9 @@ async function computeScriptHash(script: string): Promise<string> {
 	return `'sha256-${base64Hash}'`;
 }
 
-// Pre-computed hash (computed at module load, will be a Promise)
+// Pre-computed hashes (computed at module load, will be Promises)
 let passkeyAuthScriptHashPromise: Promise<string> | null = null;
+let siwfAuthScriptHashPromise: Promise<string> | null = null;
 
 /**
  * Get the script hash for the passkey auth script
@@ -153,6 +265,16 @@ export async function getPasskeyAuthScriptHash(): Promise<string> {
 		passkeyAuthScriptHashPromise = computeScriptHash(PASSKEY_AUTH_SCRIPT);
 	}
 	return passkeyAuthScriptHashPromise;
+}
+
+/**
+ * Get the script hash for the SIWF auth script
+ */
+export async function getSiwfAuthScriptHash(): Promise<string> {
+	if (!siwfAuthScriptHashPromise) {
+		siwfAuthScriptHashPromise = computeScriptHash(SIWF_AUTH_SCRIPT);
+	}
+	return siwfAuthScriptHashPromise;
 }
 
 /**
@@ -171,11 +293,17 @@ export async function getPasskeyAuthScriptHash(): Promise<string> {
  * use form-action without breaking the flow in Chrome.
  * See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/form-action
  */
-export async function getConsentUiCsp(includePasskeyScript: boolean): Promise<string> {
-	const scriptSrc = includePasskeyScript
-		? await getPasskeyAuthScriptHash()
-		: "'none'";
-	return `default-src 'none'; script-src ${scriptSrc}; style-src 'unsafe-inline'; img-src https: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'`;
+export async function getConsentUiCsp(includePasskeyScript: boolean, includeSiwfScript: boolean): Promise<string> {
+	const scriptHashes: string[] = [];
+	if (includePasskeyScript) {
+		scriptHashes.push(await getPasskeyAuthScriptHash());
+	}
+	if (includeSiwfScript) {
+		scriptHashes.push(await getSiwfAuthScriptHash());
+	}
+	const scriptSrc = scriptHashes.length > 0 ? scriptHashes.join(" ") : "'none'";
+	const connectSrc = includeSiwfScript ? "'self' https://relay.farcaster.xyz" : "'self'";
+	return `default-src 'none'; script-src ${scriptSrc}; style-src 'unsafe-inline'; img-src https: data:; connect-src ${connectSrc}; frame-ancestors 'none'; base-uri 'none'`;
 }
 
 /**
@@ -241,6 +369,10 @@ export interface ConsentUIOptions {
 	userHandle?: string;
 	/** Whether to show a login form instead of consent */
 	showLogin?: boolean;
+	/** Whether to show the password input (only when password auth is configured) */
+	showPassword?: boolean;
+	/** Whether SIWF login is available */
+	siwfAvailable?: boolean;
 	/** Error message to display */
 	error?: string;
 	/** Whether passkey login is available */
@@ -255,7 +387,7 @@ export interface ConsentUIOptions {
  * @returns HTML string
  */
 export function renderConsentUI(options: ConsentUIOptions): string {
-	const { client, scope, authorizeUrl, oauthParams, userHandle, showLogin, error, passkeyAvailable, passkeyOptions } = options;
+	const { client, scope, authorizeUrl, oauthParams, userHandle, showLogin, showPassword, siwfAvailable, error, passkeyAvailable, passkeyOptions } = options;
 
 	const clientName = escapeHtml(client.clientName);
 	const scopeDescriptions = getScopeDescriptions(scope);
@@ -267,18 +399,23 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 		? `<div class="error-message">${escapeHtml(error)}</div>`
 		: "";
 
+	// Build login methods in order: SIWF, Passkey, Password
+	const loginMethods: string[] = [];
+	if (siwfAvailable) {
+		loginMethods.push(`<button type="button" class="btn-siwf" id="siwf-btn">Sign in with Farcaster</button>`);
+	}
+	if (passkeyAvailable) {
+		loginMethods.push(`<button type="button" class="btn-passkey" id="passkey-btn"><span class="passkey-icon">🔐</span> Sign in with Passkey</button>`);
+	}
+	if (showPassword) {
+		loginMethods.push(`<input type="password" name="password" placeholder="Password" autocomplete="current-password" required />`);
+	}
+
 	const loginFormHtml = showLogin
 		? `
 			<div class="login-form">
 				<p>Sign in to continue</p>
-				${passkeyAvailable ? `
-				<button type="button" class="btn-passkey" id="passkey-btn">
-					<span class="passkey-icon">🔐</span>
-					Sign in with Passkey
-				</button>
-				<div class="or-divider"><span>or</span></div>
-				` : ""}
-				<input type="password" name="password" placeholder="Password" autocomplete="current-password" required />
+				${loginMethods.join('<div class="or-divider"><span>or</span></div>')}
 			</div>
 		`
 		: "";
@@ -555,6 +692,86 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 		.passkey-status.error {
 			color: #f87171;
 		}
+
+		.btn-siwf {
+			width: 100%;
+			padding: 12px 20px;
+			border-radius: 8px;
+			font-size: 14px;
+			font-weight: 500;
+			cursor: pointer;
+			transition: all 0.2s;
+			border: 1px solid rgba(124, 58, 237, 0.4);
+			background: rgba(124, 58, 237, 0.15);
+			color: #c4b5fd;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			gap: 8px;
+		}
+
+		.btn-siwf:hover:not(:disabled) {
+			background: rgba(124, 58, 237, 0.25);
+			border-color: rgba(124, 58, 237, 0.6);
+		}
+
+		.btn-siwf:disabled {
+			opacity: 0.5;
+			cursor: not-allowed;
+		}
+
+		.siwf-status {
+			margin-top: 8px;
+			font-size: 12px;
+			text-align: center;
+			min-height: 16px;
+		}
+
+		.siwf-status.error {
+			color: #f87171;
+		}
+
+		.siwf-signin-area {
+			text-align: center;
+			padding: 8px 0;
+		}
+
+		.siwf-instruction {
+			font-size: 14px;
+			color: #9ca3af;
+			margin-bottom: 12px;
+		}
+
+		.siwf-qr {
+			border-radius: 8px;
+			margin-bottom: 12px;
+			display: block;
+			margin-left: auto;
+			margin-right: auto;
+		}
+
+		.siwf-open-link {
+			display: inline-block;
+			font-size: 13px;
+			color: #c4b5fd;
+			text-decoration: none;
+			margin-bottom: 12px;
+		}
+
+		.siwf-open-link:hover {
+			text-decoration: underline;
+		}
+
+		.siwf-waiting {
+			font-size: 12px;
+			color: #9ca3af;
+			animation: pulse 2s infinite;
+		}
+
+		@keyframes pulse {
+			0%, 100% { opacity: 1; }
+			50% { opacity: 0.5; }
+		}
 	</style>
 </head>
 <body>
@@ -582,7 +799,7 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 
 			<div class="buttons">
 				<button type="submit" name="action" value="deny" class="btn-deny">Deny</button>
-				<button type="submit" name="action" value="allow" class="btn-allow">Allow</button>
+				${!showLogin || showPassword ? `<button type="submit" name="action" value="allow" class="btn-allow">Allow</button>` : ""}
 			</div>
 		</form>
 
@@ -590,6 +807,9 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 	</div>
 	${passkeyAvailable && passkeyOptions ? `
 	<script data-passkey-options="${escapeHtml(JSON.stringify(passkeyOptions))}" data-oauth-params="${escapeHtml(JSON.stringify(oauthParams))}">${PASSKEY_AUTH_SCRIPT}</script>
+	` : ""}
+	${siwfAvailable ? `
+	<script data-oauth-params="${escapeHtml(JSON.stringify(oauthParams))}">${SIWF_AUTH_SCRIPT}</script>
 	` : ""}
 </body>
 </html>`;
