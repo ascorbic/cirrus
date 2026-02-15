@@ -1,5 +1,11 @@
 # @getcirrus/pds
 
+## 0.10.5
+
+### Patch Changes
+
+- [#129](https://github.com/ascorbic/cirrus/pull/129) [`764fef3`](https://github.com/ascorbic/cirrus/commit/764fef37bbd0a65ce8eeadf5cf30b3f812071466) Thanks [@ascorbic](https://github.com/ascorbic)! - Include "cirrus" in the version string returned from the health check endpoint.
+
 ## 0.10.4
 
 ### Patch Changes
