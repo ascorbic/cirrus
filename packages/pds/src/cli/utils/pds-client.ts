@@ -212,7 +212,8 @@ export class PDSClient {
 		}
 		return {
 			bytes: response.data,
-			mimeType: response.headers.get("content-type") ?? "application/octet-stream",
+			mimeType:
+				response.headers.get("content-type") ?? "application/octet-stream",
 		};
 	}
 
@@ -269,7 +270,10 @@ export class PDSClient {
 			throw new ClientResponseError({
 				status: res.status,
 				headers: res.headers,
-				data: { error: errorBody.error ?? "Unknown", message: errorBody.message },
+				data: {
+					error: errorBody.error ?? "Unknown",
+					message: errorBody.message,
+				},
 			});
 		}
 	}
@@ -303,7 +307,10 @@ export class PDSClient {
 			throw new ClientResponseError({
 				status: res.status,
 				headers: res.headers,
-				data: { error: errorBody.error ?? "Unknown", message: errorBody.message },
+				data: {
+					error: errorBody.error ?? "Unknown",
+					message: errorBody.message,
+				},
 			});
 		}
 		return res.json() as Promise<MigrationStatus>;
@@ -334,7 +341,10 @@ export class PDSClient {
 			throw new ClientResponseError({
 				status: res.status,
 				headers: res.headers,
-				data: { error: errorBody.error ?? "Unknown", message: errorBody.message },
+				data: {
+					error: errorBody.error ?? "Unknown",
+					message: errorBody.message,
+				},
 			});
 		}
 		return res.json() as Promise<ImportResult>;
@@ -379,7 +389,10 @@ export class PDSClient {
 			throw new ClientResponseError({
 				status: res.status,
 				headers: res.headers,
-				data: { error: errorBody.error ?? "Unknown", message: errorBody.message },
+				data: {
+					error: errorBody.error ?? "Unknown",
+					message: errorBody.message,
+				},
 			});
 		}
 		const result = (await res.json()) as { blob: BlobRef };
@@ -411,7 +424,10 @@ export class PDSClient {
 			throw new ClientResponseError({
 				status: res.status,
 				headers: res.headers,
-				data: { error: errorBody.error ?? "Unknown", message: errorBody.message },
+				data: {
+					error: errorBody.error ?? "Unknown",
+					message: errorBody.message,
+				},
 			});
 		}
 		return res.json() as Promise<ResetResult>;
@@ -444,7 +460,10 @@ export class PDSClient {
 	 * Emit identity event to notify relays to refresh handle verification
 	 */
 	async emitIdentity(): Promise<{ seq: number }> {
-		const url = new URL("/xrpc/gg.mk.experimental.emitIdentityEvent", this.baseUrl);
+		const url = new URL(
+			"/xrpc/gg.mk.experimental.emitIdentityEvent",
+			this.baseUrl,
+		);
 		const headers: Record<string, string> = {};
 		if (this.authToken) {
 			headers["Authorization"] = `Bearer ${this.authToken}`;
@@ -457,9 +476,7 @@ export class PDSClient {
 			const errorBody = (await res.json().catch(() => ({}))) as {
 				message?: string;
 			};
-			throw new Error(
-				errorBody.message ?? `Request failed: ${res.status}`,
-			);
+			throw new Error(errorBody.message ?? `Request failed: ${res.status}`);
 		}
 		return res.json() as Promise<{ seq: number }>;
 	}
@@ -473,7 +490,9 @@ export class PDSClient {
 	 */
 	async healthCheck(): Promise<boolean> {
 		try {
-			const res = await fetch(new URL("/xrpc/_health", this.baseUrl).toString());
+			const res = await fetch(
+				new URL("/xrpc/_health", this.baseUrl).toString(),
+			);
 			return res.ok;
 		} catch {
 			return false;
@@ -578,10 +597,16 @@ export class PDSClient {
 			throw new ClientResponseError({
 				status: res.status,
 				headers: res.headers,
-				data: { error: errorBody.error ?? "Unknown", message: errorBody.message },
+				data: {
+					error: errorBody.error ?? "Unknown",
+					message: errorBody.message,
+				},
 			});
 		}
-		return res.json() as Promise<{ subscribers: number; latestSeq: number | null }>;
+		return res.json() as Promise<{
+			subscribers: number;
+			latestSeq: number | null;
+		}>;
 	}
 
 	/**
@@ -722,10 +747,17 @@ export class PDSClient {
 			throw new ClientResponseError({
 				status: res.status,
 				headers: res.headers,
-				data: { error: errorBody.error ?? "Unknown", message: errorBody.message },
+				data: {
+					error: errorBody.error ?? "Unknown",
+					message: errorBody.message,
+				},
 			});
 		}
-		return res.json() as Promise<{ token: string; url: string; expiresAt: number }>;
+		return res.json() as Promise<{
+			token: string;
+			url: string;
+			expiresAt: number;
+		}>;
 	}
 
 	/**
@@ -756,7 +788,10 @@ export class PDSClient {
 			throw new ClientResponseError({
 				status: res.status,
 				headers: res.headers,
-				data: { error: errorBody.error ?? "Unknown", message: errorBody.message },
+				data: {
+					error: errorBody.error ?? "Unknown",
+					message: errorBody.message,
+				},
 			});
 		}
 		return res.json() as Promise<{
@@ -793,7 +828,10 @@ export class PDSClient {
 			throw new ClientResponseError({
 				status: res.status,
 				headers: res.headers,
-				data: { error: errorBody.error ?? "Unknown", message: errorBody.message },
+				data: {
+					error: errorBody.error ?? "Unknown",
+					message: errorBody.message,
+				},
 			});
 		}
 		return res.json() as Promise<{ success: boolean }>;
@@ -861,7 +899,7 @@ export class PDSClient {
 			url.searchParams.set("hostname", pdsHostname);
 			const res = await fetch(url.toString());
 			if (!res.ok) return null;
-			const data = await res.json() as {
+			const data = (await res.json()) as {
 				status: "active" | "idle" | "offline" | "throttled" | "banned";
 				accountCount?: number;
 				seq?: number;
@@ -876,16 +914,18 @@ export class PDSClient {
 	 * Get relay status from all known relays.
 	 * Returns results from each relay that responds.
 	 */
-	async getAllRelayHostStatus(
-		pdsHostname: string,
-	): Promise<Array<{
-		status: "active" | "idle" | "offline" | "throttled" | "banned";
-		accountCount?: number;
-		seq?: number;
-		relay: string;
-	}>> {
+	async getAllRelayHostStatus(pdsHostname: string): Promise<
+		Array<{
+			status: "active" | "idle" | "offline" | "throttled" | "banned";
+			accountCount?: number;
+			seq?: number;
+			relay: string;
+		}>
+	> {
 		const results = await Promise.all(
-			PDSClient.RELAY_URLS.map((url) => this.getRelayHostStatus(pdsHostname, url)),
+			PDSClient.RELAY_URLS.map((url) =>
+				this.getRelayHostStatus(pdsHostname, url),
+			),
 		);
 		return results.filter((r) => r !== null);
 	}

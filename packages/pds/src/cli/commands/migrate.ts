@@ -89,8 +89,12 @@ export const migrateCommand = defineCommand({
 				p.log.info(`Start it with: ${formatCommand(pm, "dev")}`);
 			} else {
 				p.log.error(`Your PDS isn't responding at ${targetUrl}`);
-				p.log.info(`Make sure your worker is deployed: ${formatCommand(pm, "deploy")}`);
-				p.log.info(`Or test locally first: ${formatCommand(pm, "pds", "migrate", "--dev")}`);
+				p.log.info(
+					`Make sure your worker is deployed: ${formatCommand(pm, "deploy")}`,
+				);
+				p.log.info(
+					`Or test locally first: ${formatCommand(pm, "pds", "migrate", "--dev")}`,
+				);
 			}
 			p.outro("Migration cancelled.");
 			process.exit(1);

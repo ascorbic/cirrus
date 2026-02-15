@@ -84,7 +84,14 @@ export const listCommand = defineCommand({
 
 		// List passkeys
 		spinner.start("Fetching passkeys...");
-		let result: { passkeys: Array<{ id: string; name: string | null; createdAt: string; lastUsedAt: string | null }> };
+		let result: {
+			passkeys: Array<{
+				id: string;
+				name: string | null;
+				createdAt: string;
+				lastUsedAt: string | null;
+			}>;
+		};
 		try {
 			result = await client.listPasskeys();
 			spinner.stop("Passkeys retrieved");
@@ -115,7 +122,9 @@ export const listCommand = defineCommand({
 
 				console.log(`  ${pc.green("●")} ${pc.bold(name)}`);
 				console.log(`    ${pc.dim("ID:")} ${idPreview}`);
-				console.log(`    ${pc.dim("Created:")} ${created}  ${pc.dim("Last used:")} ${lastUsed}`);
+				console.log(
+					`    ${pc.dim("Created:")} ${created}  ${pc.dim("Last used:")} ${lastUsed}`,
+				);
 				console.log("");
 			}
 

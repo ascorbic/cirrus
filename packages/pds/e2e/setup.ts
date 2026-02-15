@@ -71,9 +71,7 @@ function startViteServer(cwd: string): Promise<number> {
 		const timeout = setTimeout(() => {
 			proc.kill();
 			reject(
-				new Error(
-					`Vite server startup timeout after 60s. Output:\n${output}`,
-				),
+				new Error(`Vite server startup timeout after 60s. Output:\n${output}`),
 			);
 		}, 60000);
 

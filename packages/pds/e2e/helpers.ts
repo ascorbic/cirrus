@@ -1,7 +1,9 @@
 import { AtpAgent } from "@atproto/api";
 
 export function getPort(): number {
-	return ((globalThis as Record<string, unknown>).__e2e_port__ as number) ?? 5173;
+	return (
+		((globalThis as Record<string, unknown>).__e2e_port__ as number) ?? 5173
+	);
 }
 
 export function getBaseUrl(): string {

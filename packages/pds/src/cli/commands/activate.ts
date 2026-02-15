@@ -380,9 +380,7 @@ export const activateCommand = defineCommand({
 			p.log.info(
 				"Some checks failed, so identity was not emitted automatically.",
 			);
-			p.log.info(
-				"Once your handle and DID are configured correctly, run:",
-			);
+			p.log.info("Once your handle and DID are configured correctly, run:");
 			p.log.info("  pds emit-identity");
 		}
 

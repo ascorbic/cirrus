@@ -1,4 +1,8 @@
-import { parse, ValidationError, type BaseSchema } from "@atcute/lexicons/validations";
+import {
+	parse,
+	ValidationError,
+	type BaseSchema,
+} from "@atcute/lexicons/validations";
 
 // Import record schemas from @atcute/bluesky
 import {

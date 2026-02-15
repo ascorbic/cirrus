@@ -40,7 +40,7 @@ export async function createDpopProof(
 	privateKey: CryptoKey,
 	publicJwk: JsonWebKey,
 	claims: { htm: string; htu: string; ath?: string; nonce?: string },
-	alg: string = "ES256"
+	alg: string = "ES256",
 ): Promise<string> {
 	const header = {
 		typ: "dpop+jwt",
@@ -57,8 +57,12 @@ export async function createDpopProof(
 		...(claims.nonce && { nonce: claims.nonce }),
 	};
 
-	const headerB64 = base64url.encode(new TextEncoder().encode(JSON.stringify(header)));
-	const payloadB64 = base64url.encode(new TextEncoder().encode(JSON.stringify(payload)));
+	const headerB64 = base64url.encode(
+		new TextEncoder().encode(JSON.stringify(header)),
+	);
+	const payloadB64 = base64url.encode(
+		new TextEncoder().encode(JSON.stringify(payload)),
+	);
 
 	const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
 	const params = getAlgorithmParams(alg);
@@ -67,7 +71,9 @@ export async function createDpopProof(
 	}
 
 	const signParams =
-		params.name === "ECDSA" ? { name: params.name, hash: params.hash } : { name: params.name };
+		params.name === "ECDSA"
+			? { name: params.name, hash: params.hash }
+			: { name: params.name };
 
 	const signature = await crypto.subtle.sign(signParams, privateKey, data);
 	const signatureB64 = base64url.encode(new Uint8Array(signature));
@@ -81,8 +87,12 @@ export async function createDpopProof(
  * @returns The key pair and public JWK
  */
 export async function generateDpopKeyPair(
-	alg: string = "ES256"
-): Promise<{ privateKey: CryptoKey; publicKey: CryptoKey; publicJwk: JsonWebKey }> {
+	alg: string = "ES256",
+): Promise<{
+	privateKey: CryptoKey;
+	publicKey: CryptoKey;
+	publicJwk: JsonWebKey;
+}> {
 	const params = getAlgorithmParams(alg);
 	if (!params) {
 		throw new Error(`Unsupported algorithm: ${alg}`);
@@ -103,7 +113,10 @@ export async function generateDpopKeyPair(
 		"verify",
 	])) as CryptoKeyPair;
 
-	const publicJwk = (await crypto.subtle.exportKey("jwk", keyPair.publicKey)) as JsonWebKey;
+	const publicJwk = (await crypto.subtle.exportKey(
+		"jwk",
+		keyPair.publicKey,
+	)) as JsonWebKey;
 
 	// Remove optional fields that shouldn't be in the proof
 	delete publicJwk.key_ops;
@@ -166,7 +179,7 @@ export async function createClientAssertion(
 		exp?: number;
 	},
 	publicJwk?: JsonWebKey,
-	alg: string = "ES256"
+	alg: string = "ES256",
 ): Promise<string> {
 	const header: Record<string, unknown> = {
 		typ: "JWT",
@@ -183,13 +196,19 @@ export async function createClientAssertion(
 		iss: claims.iss,
 		sub: claims.sub,
 		aud: claims.aud,
-		jti: claims.jti ?? base64url.encode(crypto.getRandomValues(new Uint8Array(16))),
+		jti:
+			claims.jti ??
+			base64url.encode(crypto.getRandomValues(new Uint8Array(16))),
 		iat: claims.iat ?? now,
 		exp: claims.exp ?? now + 300, // 5 minutes default
 	};
 
-	const headerB64 = base64url.encode(new TextEncoder().encode(JSON.stringify(header)));
-	const payloadB64 = base64url.encode(new TextEncoder().encode(JSON.stringify(payload)));
+	const headerB64 = base64url.encode(
+		new TextEncoder().encode(JSON.stringify(header)),
+	);
+	const payloadB64 = base64url.encode(
+		new TextEncoder().encode(JSON.stringify(payload)),
+	);
 
 	const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
 	const params = getAlgorithmParams(alg);
@@ -198,7 +217,9 @@ export async function createClientAssertion(
 	}
 
 	const signParams =
-		params.name === "ECDSA" ? { name: params.name, hash: params.hash } : { name: params.name };
+		params.name === "ECDSA"
+			? { name: params.name, hash: params.hash }
+			: { name: params.name };
 
 	const signature = await crypto.subtle.sign(signParams, privateKey, data);
 	const signatureB64 = base64url.encode(new Uint8Array(signature));
@@ -215,8 +236,12 @@ export async function createClientAssertion(
  */
 export async function generateClientKeyPair(
 	alg: string = "ES256",
-	kid?: string
-): Promise<{ privateKey: CryptoKey; publicKey: CryptoKey; publicJwk: JsonWebKey }> {
+	kid?: string,
+): Promise<{
+	privateKey: CryptoKey;
+	publicKey: CryptoKey;
+	publicJwk: JsonWebKey;
+}> {
 	const result = await generateDpopKeyPair(alg);
 
 	// Add kid if provided

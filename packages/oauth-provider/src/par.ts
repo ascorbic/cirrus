@@ -34,7 +34,14 @@ function generateRequestUri(): string {
 /**
  * Required OAuth parameters for authorization request
  */
-const REQUIRED_PARAMS = ["client_id", "redirect_uri", "response_type", "code_challenge", "code_challenge_method", "state"];
+const REQUIRED_PARAMS = [
+	"client_id",
+	"redirect_uri",
+	"response_type",
+	"code_challenge",
+	"code_challenge_method",
+	"state",
+];
 
 /**
  * Handler for Pushed Authorization Requests (PAR)
@@ -50,7 +57,11 @@ export class PARHandler {
 	 * @param issuer The OAuth issuer URL
 	 * @param expiresIn PAR expiration time in seconds (default: 90)
 	 */
-	constructor(storage: OAuthStorage, issuer: string, expiresIn: number = DEFAULT_EXPIRES_IN) {
+	constructor(
+		storage: OAuthStorage,
+		issuer: string,
+		expiresIn: number = DEFAULT_EXPIRES_IN,
+	) {
 		this.storage = storage;
 		this.issuer = issuer;
 		this.expiresIn = expiresIn;
@@ -70,18 +81,26 @@ export class PARHandler {
 			return this.errorResponse(
 				"invalid_request",
 				e instanceof Error ? e.message : "Invalid request",
-				400
+				400,
 			);
 		}
 
 		const clientId = params.client_id;
 		if (!clientId) {
-			return this.errorResponse("invalid_request", "Missing client_id parameter", 400);
+			return this.errorResponse(
+				"invalid_request",
+				"Missing client_id parameter",
+				400,
+			);
 		}
 
 		for (const param of REQUIRED_PARAMS) {
 			if (!params[param]) {
-				return this.errorResponse("invalid_request", `Missing required parameter: ${param}`, 400);
+				return this.errorResponse(
+					"invalid_request",
+					`Missing required parameter: ${param}`,
+					400,
+				);
 			}
 		}
 
@@ -89,7 +108,7 @@ export class PARHandler {
 			return this.errorResponse(
 				"unsupported_response_type",
 				"Only response_type=code is supported",
-				400
+				400,
 			);
 		}
 
@@ -97,7 +116,7 @@ export class PARHandler {
 			return this.errorResponse(
 				"invalid_request",
 				"Only code_challenge_method=S256 is supported",
-				400
+				400,
 			);
 		}
 
@@ -106,7 +125,7 @@ export class PARHandler {
 			return this.errorResponse(
 				"invalid_request",
 				"Invalid code_challenge format",
-				400
+				400,
 			);
 		}
 
@@ -150,7 +169,7 @@ export class PARHandler {
 	 */
 	async retrieveParams(
 		requestUri: string,
-		clientId: string
+		clientId: string,
 	): Promise<Record<string, string> | null> {
 		if (!requestUri.startsWith(REQUEST_URI_PREFIX)) {
 			return null;
@@ -184,7 +203,7 @@ export class PARHandler {
 	private errorResponse(
 		error: string,
 		description: string,
-		status: number = 400
+		status: number = 400,
 	): Response {
 		const body: OAuthErrorResponse = {
 			error,

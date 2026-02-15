@@ -149,9 +149,9 @@ app.get("/xrpc/_health", async (c) => {
 	try {
 		const accountDO = getAccountDO(c.env);
 		await accountDO.rpcHealthCheck();
-		return c.json({ status: "ok", version });
+		return c.json({ status: "ok", version: `cirrus ${version}` });
 	} catch {
-		return c.json({ status: "unhealthy", version }, 503);
+		return c.json({ status: "unhealthy", version: `cirrus ${version}` }, 503);
 	}
 });
 
@@ -386,11 +386,15 @@ app.get("/xrpc/app.bsky.ageassurance.getState", requireAuth, (c) => {
 });
 
 // Emit identity event to refresh handle verification with relays
-app.post("/xrpc/gg.mk.experimental.emitIdentityEvent", requireAuth, async (c) => {
-	const accountDO = getAccountDO(c.env);
-	const result = await accountDO.rpcEmitIdentityEvent(c.env.HANDLE);
-	return c.json(result);
-});
+app.post(
+	"/xrpc/gg.mk.experimental.emitIdentityEvent",
+	requireAuth,
+	async (c) => {
+		const accountDO = getAccountDO(c.env);
+		const result = await accountDO.rpcEmitIdentityEvent(c.env.HANDLE);
+		return c.json(result);
+	},
+);
 
 // Firehose status (authenticated)
 app.get(
@@ -409,7 +413,9 @@ app.get(
 // Initialize passkey registration (authenticated)
 app.post("/passkey/init", requireAuth, async (c) => {
 	const accountDO = getAccountDO(c.env);
-	const body = await c.req.json<{ name?: string }>().catch(() => ({} as { name?: string }));
+	const body = await c.req
+		.json<{ name?: string }>()
+		.catch(() => ({}) as { name?: string });
 	try {
 		const result = await passkey.initPasskeyRegistration(
 			accountDO,
@@ -430,7 +436,10 @@ app.get("/passkey/register", async (c) => {
 	const token = c.req.query("token");
 	if (!token) {
 		return c.html(
-			renderPasskeyErrorPage("missing_token", "No registration token provided."),
+			renderPasskeyErrorPage(
+				"missing_token",
+				"No registration token provided.",
+			),
 			400,
 			{ "Content-Security-Policy": PASSKEY_ERROR_CSP },
 		);
@@ -446,7 +455,10 @@ app.get("/passkey/register", async (c) => {
 
 	if (!options) {
 		return c.html(
-			renderPasskeyErrorPage("invalid_token", "Invalid or expired registration token."),
+			renderPasskeyErrorPage(
+				"invalid_token",
+				"Invalid or expired registration token.",
+			),
 			400,
 			{ "Content-Security-Policy": PASSKEY_ERROR_CSP },
 		);

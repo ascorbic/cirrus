@@ -26,7 +26,7 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
 export async function verifyPkceChallenge(
 	verifier: string,
 	challenge: string,
-	method: "S256"
+	method: "S256",
 ): Promise<boolean> {
 	if (method !== "S256") {
 		throw new Error("Only S256 challenge method is supported");

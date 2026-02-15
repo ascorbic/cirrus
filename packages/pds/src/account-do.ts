@@ -1476,12 +1476,14 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/** List all passkeys */
-	async rpcListPasskeys(): Promise<Array<{
-		credentialId: string;
-		name: string | null;
-		createdAt: string;
-		lastUsedAt: string | null;
-	}>> {
+	async rpcListPasskeys(): Promise<
+		Array<{
+			credentialId: string;
+			name: string | null;
+			createdAt: string;
+			lastUsedAt: string | null;
+		}>
+	> {
 		const storage = await this.getStorage();
 		return storage.listPasskeys();
 	}

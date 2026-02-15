@@ -17,7 +17,10 @@ import { Secp256k1Keypair } from "@atproto/crypto";
 import { encode } from "@atcute/cbor";
 import { base64url } from "jose";
 import type { AuthedAppEnv } from "../types";
-import { createMigrationToken, validateMigrationToken } from "../migration-token";
+import {
+	createMigrationToken,
+	validateMigrationToken,
+} from "../migration-token";
 
 const PLC_DIRECTORY = "https://plc.directory";
 
@@ -147,9 +150,7 @@ export async function signPlcOperation(
 /**
  * Get the latest PLC operation for a DID
  */
-async function getLatestPlcOperation(
-	did: string,
-): Promise<PlcAuditLog | null> {
+async function getLatestPlcOperation(did: string): Promise<PlcAuditLog | null> {
 	try {
 		const res = await fetch(`${PLC_DIRECTORY}/${did}/log/audit`);
 		if (!res.ok) {

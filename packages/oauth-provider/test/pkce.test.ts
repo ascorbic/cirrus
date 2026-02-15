@@ -50,7 +50,11 @@ describe("PKCE", () => {
 		it("rejects invalid verifier", async () => {
 			const verifier = generateCodeVerifier();
 			const challenge = await generateCodeChallenge(verifier);
-			const result = await verifyPkceChallenge("wrong-verifier-value", challenge, "S256");
+			const result = await verifyPkceChallenge(
+				"wrong-verifier-value",
+				challenge,
+				"S256",
+			);
 			expect(result).toBe(false);
 		});
 
@@ -61,20 +65,28 @@ describe("PKCE", () => {
 
 		it("rejects verifier that is too long", async () => {
 			const longVerifier = "a".repeat(129);
-			const result = await verifyPkceChallenge(longVerifier, "challenge", "S256");
+			const result = await verifyPkceChallenge(
+				longVerifier,
+				"challenge",
+				"S256",
+			);
 			expect(result).toBe(false);
 		});
 
 		it("rejects verifier with invalid characters", async () => {
 			const invalidVerifier = "a".repeat(43) + "!";
 			const challenge = await generateCodeChallenge("a".repeat(43));
-			const result = await verifyPkceChallenge(invalidVerifier, challenge, "S256");
+			const result = await verifyPkceChallenge(
+				invalidVerifier,
+				challenge,
+				"S256",
+			);
 			expect(result).toBe(false);
 		});
 
 		it("throws for unsupported challenge method", async () => {
 			await expect(
-				verifyPkceChallenge("verifier", "challenge", "plain" as "S256")
+				verifyPkceChallenge("verifier", "challenge", "plain" as "S256"),
 			).rejects.toThrow("Only S256 challenge method is supported");
 		});
 	});

@@ -91,7 +91,9 @@ export async function checkDidDocument(
 
 	const pdsService = didDoc.service?.find((s) => {
 		const types = Array.isArray(s.type) ? s.type : [s.type];
-		return types.includes("AtprotoPersonalDataServer") || s.id === "#atproto_pds";
+		return (
+			types.includes("AtprotoPersonalDataServer") || s.id === "#atproto_pds"
+		);
 	}) as { serviceEndpoint?: string } | undefined;
 
 	if (!pdsService?.serviceEndpoint) {

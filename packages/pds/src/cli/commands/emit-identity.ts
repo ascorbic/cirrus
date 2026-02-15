@@ -11,7 +11,8 @@ import { getTargetUrl, getDomain } from "../utils/cli-helpers.js";
 export const emitIdentityCommand = defineCommand({
 	meta: {
 		name: "emit-identity",
-		description: "Emit an identity event to notify relays to refresh handle verification",
+		description:
+			"Emit an identity event to notify relays to refresh handle verification",
 	},
 	args: {
 		dev: {
@@ -94,11 +95,15 @@ export const emitIdentityCommand = defineCommand({
 				spinner.stop("Crawl requested");
 			} else {
 				spinner.stop("Could not request crawl");
-				p.log.warn("The relay may not pick up the identity change immediately.");
+				p.log.warn(
+					"The relay may not pick up the identity change immediately.",
+				);
 			}
 		}
 
-		p.log.success("Relays have been notified to refresh your handle verification.");
+		p.log.success(
+			"Relays have been notified to refresh your handle verification.",
+		);
 		p.outro("Done!");
 	},
 });

@@ -50,7 +50,10 @@ describe("Migration Token", () => {
 
 		it("produces different signatures for different secrets", async () => {
 			const token1 = await createMigrationToken(TEST_DID, TEST_SECRET);
-			const token2 = await createMigrationToken(TEST_DID, "different-secret-also-32-chars!!");
+			const token2 = await createMigrationToken(
+				TEST_DID,
+				"different-secret-also-32-chars!!",
+			);
 
 			const sig1 = token1.split(".")[1];
 			const sig2 = token2.split(".")[1];
@@ -170,7 +173,11 @@ describe("Migration Token", () => {
 				// Move forward 14 minutes (still within 15 minute window)
 				vi.setSystemTime(new Date("2026-01-11T12:14:00Z"));
 
-				const result = await validateMigrationToken(token, TEST_DID, TEST_SECRET);
+				const result = await validateMigrationToken(
+					token,
+					TEST_DID,
+					TEST_SECRET,
+				);
 				expect(result).not.toBeNull();
 			});
 
@@ -183,7 +190,11 @@ describe("Migration Token", () => {
 				// Move forward 16 minutes (past 15 minute expiry)
 				vi.setSystemTime(new Date("2026-01-11T12:16:00Z"));
 
-				const result = await validateMigrationToken(token, TEST_DID, TEST_SECRET);
+				const result = await validateMigrationToken(
+					token,
+					TEST_DID,
+					TEST_SECRET,
+				);
 				expect(result).toBeNull();
 			});
 
@@ -196,7 +207,11 @@ describe("Migration Token", () => {
 				// Move forward exactly 15 minutes + 1 second
 				vi.setSystemTime(new Date("2026-01-11T12:15:01Z"));
 
-				const result = await validateMigrationToken(token, TEST_DID, TEST_SECRET);
+				const result = await validateMigrationToken(
+					token,
+					TEST_DID,
+					TEST_SECRET,
+				);
 				expect(result).toBeNull();
 			});
 		});

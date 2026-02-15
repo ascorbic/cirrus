@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { AtpAgent } from "@atproto/api";
 import WebSocket from "ws";
-import { createAgent, getPort, TEST_DID, TEST_HANDLE, TEST_PASSWORD, uniqueRkey } from "./helpers";
+import {
+	createAgent,
+	getPort,
+	TEST_DID,
+	TEST_HANDLE,
+	TEST_PASSWORD,
+	uniqueRkey,
+} from "./helpers";
 
 describe("Firehose (subscribeRepos)", () => {
 	let agent: AtpAgent;

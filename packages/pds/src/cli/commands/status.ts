@@ -59,7 +59,10 @@ export const statusCommand = defineCommand({
 		const pdsHostname = config.PDS_HOSTNAME;
 
 		if (!authToken) {
-			console.error(pc.red("Error:"), "No AUTH_TOKEN found. Run 'pds init' first.");
+			console.error(
+				pc.red("Error:"),
+				"No AUTH_TOKEN found. Run 'pds init' first.",
+			);
 			process.exit(1);
 		}
 
@@ -88,7 +91,9 @@ export const statusCommand = defineCommand({
 			console.log();
 			console.log(pc.red("Cannot continue - PDS is not reachable."));
 			if (!isDev) {
-				console.log(pc.dim("Make sure your worker is deployed: wrangler deploy"));
+				console.log(
+					pc.dim("Make sure your worker is deployed: wrangler deploy"),
+				);
 			}
 			process.exit(1);
 		}
@@ -124,7 +129,9 @@ export const statusCommand = defineCommand({
 			const shortRev = status.repoRev
 				? status.repoRev.slice(0, 8) + "..."
 				: "none";
-			console.log(`  ${CHECK} Initialized: ${pc.dim(shortCid)} (rev: ${shortRev})`);
+			console.log(
+				`  ${CHECK} Initialized: ${pc.dim(shortCid)} (rev: ${shortRev})`,
+			);
 			console.log(`  ${INFO} ${repoCheck.message}`);
 		} else {
 			console.log(`  ${WARN} ${repoCheck.message}`);
@@ -142,7 +149,11 @@ export const statusCommand = defineCommand({
 
 		// Show configured identity
 		if (did) {
-			const didType = did.startsWith("did:plc:") ? "did:plc" : did.startsWith("did:web:") ? "did:web" : "unknown";
+			const didType = did.startsWith("did:plc:")
+				? "did:plc"
+				: did.startsWith("did:web:")
+					? "did:web"
+					: "unknown";
 			console.log(`  ${INFO} DID: ${pc.dim(did)} (${didType})`);
 		}
 		if (handle) {
@@ -153,7 +164,9 @@ export const statusCommand = defineCommand({
 		if (did) {
 			const didCheck = await checkDidResolution(client, did, pdsHostname!);
 			if (didCheck.ok) {
-				console.log(`  ${CHECK} DID resolves to this PDS (via ${didCheck.resolveMethod})`);
+				console.log(
+					`  ${CHECK} DID resolves to this PDS (via ${didCheck.resolveMethod})`,
+				);
 			} else if (didCheck.pdsEndpoint) {
 				console.log(`  ${CROSS} DID resolves to different PDS`);
 				console.log(pc.dim(`      Resolved via: ${didCheck.resolveMethod}`));
@@ -163,9 +176,13 @@ export const statusCommand = defineCommand({
 			} else {
 				console.log(`  ${WARN} Could not resolve DID`);
 				if (did.startsWith("did:plc:")) {
-					console.log(pc.dim("      Check plc.directory or update DID document"));
+					console.log(
+						pc.dim("      Check plc.directory or update DID document"),
+					);
 				} else if (did.startsWith("did:web:")) {
-					console.log(pc.dim("      Ensure /.well-known/did.json is accessible"));
+					console.log(
+						pc.dim("      Ensure /.well-known/did.json is accessible"),
+					);
 				}
 				hasWarnings = true;
 			}
@@ -176,21 +193,33 @@ export const statusCommand = defineCommand({
 
 		// Check handle resolution with method details
 		if (handle) {
-			const handleCheck = await checkHandleResolutionDetailed(client, handle, did!);
+			const handleCheck = await checkHandleResolutionDetailed(
+				client,
+				handle,
+				did!,
+			);
 			if (handleCheck.ok) {
-				console.log(`  ${CHECK} Handle verified via ${handleCheck.methods.join(" + ")}`);
+				console.log(
+					`  ${CHECK} Handle verified via ${handleCheck.methods.join(" + ")}`,
+				);
 			} else if (handleCheck.httpDid || handleCheck.dnsDid) {
 				console.log(`  ${CROSS} Handle resolves to different DID`);
 				console.log(pc.dim(`      Expected: ${did}`));
-				if (handleCheck.httpDid) console.log(pc.dim(`      HTTP well-known: ${handleCheck.httpDid}`));
-				if (handleCheck.dnsDid) console.log(pc.dim(`      DNS TXT: ${handleCheck.dnsDid}`));
+				if (handleCheck.httpDid)
+					console.log(pc.dim(`      HTTP well-known: ${handleCheck.httpDid}`));
+				if (handleCheck.dnsDid)
+					console.log(pc.dim(`      DNS TXT: ${handleCheck.dnsDid}`));
 				hasErrors = true;
 			} else {
 				console.log(`  ${WARN} Handle not resolving`);
 				if (handle === pdsHostname) {
-					console.log(pc.dim("      Ensure /.well-known/atproto-did returns your DID"));
+					console.log(
+						pc.dim("      Ensure /.well-known/atproto-did returns your DID"),
+					);
 				} else {
-					console.log(pc.dim(`      Add DNS TXT record: _atproto.${handle} → did=...`));
+					console.log(
+						pc.dim(`      Add DNS TXT record: _atproto.${handle} → did=...`),
+					);
 				}
 				hasWarnings = true;
 			}
@@ -239,14 +268,19 @@ export const statusCommand = defineCommand({
 			const relayStatuses = await client.getAllRelayHostStatus(pdsHostname);
 			const hasActiveRelay = relayStatuses.some((r) => r.status === "active");
 			const hasBannedRelay = relayStatuses.some((r) => r.status === "banned");
-			const needsCrawl = relayStatuses.length === 0 ||
-				relayStatuses.every((r) => r.status === "idle" || r.status === "offline");
+			const needsCrawl =
+				relayStatuses.length === 0 ||
+				relayStatuses.every(
+					(r) => r.status === "idle" || r.status === "offline",
+				);
 
 			if (relayStatuses.length === 0) {
 				console.log(`  ${WARN} No relays have crawled this PDS yet`);
 			} else {
 				for (const relayStatus of relayStatuses) {
-					const relayName = relayStatus.relay.includes("us-west") ? "us-west" : "us-east";
+					const relayName = relayStatus.relay.includes("us-west")
+						? "us-west"
+						: "us-east";
 					const statusIcon =
 						relayStatus.status === "active"
 							? CHECK
@@ -264,7 +298,11 @@ export const statusCommand = defineCommand({
 				console.log(`  ${CROSS} PDS is banned from all relays`);
 				hasErrors = true;
 			} else if (needsCrawl) {
-				console.log(pc.dim("      Run 'pds activate' or 'pds emit-identity' to request a crawl"));
+				console.log(
+					pc.dim(
+						"      Run 'pds activate' or 'pds emit-identity' to request a crawl",
+					),
+				);
 				hasWarnings = true;
 			}
 		}

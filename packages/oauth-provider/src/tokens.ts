@@ -125,13 +125,15 @@ export function generateTokens(options: GenerateTokensOptions): {
 export function refreshTokens(
 	existingData: TokenData,
 	rotateRefreshToken: boolean = false,
-	accessTokenTtl: number = ACCESS_TOKEN_TTL
+	accessTokenTtl: number = ACCESS_TOKEN_TTL,
 ): {
 	tokens: GeneratedTokens;
 	tokenData: TokenData;
 } {
 	const accessToken = generateRandomToken(32);
-	const refreshToken = rotateRefreshToken ? generateRandomToken(32) : existingData.refreshToken;
+	const refreshToken = rotateRefreshToken
+		? generateRandomToken(32)
+		: existingData.refreshToken;
 	const now = Date.now();
 
 	const tokenData: TokenData = {
@@ -159,7 +161,9 @@ export function refreshTokens(
  * @param tokens The generated tokens
  * @returns JSON-serializable token response
  */
-export function buildTokenResponse(tokens: GeneratedTokens): OAuthTokenResponse {
+export function buildTokenResponse(
+	tokens: GeneratedTokens,
+): OAuthTokenResponse {
 	return {
 		access_token: tokens.accessToken,
 		token_type: tokens.tokenType,
@@ -177,7 +181,7 @@ export function buildTokenResponse(tokens: GeneratedTokens): OAuthTokenResponse 
  * @returns The access token and type, or null if not found
  */
 export function extractAccessToken(
-	request: Request
+	request: Request,
 ): { token: string; type: "Bearer" | "DPoP" } | null {
 	const authHeader = request.headers.get("Authorization");
 	if (!authHeader) {

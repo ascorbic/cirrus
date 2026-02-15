@@ -90,11 +90,13 @@ If you've cloned to a new machine and see the "Key Recovery Required" error:
 ### If You've Lost Your Key
 
 **For did:web users:**
+
 - Generate a new key by clearing `.dev.vars` and re-running `pds init`
 - Old signatures become unverifiable – followers may see warnings
 - Your identity continues, but there's no cryptographic proof of continuity
 
 **For did:plc users:**
+
 - If you have a recovery key registered with PLC, you can rotate to a new signing key
 - Without a recovery key, you'll need to start a new identity
 - See the [AT Protocol PLC documentation](https://github.com/did-method-plc/did-method-plc) for recovery operations
