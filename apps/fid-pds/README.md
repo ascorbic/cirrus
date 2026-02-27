@@ -1,6 +1,62 @@
 # fid-pds
 
-Deployment wrapper for the fid.is multi-tenant PDS.
+Deployment wrapper for the [fid.is](https://fid.is) multi-tenant PDS — a service that gives every Farcaster user an AT Protocol identity and Personal Data Server, derived from their Farcaster ID (FID).
+
+## How It Works
+
+For FID `NNN`:
+
+| Concept | Value | Example |
+|---------|-------|---------|
+| **DID** | `did:web:NNN.fid.is` | `did:web:1898.fid.is` |
+| **Handle** | `NNN.fid.is` | `1898.fid.is` |
+| **PDS hostname** | `pds-NNN.fid.is` | `pds-1898.fid.is` |
+| **DID document** | `https://NNN.fid.is/.well-known/did.json` | served on the DID hostname |
+
+The DID hostname (`NNN.fid.is`) and PDS hostname (`pds-NNN.fid.is`) are intentionally different. The DID document at `NNN.fid.is` advertises `pds-NNN.fid.is` as the PDS service endpoint. Both hostnames route to the same Durable Object via Cloudflare's wildcard DNS.
+
+### Why separate hostnames?
+
+Bluesky's relay caches state per PDS hostname. If an account is deleted and re-created, the relay won't re-crawl the same hostname. Using a distinct `pds-NNN` hostname for the PDS endpoint gives the relay a fresh identity to connect to, while the DID (`did:web:NNN.fid.is`) remains stable.
+
+### Custom PDS URL
+
+Users can override the PDS service endpoint in their DID document to point to an external PDS (e.g., for self-hosting or migration). The DID identity (`did:web:NNN.fid.is`) stays on fid.is — only the advertised PDS endpoint changes. This is managed via the `is.fid.settings.setPdsUrl` endpoint.
+
+### Account vs Repo Lifecycle
+
+These are independent concepts:
+
+- **FID-PDS account** — exists as long as the AT Protocol identity (DID, keys) is stored. Allows login, DID document management, and settings changes.
+- **Repo status** (`active` / `deactivated` / `deleted`) — controls whether AT Protocol repo operations (reads, writes, firehose) are available.
+
+A user with a deleted repo can still log in and manage their DID document (e.g., point it to an external PDS). Account deletion only removes repo data — the identity persists for DID management.
+
+### Authentication
+
+Two auth mechanisms are supported:
+
+- **Bearer JWT** — issued by `is.fid.auth.login` / `is.fid.account.create` endpoints. Used by the miniapp.
+- **OAuth 2.1 DPoP** — standard AT Protocol OAuth flow. Used by Bluesky clients and third-party apps. Tokens are issued via `/oauth/token` and verified by the DPoP middleware.
+
+Both auth types work for all authenticated endpoints including `getSession`.
+
+## Architecture
+
+```
+apps/fid-pds/          ← This package (deployment wrapper)
+  src/index.ts         ← Re-exports from @getcirrus/pds
+  wrangler.jsonc       ← Cloudflare Workers config
+  .dev.vars            ← Local development secrets
+
+packages/pds/          ← Core library (@getcirrus/pds)
+  src/index.ts         ← Worker entry point, routing, DID doc serving
+  src/account-do.ts    ← AccountDurableObject (per-user state)
+  src/oauth.ts         ← OAuth 2.1 provider
+  src/farcaster-auth.ts ← FID/DID/handle derivation utilities
+
+apps/miniapp/          ← Account management UI (React + Vite)
+```
 
 ## Development
 
@@ -16,32 +72,69 @@ Deployment wrapper for the fid.is multi-tenant PDS.
 
 3. The PDS will be available at `http://localhost:8787`
 
-## Configuration
+For testing with Farcaster auth, you'll need a Cloudflare tunnel:
+```bash
+cloudflared tunnel --url http://localhost:8787
+```
+Then update `WEBFID_DOMAIN` in `.dev.vars` to the tunnel domain.
 
-Environment variables in `.dev.vars`:
+## Environment Variables
 
-- `WEBFID_DOMAIN` - Domain for WebFID DIDs (e.g., `localhost:8787` or tunnel domain)
-- `QUICKAUTH_DOMAIN` - Farcaster Quick Auth audience domain
-- `JWT_SECRET` - JWT signing secret (at least 32 characters)
-- `INITIAL_ACTIVE` - Initial activation state for new accounts
+### Non-sensitive (in `wrangler.jsonc` → `vars`)
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `WEBFID_DOMAIN` | `fid.is` | Base domain for FID subdomains. Used to derive DIDs (`did:web:NNN.{domain}`), handles (`NNN.{domain}`), and PDS hostnames (`pds-NNN.{domain}`). |
+| `QUICKAUTH_DOMAIN` | `my.fid.is` | Audience domain for Farcaster Quick Auth JWT verification. This is the domain the miniapp runs on. |
+| `INITIAL_ACTIVE` | `true` | Whether new accounts start with an active repo. Set to `false` to require explicit activation after creation. |
+
+### Secrets (set via `wrangler secret put`)
+
+| Secret | Purpose |
+|--------|---------|
+| `JWT_SECRET` | HMAC secret for signing session JWTs (access + refresh tokens). Must be at least 32 characters. |
+
+### Local development overrides (`.dev.vars`)
+
+For local development, these override the `wrangler.jsonc` values:
+
+```bash
+# Domain — use tunnel domain for Farcaster auth testing
+WEBFID_DOMAIN=your-tunnel.trycloudflare.com
+
+# Quick Auth audience — miniapp tunnel domain
+QUICKAUTH_DOMAIN=your-miniapp-tunnel.trycloudflare.com
+
+# JWT secret — any 32+ char string for local dev
+JWT_SECRET=your-jwt-secret-at-least-32-chars-long
+
+# Start accounts as active
+INITIAL_ACTIVE=true
+```
+
+### Optional variables
+
+| Variable | Purpose |
+|----------|---------|
+| `DATA_LOCATION` | Durable Object location hint. `"eu"` for EU jurisdiction (hard guarantee), `"wnam"`/`"enam"` etc. for location hints, `"auto"` or omit for default. |
+| `EMAIL` | Fallback email for `getSession` responses if no per-account email is stored. |
+
+## Cloudflare Bindings
+
+Configured in `wrangler.jsonc`:
+
+| Binding | Type | Resource | Purpose |
+|---------|------|----------|---------|
+| `ACCOUNT` | Durable Object | `AccountDurableObject` | Per-user state — identity, repo, SQLite storage |
+| `BLOBS` | R2 Bucket | `fid-pds-blobs` | Blob storage for uploaded media |
+| `USER_REGISTRY` | D1 Database | `fid-pds-registry` | FID-to-DID registry for user enumeration |
 
 ## Deployment
 
-### Prerequisites
-
-The `@getcirrus/pds` package must be built before deploying since `fid-pds` imports from it as a workspace dependency:
-
-```bash
-# From repository root
-pnpm build
-```
-
 ### First-time setup
 
-1. **Set secrets** (these are not in `wrangler.jsonc`):
-
+1. **Set secrets:**
    ```bash
-   # Generate and set JWT signing secret
    openssl rand -base64 32
    wrangler secret put JWT_SECRET
    # paste the generated value when prompted
@@ -53,49 +146,61 @@ pnpm build
    |------|------|--------|-------|
    | CNAME | `@` | `fid-pds.<account>.workers.dev` | Proxied |
    | CNAME | `*` | `fid-pds.<account>.workers.dev` | Proxied |
-   | CNAME | `my` | `fid-pds.<account>.workers.dev` | Proxied |
 
-   The wildcard `*` record is required for per-FID subdomains (e.g., `12345.fid.is`).
-   The `my` record is for the management subdomain (`my.fid.is`).
+   The wildcard `*` record covers all subdomains: `NNN.fid.is` (DID/handle), `pds-NNN.fid.is` (PDS endpoint), and `my.fid.is` (management).
 
 3. **Routes** are configured in `wrangler.jsonc`:
-   - `fid.is` — apex domain
-   - `*.fid.is` — wildcard covers per-FID subdomains (`12345.fid.is`) and the management subdomain (`my.fid.is`)
+   - `fid.is/*` — apex domain
+   - `*.fid.is/*` — wildcard for all subdomains
 
-### Deploy
+### Build and deploy
 
 ```bash
-# From apps/fid-pds/
-bun run deploy
+# From repository root
+pnpm --filter fid-pds build && pnpm --filter fid-pds deploy
 ```
+
+Vite resolves the `@getcirrus/pds` workspace link directly to source (`packages/pds/src/`), so you don't need to build the library separately.
 
 ### Verify
 
 ```bash
+# Health check
 curl https://fid.is/xrpc/_health
-# Should return: {"status":"ok",...}
+
+# DID document for FID 1898
+curl https://1898.fid.is/.well-known/did.json
+
+# PDS endpoint (note the pds- prefix)
+curl https://pds-1898.fid.is/xrpc/com.atproto.sync.getRepoStatus?did=did:web:1898.fid.is
 ```
 
-### Environment variables
+## API Endpoints
 
-Non-sensitive values are configured in `wrangler.jsonc` under `vars`:
+### FID-PDS management (`is.fid.*`)
 
-| Variable | Value | Purpose |
-|----------|-------|---------|
-| `WEBFID_DOMAIN` | `fid.is` | Base domain for FID subdomains |
-| `QUICKAUTH_DOMAIN` | `my.fid.is` | Management subdomain for Quick Auth |
-| `INITIAL_ACTIVE` | `true` | Accounts are active on creation |
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `POST is.fid.account.create` | Farcaster token | Create account via Quick Auth |
+| `POST is.fid.account.createSiwf` | SIWF signature | Create account via Sign-In-With-Farcaster |
+| `POST is.fid.account.delete` | Bearer JWT | Delete account (tombstone-preserving) |
+| `GET  is.fid.account.status` | None | Check account existence |
+| `POST is.fid.auth.login` | Farcaster token | Login via Quick Auth |
+| `POST is.fid.auth.siwf` | SIWF signature | Login via SIWF |
+| `POST is.fid.account.syncRelaySeq` | Bearer JWT | Debug: advance firehose seq |
+| `GET  is.fid.settings.getPdsUrl` | Bearer JWT | Get DID/PDS config |
+| `POST is.fid.settings.setPdsUrl` | Bearer JWT | Set custom PDS URL + verification key |
 
-Secrets (set via `wrangler secret put`):
+### AT Protocol (`com.atproto.*`)
 
-| Secret | Purpose |
-|--------|---------|
-| `JWT_SECRET` | Signing key for session JWTs |
+Standard AT Protocol PDS endpoints. Authenticated endpoints accept both Bearer JWT and OAuth DPoP tokens.
 
-### Bindings
+### Debug (`gg.mk.experimental.*`)
 
-Configured in `wrangler.jsonc`:
-
-- **ACCOUNT** - Durable Object (`AccountDurableObject`) — per-user state and SQLite storage
-- **BLOBS** - R2 bucket (`fid-pds-blobs`) — blob storage
-- **USER_REGISTRY** - D1 database (`fid-pds-registry`) — FID-to-DID lookup
+| Endpoint | Purpose |
+|----------|---------|
+| `POST gg.mk.experimental.emitIdentityEvent` | Re-emit `#identity` to firehose |
+| `POST gg.mk.experimental.emitAccountEvent` | Re-emit `#account` to firehose |
+| `GET  gg.mk.experimental.getFirehoseStatus` | Get firehose event count and connections |
+| `POST gg.mk.experimental.setRepoStatus` | Set repo status flag (debug only) |
+| `POST gg.mk.experimental.resetMigration` | Reset migration state |

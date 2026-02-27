@@ -27,3 +27,6 @@ pnpm-debug.log*
 
 # Signing key backups (created by pds init)
 signing-key-backup-*.txt
+
+# E2E test artifacts
+.e2e-port

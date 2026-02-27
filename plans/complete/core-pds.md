@@ -36,8 +36,10 @@ A single-user AT Protocol Personal Data Server (PDS) implemented on Cloudflare W
 - ✅ DAG-CBOR frame encoding using `@atproto/lex-cbor`
 - ✅ Event broadcasting to connected clients
 - ✅ Cursor-based backfill and validation
-- ✅ Sequencer class for commit event log management
+- ✅ Sequencer class for event log management (commit, identity, account events)
 - ✅ SQLite `firehose_events` table with automatic pruning
+- ✅ `#commit`, `#identity`, and `#account` frame types
+- ✅ Spec-compliant error frames for future cursors
 
 ### Blob Storage (Phase 5)
 - ✅ R2 integration with `BlobStore` class
@@ -74,6 +76,17 @@ A single-user AT Protocol Personal Data Server (PDS) implemented on Cloudflare W
 - ✅ Export/import workflow with validation
 - ✅ DID matching verification
 - ✅ Prevention of overwrites
+
+### Account Lifecycle (Phase 10)
+- ✅ Account status model: `active`, `deactivated`, `deleted` (replaces boolean `active`)
+- ✅ `#account` events on the firehose for all lifecycle transitions
+- ✅ Tombstone-preserving deletion (targeted SQL DELETEs, not `deleteAll()`)
+- ✅ Deleted accounts serve `#account` tombstone event to reconnecting relays
+- ✅ Account re-creation after deletion via Farcaster Quick Auth
+- ✅ `rpcEmitAccountEvent()`, `rpcGetAccountStatus()`, `rpcRecreateAccount()` RPCs
+- ✅ HTTP 410 responses for deleted account write operations
+- ✅ Storage layer: `getStatus()`/`setStatus()`, `clearBulkData()`, `clearSigningKeys()`
+- ✅ Schema migration: auto-adds `status` column, backfills from legacy `active` boolean
 
 ### Protocol Helpers
 - ✅ All operations use official @atproto utilities
@@ -173,11 +186,11 @@ All dependencies are Workers-compatible:
 ## Key Technical Decisions
 
 1. **Workers-native**: Built specifically for Cloudflare Workers, not a port
-2. **Single-user**: Simplified auth and account management
+2. **Multi-tenant via DOs**: Each account gets its own Durable Object with SQLite storage, routed by DID
 3. **Official libraries**: Uses @atproto packages for all protocol operations
 4. **RPC-first DO**: Durable Object exposes RPC methods, not fetch handlers
 5. **WebSocket hibernation**: Leverages Workers-specific WebSocket API
-6. **Zero-code deployment**: Users re-export package, no custom code needed
+6. **Tombstone-preserving deletion**: Deleted accounts retain minimal state for relay notification
 
 ## Performance
 
@@ -188,11 +201,10 @@ All dependencies are Workers-compatible:
 
 ## Limitations
 
-- Single user only (by design)
 - No email verification
 - No OAuth provider (planned)
 - No did:plc migration (partial support - see todo plans)
-- No rate limiting (not needed for single-user)
+- No rate limiting
 
 ## References
 
