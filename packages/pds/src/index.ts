@@ -151,8 +151,13 @@ app.get("/.well-known/atproto-did", async (c) => {
 		return c.text("Invalid hostname", 400);
 	}
 
-	// Return the deterministic DID
 	const did = fidToDid(fid, domain);
+	const accountDO = getAccountDO(c.env, did);
+	const identity = await accountDO.rpcGetAtprotoIdentity();
+	if (!identity) {
+		return c.text("Not Found", 404);
+	}
+
 	return new Response(did, {
 		headers: { "Content-Type": "text/plain" },
 	});
