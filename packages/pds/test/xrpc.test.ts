@@ -1140,6 +1140,71 @@ describe("XRPC Endpoints", () => {
 			expect(blocks.length).toBeGreaterThan(0);
 		});
 
+		it("should stream getRepo response without Content-Length", async () => {
+			const { CarReader } = await import("@ipld/car");
+
+			// Ensure repo has content
+			await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						rkey: "stream-test",
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Streaming test",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
+				env,
+			);
+
+			const response = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getRepo?did=${env.DID}`,
+				),
+				env,
+			);
+			expect(response.status).toBe(200);
+
+			// Streaming: no Content-Length header
+			expect(response.headers.get("Content-Length")).toBeNull();
+
+			// Body is a ReadableStream, not a fixed buffer
+			expect(response.body).toBeInstanceOf(ReadableStream);
+
+			// Read incrementally to verify chunked delivery
+			const reader = response.body!.getReader();
+			const chunks: Uint8Array[] = [];
+			for (;;) {
+				const { value, done } = await reader.read();
+				if (done) break;
+				chunks.push(value);
+			}
+
+			// Should arrive in multiple chunks (header + blocks)
+			expect(chunks.length).toBeGreaterThan(1);
+
+			// Reassembled bytes are a valid CAR
+			const totalLength = chunks.reduce((n, c) => n + c.byteLength, 0);
+			const carBytes = new Uint8Array(totalLength);
+			let offset = 0;
+			for (const chunk of chunks) {
+				carBytes.set(chunk, offset);
+				offset += chunk.byteLength;
+			}
+
+			const car = await CarReader.fromBytes(carBytes);
+			const roots = await car.getRoots();
+			expect(roots).toHaveLength(1);
+		});
+
 		it("should export CAR file for empty repo", async () => {
 			const { CarReader } = await import("@ipld/car");
 

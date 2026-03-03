@@ -4,8 +4,10 @@ import {
 	WriteOpAction,
 	BlockMap,
 	blocksToCarFile,
+	writeCarStream,
 	readCarWithRoot,
 	getRecords,
+	type CarBlock,
 	type RecordCreateOp,
 	type RecordUpdateOp,
 	type RecordDeleteOp,
@@ -738,31 +740,50 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * RPC method: Export repo as CAR
+	 * Handle streaming getRepo via fetch (not RPC, to enable streaming response).
 	 */
-	async rpcGetRepoCar(): Promise<Uint8Array> {
+	private async handleGetRepo(): Promise<Response> {
 		const storage = await this.getStorage();
 		const root = await storage.getRoot();
 
 		if (!root) {
-			throw new Error("No repository root found");
+			return Response.json(
+				{ error: "RepoNotFound", message: "No repository root found" },
+				{ status: 404 },
+			);
 		}
 
-		// Get all blocks from SQLite storage
-		const rows = this.ctx.storage.sql
-			.exec("SELECT cid, bytes FROM blocks")
-			.toArray();
+		// Lazily iterate SQLite rows — the cursor is already lazy,
+		// only .toArray() would materialize everything in memory.
+		const cursor = this.ctx.storage.sql.exec(
+			"SELECT cid, bytes FROM blocks",
+		);
 
-		// Build BlockMap
-		const blocks = new BlockMap();
-		for (const row of rows) {
-			const cid = CID.parse(row.cid as string);
-			const bytes = new Uint8Array(row.bytes as ArrayBuffer);
-			blocks.set(cid, bytes);
+		async function* blocks(): AsyncGenerator<CarBlock> {
+			for (const row of cursor) {
+				yield {
+					cid: CID.parse(row.cid as string),
+					bytes: new Uint8Array(row.bytes as ArrayBuffer),
+				};
+			}
 		}
 
-		// Use the official CAR builder
-		return blocksToCarFile(root, blocks);
+		const carIter = writeCarStream(root, blocks())[Symbol.asyncIterator]();
+
+		const stream = new ReadableStream<Uint8Array>({
+			async pull(controller) {
+				const { value, done } = await carIter.next();
+				if (done) {
+					controller.close();
+				} else {
+					controller.enqueue(value);
+				}
+			},
+		});
+
+		return new Response(stream, {
+			headers: { "Content-Type": "application/vnd.ipld.car" },
+		});
 	}
 
 	/**
@@ -1541,14 +1562,17 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * HTTP fetch handler for WebSocket upgrades.
-	 * This is used instead of RPC to avoid WebSocket serialization errors.
+	 * HTTP fetch handler for WebSocket upgrades and streaming responses.
+	 * Used instead of RPC when the response can't be serialized (WebSocket)
+	 * or when streaming is needed to avoid buffering large payloads (getRepo).
 	 */
 	override async fetch(request: Request): Promise<Response> {
-		// Only handle WebSocket upgrades via fetch
 		const url = new URL(request.url);
 		if (url.pathname === "/xrpc/com.atproto.sync.subscribeRepos") {
 			return this.handleFirehoseUpgrade(request);
+		}
+		if (url.pathname === "/xrpc/com.atproto.sync.getRepo") {
+			return this.handleGetRepo();
 		}
 
 		// All other requests should use RPC methods, not fetch
