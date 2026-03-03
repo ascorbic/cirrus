@@ -1,5 +1,13 @@
 # @getcirrus/pds
 
+## 0.10.5
+
+### Patch Changes
+
+- [#131](https://github.com/ascorbic/cirrus/pull/131) [`ab73a2d`](https://github.com/ascorbic/cirrus/commit/ab73a2d71451fa2c6fa17038a789c44ec8520649) Thanks [@ascorbic](https://github.com/ascorbic)! - Stream getRepo response to fix OOM on large repos
+
+- [#129](https://github.com/ascorbic/cirrus/pull/129) [`764fef3`](https://github.com/ascorbic/cirrus/commit/764fef37bbd0a65ce8eeadf5cf30b3f812071466) Thanks [@ascorbic](https://github.com/ascorbic)! - Include "cirrus" in the version string returned from the health check endpoint.
+
 ## 0.10.4
 
 ### Patch Changes
