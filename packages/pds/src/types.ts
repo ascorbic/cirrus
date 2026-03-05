@@ -73,6 +73,8 @@ export interface PDSEnv {
 	USER_REGISTRY?: D1Database;
 	/** Initial activation state for new accounts (default: true) */
 	INITIAL_ACTIVE?: string;
+	/** When "true", only FIDs on the allowlist can create accounts */
+	ALLOWLIST_ENABLED?: string;
 	/** Alchemy API key for Optimism RPC (used by SIWF verification) */
 	ALCHEMY_API_KEY?: string;
 	/**

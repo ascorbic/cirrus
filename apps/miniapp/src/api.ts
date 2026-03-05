@@ -90,24 +90,54 @@ export async function login(fid: string, farcasterToken: string): Promise<Sessio
 // Account Status (lightweight, always 200)
 // ============================================
 
+export interface AccountStatus {
+	exists: boolean;
+	allowed: boolean;
+	waitlisted: boolean;
+}
+
 /**
- * Check if a fid-pds account exists for the given FID.
- * Returns false on network errors or when no account exists.
+ * Check account status for the given FID.
+ * Returns existence, allowlist, and waitlist state.
  */
 export async function getAccountStatus(
 	fid: string,
-): Promise<boolean> {
+): Promise<AccountStatus> {
 	try {
 		const response = await fetch(
 			`${pdsUrl(fid)}/xrpc/is.fid.account.status?fid=${fid}`,
 			{ signal: AbortSignal.timeout(5000) },
 		);
-		if (!response.ok) return false;
-		const data = (await response.json()) as { exists: boolean };
-		return data.exists;
+		if (!response.ok) return { exists: false, allowed: true, waitlisted: false };
+		const data = (await response.json()) as AccountStatus;
+		return data;
 	} catch {
-		return false;
+		return { exists: false, allowed: true, waitlisted: false };
 	}
+}
+
+/**
+ * Join the waitlist for account creation.
+ */
+export async function joinWaitlistApi(
+	fid: string,
+	auth: { farcasterToken: string } | SiwfCredentials,
+): Promise<{ alreadyWaitlisted: boolean }> {
+	const response = await fetch(`${pdsUrl(fid)}/xrpc/is.fid.waitlist.join`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(auth),
+	});
+
+	const data = await response.json();
+
+	if (!response.ok) {
+		throw new Error(
+			(data as ErrorResponse).message || "Failed to join waitlist",
+		);
+	}
+
+	return data as { alreadyWaitlisted: boolean };
 }
 
 // ============================================

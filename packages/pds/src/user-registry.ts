@@ -138,3 +138,50 @@ export async function getUserCount(db: D1Database): Promise<number> {
 
 	return result?.count ?? 0;
 }
+
+/**
+ * Check if a FID is on the allowlist.
+ */
+export async function isAllowed(
+	db: D1Database,
+	fid: string,
+): Promise<boolean> {
+	const row = await db
+		.prepare("SELECT 1 FROM allowlist WHERE fid = ?")
+		.bind(fid)
+		.first();
+	return row !== null;
+}
+
+/**
+ * Check if a FID is on the waitlist.
+ */
+export async function isWaitlisted(
+	db: D1Database,
+	fid: string,
+): Promise<boolean> {
+	const row = await db
+		.prepare("SELECT 1 FROM waitlist WHERE fid = ?")
+		.bind(fid)
+		.first();
+	return row !== null;
+}
+
+/**
+ * Add a FID to the waitlist.
+ *
+ * @returns true if newly inserted, false if already existed
+ */
+export async function joinWaitlist(
+	db: D1Database,
+	fid: string,
+	farcasterAddress?: string,
+): Promise<boolean> {
+	const result = await db
+		.prepare(
+			"INSERT OR IGNORE INTO waitlist (fid, farcaster_address) VALUES (?, ?)",
+		)
+		.bind(fid, farcasterAddress ?? null)
+		.run();
+	return (result.meta.changes ?? 0) > 0;
+}

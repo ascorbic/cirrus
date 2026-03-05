@@ -15,7 +15,7 @@ import {
 import { createAccessToken, createRefreshToken } from "../session";
 import type { PDSEnv, AppEnv } from "../types";
 import type { AccountDurableObject } from "../account-do";
-import { registerUser, deleteUser } from "../user-registry";
+import { registerUser, deleteUser, isAllowed, isWaitlisted, joinWaitlist as joinWaitlistDb } from "../user-registry";
 import { didToFid } from "../farcaster-auth";
 import type { AuthedAppEnv } from "../types";
 
@@ -96,6 +96,19 @@ export async function createAccount(
 
 	// Check if account already exists — handle idempotent creation
 	const exists = await accountDO.rpcAccountExists();
+
+	// Allowlist gate: block new account creation if FID is not on the allowlist
+	if (
+		!exists &&
+		c.env.ALLOWLIST_ENABLED === "true" &&
+		c.env.USER_REGISTRY &&
+		!(await isAllowed(c.env.USER_REGISTRY, fid))
+	) {
+		return c.json(
+			{ error: "NotAllowed", message: "This FID is not on the allowlist" },
+			403,
+		);
+	}
 
 	if (exists) {
 		// Account exists — return tokens (activate only if deactivated, not deleted)
@@ -364,7 +377,22 @@ export async function getAccountStatus(
 	const accountDO = getAccountDO(c.env, did);
 
 	const exists = await accountDO.rpcAccountExists();
-	return c.json({ fid, exists });
+
+	// Allowlist gate: if enabled, check whether this FID is allowed/waitlisted
+	let allowed = true;
+	let waitlisted = false;
+	if (
+		c.env.ALLOWLIST_ENABLED === "true" &&
+		c.env.USER_REGISTRY &&
+		!exists
+	) {
+		[allowed, waitlisted] = await Promise.all([
+			isAllowed(c.env.USER_REGISTRY, fid),
+			isWaitlisted(c.env.USER_REGISTRY, fid),
+		]);
+	}
+
+	return c.json({ fid, exists, allowed, waitlisted });
 }
 
 /**
@@ -458,6 +486,19 @@ export async function createAccountSiwf(
 
 	// Check if account already exists — handle idempotent creation
 	const exists = await accountDO.rpcAccountExists();
+
+	// Allowlist gate: block new account creation if FID is not on the allowlist
+	if (
+		!exists &&
+		c.env.ALLOWLIST_ENABLED === "true" &&
+		c.env.USER_REGISTRY &&
+		!(await isAllowed(c.env.USER_REGISTRY, fid))
+	) {
+		return c.json(
+			{ error: "NotAllowed", message: "This FID is not on the allowlist" },
+			403,
+		);
+	}
 
 	if (exists) {
 		// Account exists — return tokens (activate only if deactivated, not deleted)
@@ -572,6 +613,93 @@ export async function syncRelaySeq(
 	const result = await accountDO.rpcSyncRelaySeq(body.seq);
 
 	return c.json({ success: true, newSeq: result.newSeq });
+}
+
+/**
+ * Join the waitlist for account creation.
+ *
+ * POST /xrpc/is.fid.waitlist.join
+ * Input: { farcasterToken: string } or SIWF credentials
+ * Auth: Farcaster Quick Auth JWT or SIWF signature in request body
+ *
+ * Returns: { success: true, alreadyWaitlisted: boolean }
+ */
+export async function joinWaitlist(
+	c: Context<AppEnv>,
+	getAccountDO: GetAccountDO,
+): Promise<Response> {
+	if (!c.env.USER_REGISTRY) {
+		return c.json(
+			{ error: "ServerError", message: "User registry not configured" },
+			500,
+		);
+	}
+
+	const body = await c.req.json<{
+		farcasterToken?: string;
+		message?: string;
+		signature?: `0x${string}`;
+		fid?: string;
+		nonce?: string;
+	}>().catch(() => null);
+
+	if (!body) {
+		return c.json(
+			{ error: "InvalidRequest", message: "Invalid request body" },
+			400,
+		);
+	}
+
+	let fid: string;
+	let farcasterAddress: string | undefined;
+
+	if (body.farcasterToken) {
+		// Quick Auth flow
+		if (!c.env.QUICKAUTH_DOMAIN) {
+			return c.json(
+				{ error: "ServerError", message: "QUICKAUTH_DOMAIN not configured" },
+				500,
+			);
+		}
+		try {
+			fid = await verifyQuickAuthToken(
+				body.farcasterToken,
+				c.env.QUICKAUTH_DOMAIN,
+			);
+		} catch (err) {
+			return c.json(
+				{
+					error: "AuthenticationRequired",
+					message: err instanceof Error ? err.message : "Invalid Farcaster authentication",
+				},
+				401,
+			);
+		}
+	} else if (body.message && body.signature && body.fid && body.nonce) {
+		// SIWF flow
+		const domain = c.env.WEBFID_DOMAIN;
+		try {
+			({ fid, farcasterAddress } = await verifySiwfCredentials(
+				body as { message: string; signature: `0x${string}`; fid: string; nonce: string },
+				domain,
+				c.env.ALCHEMY_API_KEY,
+			));
+		} catch (err) {
+			if (err instanceof SiwfError) {
+				return c.json({ error: err.code, message: err.message }, err.status as any);
+			}
+			throw err;
+		}
+	} else {
+		return c.json(
+			{ error: "InvalidRequest", message: "Missing authentication credentials" },
+			400,
+		);
+	}
+
+	const newlyInserted = await joinWaitlistDb(c.env.USER_REGISTRY, fid, farcasterAddress);
+
+	return c.json({ success: true, alreadyWaitlisted: !newlyInserted });
 }
 
 /**

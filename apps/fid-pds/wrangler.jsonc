@@ -33,7 +33,8 @@
 	"vars": {
 		"WEBFID_DOMAIN": "fid.is",
 		"QUICKAUTH_DOMAIN": "my.fid.is",
-		"INITIAL_ACTIVE": "true"
+		"INITIAL_ACTIVE": "true",
+		"ALLOWLIST_ENABLED": "true"
 	},
 	"routes": [
 		{ "pattern": "fid.is/*", "zone_name": "fid.is" },

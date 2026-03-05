@@ -184,7 +184,8 @@ curl https://pds-1898.fid.is/xrpc/com.atproto.sync.getRepoStatus?did=did:web:189
 | `POST is.fid.account.create` | Farcaster token | Create account via Quick Auth |
 | `POST is.fid.account.createSiwf` | SIWF signature | Create account via Sign-In-With-Farcaster |
 | `POST is.fid.account.delete` | Bearer JWT | Delete account (tombstone-preserving) |
-| `GET  is.fid.account.status` | None | Check account existence |
+| `GET  is.fid.account.status` | None | Check account existence + allowlist/waitlist state |
+| `POST is.fid.waitlist.join` | Farcaster token / SIWF | Request early access (when allowlist enabled) |
 | `POST is.fid.auth.login` | Farcaster token | Login via Quick Auth |
 | `POST is.fid.auth.siwf` | SIWF signature | Login via SIWF |
 | `POST is.fid.account.syncRelaySeq` | Bearer JWT | Debug: advance firehose seq |
@@ -194,6 +195,48 @@ curl https://pds-1898.fid.is/xrpc/com.atproto.sync.getRepoStatus?did=did:web:189
 ### AT Protocol (`com.atproto.*`)
 
 Standard AT Protocol PDS endpoints. Authenticated endpoints accept both Bearer JWT and OAuth DPoP tokens.
+
+## Allowlist / Waitlist
+
+Account creation can be gated behind an allowlist. When `ALLOWLIST_ENABLED` is `"true"`, only FIDs in the `allowlist` D1 table can create accounts. Everyone else sees an "Early Access" screen in the miniapp and can request access (which adds them to the `waitlist` table).
+
+Existing accounts are never blocked — the gate only applies to new account creation.
+
+### Setup
+
+Run the D1 migration to create the tables (safe to re-run — uses `IF NOT EXISTS`):
+
+```bash
+wrangler d1 execute fid-pds-registry --file=schema.sql
+```
+
+### Managing the allowlist
+
+```bash
+# Add a FID to the allowlist
+wrangler d1 execute fid-pds-registry --command \
+  "INSERT OR IGNORE INTO allowlist (fid, added_by) VALUES ('12345', 'admin')"
+
+# Add multiple FIDs
+wrangler d1 execute fid-pds-registry --command \
+  "INSERT OR IGNORE INTO allowlist (fid, added_by) VALUES ('111', 'admin'), ('222', 'admin')"
+
+# Approve all waitlisted users
+wrangler d1 execute fid-pds-registry --command \
+  "INSERT OR IGNORE INTO allowlist (fid, added_by) SELECT fid, 'batch' FROM waitlist"
+
+# View the waitlist
+wrangler d1 execute fid-pds-registry --command \
+  "SELECT * FROM waitlist ORDER BY requested_at"
+
+# View the allowlist
+wrangler d1 execute fid-pds-registry --command \
+  "SELECT * FROM allowlist ORDER BY added_at"
+```
+
+### Disabling
+
+Set `ALLOWLIST_ENABLED` to `"false"` (or remove it) in `wrangler.jsonc` and redeploy. All FIDs will be able to create accounts.
 
 ### Debug (`gg.mk.experimental.*`)
 

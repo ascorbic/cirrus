@@ -18,6 +18,9 @@ export {
 	getUserByFid,
 	getUserByNumber,
 	getUserCount,
+	isAllowed,
+	isWaitlisted,
+	joinWaitlist,
 } from "./user-registry";
 export type { UserRegistration } from "./user-registry";
 
@@ -392,6 +395,11 @@ app.get("/xrpc/is.fid.account.status", (c) =>
 // Create account with Sign In With Farcaster (browser-based)
 app.post("/xrpc/is.fid.account.createSiwf", (c) =>
 	fidAccount.createAccountSiwf(c, getAccountDO),
+);
+
+// Join the waitlist (when allowlist is enabled)
+app.post("/xrpc/is.fid.waitlist.join", (c) =>
+	fidAccount.joinWaitlist(c, getAccountDO),
 );
 
 // ============================================

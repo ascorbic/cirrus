@@ -35,6 +35,7 @@ import {
 	listPasskeys,
 	deletePasskeyApi,
 	renamePasskeyApi,
+	joinWaitlistApi,
 	type SessionResponse,
 	type SiwfCredentials,
 	type FarcasterProfile,
@@ -55,6 +56,13 @@ type AppState =
 			fid: string;
 			createAccount: (handle?: string) => Promise<void>;
 			profile: FarcasterProfile;
+	  }
+	| {
+			status: "waitlist";
+			fid: string;
+			profile: FarcasterProfile;
+			alreadyWaitlisted: boolean;
+			joinWaitlist: () => Promise<void>;
 	  }
 	| { status: "authenticated"; session: SessionResponse; isNew: boolean };
 
@@ -1112,6 +1120,107 @@ function DebugPage({
 	);
 }
 
+function WaitlistScreen({
+	profile,
+	alreadyWaitlisted,
+	onJoinWaitlist,
+}: {
+	profile: FarcasterProfile;
+	alreadyWaitlisted: boolean;
+	onJoinWaitlist: () => Promise<void>;
+}) {
+	const [joined, setJoined] = useState(alreadyWaitlisted);
+	const [joining, setJoining] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const handleJoin = async () => {
+		setError(null);
+		setJoining(true);
+		try {
+			await onJoinWaitlist();
+			setJoined(true);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Failed to join waitlist");
+		} finally {
+			setJoining(false);
+		}
+	};
+
+	return (
+		<div className="container">
+			<div className="card">
+				{joined ? (
+					<>
+						<h1 className="title">You're on the list</h1>
+						<p className="subtitle">We're letting people in gradually.</p>
+
+						{profile.pfpUrl && (
+							<div className="preview-profile" style={{ justifyContent: "center" }}>
+								<img className="preview-avatar" src={profile.pfpUrl} alt="" />
+							</div>
+						)}
+
+						<p
+							style={{
+								marginTop: 24,
+								color: "var(--muted)",
+								fontSize: 14,
+								textAlign: "center",
+							}}
+						>
+							We'll open the door for you shortly.
+						</p>
+					</>
+				) : (
+					<>
+						<h1 className="title">Early Access</h1>
+						<p className="subtitle">
+							fid.is is opening Bluesky accounts to a small group first.
+						</p>
+
+						{(profile.pfpUrl || profile.displayName || profile.fname) && (
+							<div className="preview-profile">
+								{profile.pfpUrl && (
+									<img className="preview-avatar" src={profile.pfpUrl} alt="" />
+								)}
+								<div className="preview-profile-text">
+									{profile.displayName && (
+										<div className="preview-display-name">
+											{profile.displayName}
+										</div>
+									)}
+									{profile.fname && (
+										<div className="preview-fname">
+											@{profile.fname} on Farcaster
+										</div>
+									)}
+								</div>
+							</div>
+						)}
+
+						{error && <div className="settings-error">{error}</div>}
+
+						<button onClick={handleJoin} disabled={joining}>
+							{joining ? "Requesting..." : "Request Early Access"}
+						</button>
+
+						<p
+							style={{
+								marginTop: 16,
+								color: "var(--muted)",
+								fontSize: 13,
+								textAlign: "center",
+							}}
+						>
+							Spots are limited. Request now to secure your place.
+						</p>
+					</>
+				)}
+			</div>
+		</div>
+	);
+}
+
 function AppContent() {
 	const [state, setState] = useState<AppState>({ status: "loading" });
 	const [inFarcaster] = useState(() => isInFarcasterClient());
@@ -1139,17 +1248,17 @@ function AppContent() {
 
 			// Step 1: Farcaster auth is done (Quick Auth verified the FID)
 			// Step 2: Check fid-pds account existence + fetch profile in parallel
-			const [accountExists, profile] = await Promise.all([
+			const [accountStatus, profile] = await Promise.all([
 				getAccountStatus(fid),
 				fetchFarcasterProfile(fid),
 			]);
 
-			if (accountExists) {
+			if (accountStatus.exists) {
 				// Account exists — login to get session tokens
 				const session = await login(fid, token);
 				setState({ status: "authenticated", session, isNew: false });
-			} else {
-				// No account — prompt to create
+			} else if (accountStatus.allowed) {
+				// Allowed to create — prompt to create
 				setState({
 					status: "confirm-create",
 					fid,
@@ -1158,6 +1267,17 @@ function AppContent() {
 						setState({ status: "authenticating" });
 						const session = await createAccount(fid, token, handle);
 						await finalizeNewAccount(session, profile);
+					},
+				});
+			} else {
+				// Not allowed — show waitlist screen
+				setState({
+					status: "waitlist",
+					fid,
+					profile,
+					alreadyWaitlisted: accountStatus.waitlisted,
+					joinWaitlist: async () => {
+						await joinWaitlistApi(fid, { farcasterToken: token });
 					},
 				});
 			}
@@ -1190,17 +1310,17 @@ function AppContent() {
 				const fid = String(res.fid);
 
 				// Check fid-pds account existence + fetch profile in parallel
-				const [accountExists, profile] = await Promise.all([
+				const [accountStatus, profile] = await Promise.all([
 					getAccountStatus(fid),
 					fetchFarcasterProfile(fid),
 				]);
 
-				if (accountExists) {
+				if (accountStatus.exists) {
 					// Account exists — login to get session tokens
 					const session = await loginWithSiwf(fid, credentials);
 					setState({ status: "authenticated", session, isNew: false });
-				} else {
-					// No account — prompt to create
+				} else if (accountStatus.allowed) {
+					// Allowed to create — prompt to create
 					setState({
 						status: "confirm-create",
 						fid,
@@ -1209,6 +1329,17 @@ function AppContent() {
 							setState({ status: "authenticating" });
 							const session = await createAccountSiwf(fid, credentials, handle);
 							await finalizeNewAccount(session, profile);
+						},
+					});
+				} else {
+					// Not allowed — show waitlist screen
+					setState({
+						status: "waitlist",
+						fid,
+						profile,
+						alreadyWaitlisted: accountStatus.waitlisted,
+						joinWaitlist: async () => {
+							await joinWaitlistApi(fid, credentials);
 						},
 					});
 				}
@@ -1283,6 +1414,16 @@ function AppContent() {
 					</p>
 				</div>
 			</div>
+		);
+	}
+
+	if (state.status === "waitlist") {
+		return (
+			<WaitlistScreen
+				profile={state.profile}
+				alreadyWaitlisted={state.alreadyWaitlisted}
+				onJoinWaitlist={state.joinWaitlist}
+			/>
 		);
 	}
 
