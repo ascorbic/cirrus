@@ -670,7 +670,6 @@ export const initCommand = defineCommand({
 			SIGNING_KEY_PUBLIC: signingKeyPublic,
 			INITIAL_ACTIVE: initialActive,
 			DATA_LOCATION: dataLocation,
-			...(email ? { EMAIL: email } : {}),
 		});
 		setCustomDomains([hostname]);
 		spinner.stop("wrangler.jsonc updated");

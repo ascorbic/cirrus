@@ -168,16 +168,6 @@ export async function createAccountFarcasterMini(
 		);
 	}
 
-	if (!c.env.QUICKAUTH_DOMAIN) {
-		return c.json(
-			{
-				error: "ServerError",
-				message: "QUICKAUTH_DOMAIN not configured",
-			},
-			500,
-		);
-	}
-
 	let fid: string;
 	try {
 		fid = await verifyQuickAuthToken(
@@ -251,17 +241,6 @@ export async function loginFarcasterMini(
 				message: "Missing farcasterToken in request body",
 			},
 			400,
-		);
-	}
-
-	// QUICKAUTH_DOMAIN is the miniapp domain — the audience of the Quick Auth JWT
-	if (!c.env.QUICKAUTH_DOMAIN) {
-		return c.json(
-			{
-				error: "ServerError",
-				message: "QUICKAUTH_DOMAIN not configured",
-			},
-			500,
 		);
 	}
 
@@ -576,13 +555,6 @@ export async function createAccountX402(
 	const fid = body.fid;
 
 	// Verify the x402 payer owns this FID by checking the IdRegistry custody address.
-	if (!c.env.OPTIMISM_RPC_URL) {
-		return c.json(
-			{ error: "ServerError", message: "OPTIMISM_RPC_URL not configured" },
-			500,
-		);
-	}
-
 	let custodyAddress: string;
 	try {
 		custodyAddress = await getCustodyAddress(fid, c.env.OPTIMISM_RPC_URL);
@@ -701,12 +673,6 @@ export async function joinWaitlist(
 
 	if (body.farcasterToken) {
 		// Quick Auth flow
-		if (!c.env.QUICKAUTH_DOMAIN) {
-			return c.json(
-				{ error: "ServerError", message: "QUICKAUTH_DOMAIN not configured" },
-				500,
-			);
-		}
 		try {
 			fid = await verifyQuickAuthToken(
 				body.farcasterToken,

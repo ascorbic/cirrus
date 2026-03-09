@@ -78,13 +78,6 @@ export function x402PaymentMiddleware() {
 	return async (c: Context<AppEnv>, next: Next) => {
 		const env = c.env;
 
-		if (!env.X402_FACILITATOR_URL || !env.X402_PRICE || !env.X402_PAY_TO) {
-			return c.json(
-				{ error: "ServerError", message: "x402 payment not configured" },
-				500,
-			);
-		}
-
 		const paymentHeader =
 			c.req.header("x-payment") || c.req.header("payment-signature");
 

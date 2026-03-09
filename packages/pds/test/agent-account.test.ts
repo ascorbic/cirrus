@@ -18,8 +18,9 @@ function agentUrl(fid: string, path: string): string {
 }
 
 describe("is.fid.account.createX402", () => {
-	it("returns 500 when x402 env vars are not configured", async () => {
-		// Default test env doesn't have X402_* vars
+	it("returns 402 with payment requirements when no payment header is provided", async () => {
+		// Without x402 env vars, the middleware still returns 402 (payment required)
+		// since env validation is now at module load, not per-request
 		const response = await worker.fetch(
 			new Request(agentUrl(TEST_FID, "/xrpc/is.fid.account.createX402"), {
 				method: "POST",
@@ -29,10 +30,10 @@ describe("is.fid.account.createX402", () => {
 			env,
 		);
 
-		expect(response.status).toBe(500);
+		expect(response.status).toBe(402);
 		const body = (await response.json()) as Record<string, unknown>;
-		expect(body.error).toBe("ServerError");
-		expect(body.message).toBe("x402 payment not configured");
+		expect(body.x402Version).toBe(1);
+		expect(body.accepts).toBeDefined();
 	});
 });
 

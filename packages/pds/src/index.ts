@@ -53,13 +53,33 @@ import { version } from "../package.json" with { type: "json" };
 
 // Validate required environment variables at module load
 const pdsEnv = env as unknown as PDSEnv;
-const required = ["WEBFID_DOMAIN", "JWT_SECRET"] as const;
 
-for (const key of required) {
-	if (!pdsEnv[key]) {
-		throw new Error(`Missing required environment variable: ${key}`);
+function validateEnv(env: PDSEnv): void {
+	// Always required (strings)
+	const required = ["WEBFID_DOMAIN", "JWT_SECRET", "QUICKAUTH_DOMAIN", "ALCHEMY_API_KEY"] as const;
+	for (const key of required) {
+		if (!env[key]) {
+			throw new Error(`Missing required environment variable: ${key}`);
+		}
+	}
+
+	// Required bindings
+	if (!env.BLOBS) {
+		throw new Error("Missing required R2 binding: BLOBS");
+	}
+
+	// x402 group: if any is set, all must be set
+	const x402Group = ["X402_FACILITATOR_URL", "X402_PRICE", "X402_PAY_TO", "OPTIMISM_RPC_URL"] as const;
+	const x402Set = x402Group.filter((k) => env[k]);
+	if (x402Set.length > 0 && x402Set.length < x402Group.length) {
+		const missing = x402Group.filter((k) => !env[k]);
+		throw new Error(
+			`Incomplete x402 configuration: have ${x402Set.join(", ")} but missing ${missing.join(", ")}`,
+		);
 	}
 }
+
+validateEnv(pdsEnv);
 
 const didResolver = new DidResolver({
 	didCache: new WorkersDidCache(),

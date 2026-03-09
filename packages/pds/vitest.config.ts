@@ -45,6 +45,8 @@ export default defineWorkersConfig({
 							"$2b$10$B6MKXNJ33Co3RoIVYAAvvO3jImuMiqL1T1YnFDN7E.hTZLtbB4SW6",
 						INITIAL_ACTIVE: "true",
 						WEBFID_DOMAIN: "fid.test",
+						QUICKAUTH_DOMAIN: "my.fid.test",
+						ALCHEMY_API_KEY: "test-key",
 					},
 				},
 				singleWorker: true,

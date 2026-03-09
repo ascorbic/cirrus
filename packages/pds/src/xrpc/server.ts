@@ -114,8 +114,7 @@ export async function refreshSession(
 			serviceDid,
 		);
 
-		const { email: storedEmail } = await accountDO.rpcGetEmail();
-		const email = storedEmail || c.env.EMAIL;
+		const { email } = await accountDO.rpcGetEmail();
 
 		return c.json({
 			accessJwt,
@@ -244,8 +243,7 @@ export async function getSession(
 
 	const handle = identity.handle;
 
-	const { email: storedEmail } = await accountDO.rpcGetEmail();
-	const email = storedEmail || c.env.EMAIL;
+	const { email } = await accountDO.rpcGetEmail();
 
 	return c.json({
 		handle,
