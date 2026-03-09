@@ -34,7 +34,12 @@
 		"WEBFID_DOMAIN": "fid.is",
 		"QUICKAUTH_DOMAIN": "my.fid.is",
 		"INITIAL_ACTIVE": "true",
-		"ALLOWLIST_ENABLED": "true"
+		"ALLOWLIST_ENABLED": "true",
+		// x402 agent account creation
+		"X402_PRICE": "0.01",
+		"X402_FACILITATOR_URL": "https://x402.org/facilitator",
+		"OPTIMISM_RPC_URL": "https://mainnet.optimism.io"
+		// X402_PAY_TO: set via `wrangler secret put X402_PAY_TO`
 	},
 	"routes": [
 		{ "pattern": "fid.is/*", "zone_name": "fid.is" },

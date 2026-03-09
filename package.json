@@ -3,7 +3,11 @@
 	"private": true,
 	"version": "1.0.0",
 	"description": "Cirrus – A multi-tenant AT Protocol PDS on Cloudflare Workers",
-	"workspaces": ["packages/*", "demos/*", "apps/*"],
+	"workspaces": [
+		"packages/*",
+		"demos/*",
+		"apps/*"
+	],
 	"scripts": {
 		"check": "bun run --filter '@getcirrus/*' --filter 'create-pds' check",
 		"test": "bun run --filter '@getcirrus/*' --filter 'create-pds' test",
@@ -18,10 +22,16 @@
 		"@changesets/changelog-github": "^0.5.2",
 		"@changesets/cli": "^2.29.8",
 		"@types/node": "^24.10.4",
+		"@x402/evm": "^2.6.0",
+		"@x402/fetch": "^2.6.0",
 		"knip": "^5.78.0",
 		"prettier": "^3.7.4",
 		"typescript": "^5.9.3",
+		"viem": "^2.47.0",
 		"vitest": "~3.2.4"
 	},
-	"packageManager": "pnpm@10.26.2"
+	"packageManager": "pnpm@10.26.2",
+	"dependencies": {
+		"@x402/core": "^2.6.0"
+	}
 }

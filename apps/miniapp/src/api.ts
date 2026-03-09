@@ -43,12 +43,12 @@ export interface PasskeyAssertion {
 /**
  * Create a new account using a Farcaster Quick Auth token.
  */
-export async function createAccount(
+export async function createAccountFarcasterMini(
 	fid: string,
 	farcasterToken: string,
 	handle?: string,
 ): Promise<SessionResponse> {
-	const response = await fetch(`${pdsUrl(fid)}/xrpc/is.fid.account.create`, {
+	const response = await fetch(`${pdsUrl(fid)}/xrpc/is.fid.account.createFarcasterMini`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ farcasterToken, ...(handle ? { handle } : {}) }),
@@ -69,7 +69,7 @@ export async function createAccount(
  * Login with a Farcaster Quick Auth token.
  */
 export async function login(fid: string, farcasterToken: string): Promise<SessionResponse> {
-	const response = await fetch(`${pdsUrl(fid)}/xrpc/is.fid.auth.login`, {
+	const response = await fetch(`${pdsUrl(fid)}/xrpc/is.fid.auth.loginFarcasterMini`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ farcasterToken }),
@@ -365,12 +365,12 @@ export interface SiwfCredentials {
  * Login with Sign In With Farcaster (SIWF) — login only.
  * Throws AccountNotFoundError on 404 (not found) or 410 (deleted).
  */
-export async function loginWithSiwf(
+export async function loginSiwf(
 	fid: string,
 	credentials: SiwfCredentials,
 ): Promise<SessionResponse> {
 	console.log("[siwf] login attempt", { fid: credentials.fid });
-	const response = await fetch(`${pdsUrl(fid)}/xrpc/is.fid.auth.siwf`, {
+	const response = await fetch(`${pdsUrl(fid)}/xrpc/is.fid.auth.loginSiwf`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(credentials),

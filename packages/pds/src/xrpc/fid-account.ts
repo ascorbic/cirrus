@@ -18,6 +18,7 @@ import type { AccountDurableObject } from "../account-do";
 import { registerUser, deleteUser, isAllowed, isWaitlisted, joinWaitlist as joinWaitlistDb } from "../user-registry";
 import { didToFid } from "../farcaster-auth";
 import type { AuthedAppEnv } from "../types";
+import { getCustodyAddress } from "../farcaster-contracts";
 
 /** Function type for getting Account DO by DID */
 type GetAccountDO = (
@@ -25,21 +26,133 @@ type GetAccountDO = (
 	did: string,
 ) => DurableObjectStub<AccountDurableObject>;
 
+/** Result from createAccountForFid */
+interface CreateAccountResult {
+	accessJwt: string;
+	refreshJwt: string;
+	handle: string;
+	did: string;
+	fid: string;
+	active: boolean;
+	isNew: boolean;
+}
+
+/**
+ * Shared account creation logic for all account creation flows.
+ *
+ * Handles: DID derivation, existence check, keypair generation, identity storage,
+ * activation, identity event emission, D1 registration, and session token creation.
+ */
+async function createAccountForFid(
+	fid: string,
+	env: PDSEnv,
+	getAccountDO: GetAccountDO,
+	options?: { handle?: string; farcasterAddress?: string },
+): Promise<CreateAccountResult> {
+	const did = fidToDid(fid, env.WEBFID_DOMAIN);
+	const handle = options?.handle || fidToHandle(fid, env.WEBFID_DOMAIN);
+	const accountDO = getAccountDO(env, did);
+
+	// Check if account already exists — handle idempotent creation
+	const exists = await accountDO.rpcAccountExists();
+
+	if (exists) {
+		// Account exists — return tokens (activate only if deactivated, not deleted)
+		const repoStatus = await accountDO.rpcGetRepoStatus();
+		if (repoStatus.status === "deactivated") {
+			await accountDO.rpcActivateAccount();
+		}
+		const identity = await accountDO.rpcGetAtprotoIdentity();
+		const accessJwt = await createAccessToken(env.JWT_SECRET, did, did);
+		const refreshJwt = await createRefreshToken(env.JWT_SECRET, did, did);
+		return {
+			accessJwt,
+			refreshJwt,
+			handle: identity?.handle ?? "",
+			did,
+			fid,
+			active: repoStatus.status !== "deleted",
+			isNew: false,
+		};
+	}
+
+	// Generate new signing keypair
+	const keypair = await Secp256k1Keypair.create({ exportable: true });
+	const signingKeyBytes = await keypair.export();
+	// Convert to hex string (Cloudflare Workers compatible)
+	const signingKey = Array.from(signingKeyBytes)
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
+	const signingKeyPublic = keypair.did().replace("did:key:", "");
+
+	try {
+		await accountDO.rpcSetAtprotoIdentity({
+			did,
+			handle,
+			signingKey,
+			signingKeyPublic,
+		});
+	} catch (err) {
+		// Race condition: identity was created between our check and set
+		if (err instanceof Error && err.message.includes("already exists")) {
+			await accountDO.rpcActivateAccount();
+			const accessJwt = await createAccessToken(env.JWT_SECRET, did, did);
+			const refreshJwt = await createRefreshToken(env.JWT_SECRET, did, did);
+			return {
+				accessJwt,
+				refreshJwt,
+				handle,
+				did,
+				fid,
+				active: true,
+				isNew: false,
+			};
+		}
+		throw err;
+	}
+
+	// Explicitly activate the account (ensures status is correct after deleteAll/recreation)
+	await accountDO.rpcActivateAccount();
+
+	// Emit identity event so relays and AppView refresh their DID document cache.
+	try {
+		await accountDO.rpcEmitIdentityEvent(handle);
+	} catch {
+		// Best-effort — don't fail account creation
+	}
+
+	// Register user in global registry (if D1 database is configured)
+	if (env.USER_REGISTRY) {
+		await registerUser(
+			env.USER_REGISTRY,
+			fid,
+			signingKeyPublic,
+			options?.farcasterAddress,
+		);
+	}
+
+	const accessJwt = await createAccessToken(env.JWT_SECRET, did, did);
+	const refreshJwt = await createRefreshToken(env.JWT_SECRET, did, did);
+
+	return {
+		accessJwt,
+		refreshJwt,
+		handle,
+		did,
+		fid,
+		active: true,
+		isNew: true,
+	};
+}
+
 /**
  * Create a new account using Farcaster Quick Auth.
  *
- * POST /xrpc/is.fid.account.create
+ * POST /xrpc/is.fid.account.createFarcasterMini
  * Input: { farcasterToken: string }
  * Auth: Farcaster Quick Auth JWT in request body
- *
- * This endpoint:
- * 1. Verifies the Farcaster Quick Auth token
- * 2. Derives DID and handle from the FID
- * 3. Generates a new signing keypair
- * 4. Stores credentials in the account's Durable Object
- * 5. Returns session tokens
  */
-export async function createAccount(
+export async function createAccountFarcasterMini(
 	c: Context<AppEnv>,
 	getAccountDO: GetAccountDO,
 ): Promise<Response> {
@@ -55,9 +168,6 @@ export async function createAccount(
 		);
 	}
 
-	// QUICKAUTH_DOMAIN is the miniapp domain — the audience of the Quick Auth JWT
-	// issued by auth.farcaster.xyz. Required so we verify the token was intended
-	// for our miniapp, not some other Farcaster app.
 	if (!c.env.QUICKAUTH_DOMAIN) {
 		return c.json(
 			{
@@ -87,17 +197,10 @@ export async function createAccount(
 		);
 	}
 
-	// Derive DID from FID; use provided handle or default to NNN.fid.is
-	const did = fidToDid(fid, c.env.WEBFID_DOMAIN);
-	const handle = body.handle || fidToHandle(fid, c.env.WEBFID_DOMAIN);
-
-	// Get the account's Durable Object (route by DID)
-	const accountDO = getAccountDO(c.env, did);
-
-	// Check if account already exists — handle idempotent creation
-	const exists = await accountDO.rpcAccountExists();
-
 	// Allowlist gate: block new account creation if FID is not on the allowlist
+	const did = fidToDid(fid, c.env.WEBFID_DOMAIN);
+	const accountDO = getAccountDO(c.env, did);
+	const exists = await accountDO.rpcAccountExists();
 	if (
 		!exists &&
 		c.env.ALLOWLIST_ENABLED === "true" &&
@@ -110,91 +213,23 @@ export async function createAccount(
 		);
 	}
 
-	if (exists) {
-		// Account exists — return tokens (activate only if deactivated, not deleted)
-		const repoStatus = await accountDO.rpcGetRepoStatus();
-		if (repoStatus.status === "deactivated") {
-			await accountDO.rpcActivateAccount();
-		}
-		const identity = await accountDO.rpcGetAtprotoIdentity();
-		const accessJwt = await createAccessToken(c.env.JWT_SECRET, did, did);
-		const refreshJwt = await createRefreshToken(c.env.JWT_SECRET, did, did);
-		return c.json({
-			accessJwt,
-			refreshJwt,
-			handle: identity?.handle ?? "",
-			did,
-			active: repoStatus.status !== "deleted",
-		});
-	}
-
-	// Generate new signing keypair
-	const keypair = await Secp256k1Keypair.create({ exportable: true });
-	const signingKeyBytes = await keypair.export();
-	// Convert to hex string (Cloudflare Workers compatible)
-	const signingKey = Array.from(signingKeyBytes)
-		.map((b) => b.toString(16).padStart(2, "0"))
-		.join("");
-	const signingKeyPublic = keypair.did().replace("did:key:", "");
-
-	try {
-		await accountDO.rpcSetAtprotoIdentity({
-			did,
-			handle,
-			signingKey,
-			signingKeyPublic,
-		});
-	} catch (err) {
-		// Race condition: identity was created between our check and set
-		if (err instanceof Error && err.message.includes("already exists")) {
-			await accountDO.rpcActivateAccount();
-			const accessJwt = await createAccessToken(c.env.JWT_SECRET, did, did);
-			const refreshJwt = await createRefreshToken(c.env.JWT_SECRET, did, did);
-			return c.json({
-				accessJwt,
-				refreshJwt,
-				handle,
-				did,
-				active: true,
-			});
-		}
-		throw err;
-	}
-
-	// Explicitly activate the account (ensures status is correct after deleteAll/recreation)
-	await accountDO.rpcActivateAccount();
-
-	// Emit identity event so relays and AppView refresh their DID document cache.
-	// Critical after re-creation: the signing key changed, so downstream services
-	// need to fetch the new DID document to verify service JWTs.
-	try {
-		await accountDO.rpcEmitIdentityEvent(handle);
-	} catch {
-		// Best-effort — don't fail account creation
-	}
-
-	// Register user in global registry (if D1 database is configured)
-	if (c.env.USER_REGISTRY) {
-		await registerUser(c.env.USER_REGISTRY, fid, signingKeyPublic);
-	}
-
-	// Create session tokens with aud = user's PDS DID (did:web:NNN.fid.is)
-	const accessJwt = await createAccessToken(c.env.JWT_SECRET, did, did);
-	const refreshJwt = await createRefreshToken(c.env.JWT_SECRET, did, did);
+	const result = await createAccountForFid(fid, c.env, getAccountDO, {
+		handle: body.handle,
+	});
 
 	return c.json({
-		accessJwt,
-		refreshJwt,
-		handle,
-		did,
-		active: true,
+		accessJwt: result.accessJwt,
+		refreshJwt: result.refreshJwt,
+		handle: result.handle,
+		did: result.did,
+		active: result.active,
 	});
 }
 
 /**
  * Login with Farcaster Quick Auth.
  *
- * POST /xrpc/is.fid.auth.login
+ * POST /xrpc/is.fid.auth.loginFarcasterMini
  * Input: { farcasterToken: string }
  * Auth: Farcaster Quick Auth JWT in request body
  *
@@ -203,7 +238,7 @@ export async function createAccount(
  * 2. Checks that the account exists
  * 3. Returns session tokens
  */
-export async function loginWithFarcaster(
+export async function loginFarcasterMini(
 	c: Context<AppEnv>,
 	getAccountDO: GetAccountDO,
 ): Promise<Response> {
@@ -260,7 +295,7 @@ export async function loginWithFarcaster(
 		return c.json(
 			{
 				error: "AccountNotFound",
-				message: `No account found for FID ${fid}. Use is.fid.account.create first.`,
+				message: `No account found for FID ${fid}. Use is.fid.account.createFarcasterMini first.`,
 			},
 			404,
 		);
@@ -280,7 +315,7 @@ export async function loginWithFarcaster(
 
 /**
  * Verify SIWF credentials and return the FID.
- * Shared by loginWithSiwf and createAccountSiwf.
+ * Shared by loginSiwf and createAccountSiwf.
  */
 async function verifySiwfCredentials(
 	body: { message: string; signature: `0x${string}`; fid: string; nonce: string },
@@ -398,13 +433,13 @@ export async function getAccountStatus(
 /**
  * Login with Sign In With Farcaster (SIWF) — login only.
  *
- * POST /xrpc/is.fid.auth.siwf
+ * POST /xrpc/is.fid.auth.loginSiwf
  * Input: { message: string, signature: string, fid: string, nonce: string }
  *
  * This endpoint verifies a SIWF signature and logs in an existing account.
  * Returns 404 if the account doesn't exist.
  */
-export async function loginWithSiwf(
+export async function loginSiwf(
 	c: Context<AppEnv>,
 	getAccountDO: GetAccountDO,
 ): Promise<Response> {
@@ -480,14 +515,10 @@ export async function createAccountSiwf(
 		throw err;
 	}
 
+	// Allowlist gate
 	const did = fidToDid(fid, domain);
-	const handle = body!.handle || fidToHandle(fid, domain);
 	const accountDO = getAccountDO(c.env, did);
-
-	// Check if account already exists — handle idempotent creation
 	const exists = await accountDO.rpcAccountExists();
-
-	// Allowlist gate: block new account creation if FID is not on the allowlist
 	if (
 		!exists &&
 		c.env.ALLOWLIST_ENABLED === "true" &&
@@ -500,86 +531,101 @@ export async function createAccountSiwf(
 		);
 	}
 
-	if (exists) {
-		// Account exists — return tokens (activate only if deactivated, not deleted)
-		const repoStatus = await accountDO.rpcGetRepoStatus();
-		if (repoStatus.status === "deactivated") {
-			await accountDO.rpcActivateAccount();
-		}
-		const identity = await accountDO.rpcGetAtprotoIdentity();
-		const accessJwt = await createAccessToken(c.env.JWT_SECRET, did, did);
-		const refreshJwt = await createRefreshToken(c.env.JWT_SECRET, did, did);
-		return c.json({
-			accessJwt,
-			refreshJwt,
-			handle: identity?.handle ?? "",
-			did,
-			active: repoStatus.status !== "deleted",
-		});
-	}
+	const result = await createAccountForFid(fid, c.env, getAccountDO, {
+		handle: body!.handle,
+		farcasterAddress,
+	});
 
-	// Generate new signing keypair
-	const keypair = await Secp256k1Keypair.create({ exportable: true });
-	const signingKeyBytes = await keypair.export();
-	const signingKey = Array.from(signingKeyBytes)
-		.map((b) => b.toString(16).padStart(2, "0"))
-		.join("");
-	const signingKeyPublic = keypair.did().replace("did:key:", "");
+	return c.json({
+		accessJwt: result.accessJwt,
+		refreshJwt: result.refreshJwt,
+		handle: result.handle,
+		did: result.did,
+		active: result.active,
+	});
+}
 
-	try {
-		await accountDO.rpcSetAtprotoIdentity({
-			did,
-			handle,
-			signingKey,
-			signingKeyPublic,
-		});
-	} catch (err) {
-		// Race condition: identity was created between our check and set
-		if (err instanceof Error && err.message.includes("already exists")) {
-			await accountDO.rpcActivateAccount();
-			const identity = await accountDO.rpcGetAtprotoIdentity();
-			const accessJwt = await createAccessToken(c.env.JWT_SECRET, did, did);
-			const refreshJwt = await createRefreshToken(c.env.JWT_SECRET, did, did);
-			return c.json({
-				accessJwt,
-				refreshJwt,
-				handle: identity?.handle ?? "",
-				did,
-				active: true,
-			});
-		}
-		throw err;
-	}
+/**
+ * Create a new account for an AI agent via x402 payment.
+ *
+ * POST /xrpc/is.fid.account.createX402
+ * Input: { fid: string }
+ * Auth: x402 payment — payer address must match the FID's custody address
+ *
+ * The x402 payment serves dual purpose:
+ * 1. Spam prevention (agent pays USDC)
+ * 2. FID ownership proof (payer address === custody address on Optimism IdRegistry)
+ */
+export async function createAccountX402(
+	c: Context<AppEnv>,
+	getAccountDO: GetAccountDO,
+	payerAddress: string,
+): Promise<Response> {
+	const body = await c.req.json<{ fid: string }>().catch(() => null);
 
-	// Explicitly activate the account (ensures status is correct after deleteAll/recreation)
-	await accountDO.rpcActivateAccount();
-
-	// Emit identity event so relays and AppView refresh their DID document cache.
-	try {
-		await accountDO.rpcEmitIdentityEvent(handle);
-	} catch {
-		// Best-effort — don't fail account creation
-	}
-
-	// Register user in global registry (if D1 database is configured)
-	if (c.env.USER_REGISTRY) {
-		await registerUser(
-			c.env.USER_REGISTRY,
-			fid,
-			signingKeyPublic,
-			farcasterAddress,
+	if (!body?.fid || !/^[1-9]\d*$/.test(body.fid)) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing or invalid fid in request body",
+			},
+			400,
 		);
 	}
 
-	const accessJwt = await createAccessToken(c.env.JWT_SECRET, did, did);
-	const refreshJwt = await createRefreshToken(c.env.JWT_SECRET, did, did);
+	const fid = body.fid;
+
+	// Verify the x402 payer owns this FID by checking the IdRegistry custody address.
+	if (!c.env.OPTIMISM_RPC_URL) {
+		return c.json(
+			{ error: "ServerError", message: "OPTIMISM_RPC_URL not configured" },
+			500,
+		);
+	}
+
+	let custodyAddress: string;
+	try {
+		custodyAddress = await getCustodyAddress(fid, c.env.OPTIMISM_RPC_URL);
+	} catch (err) {
+		return c.json(
+			{
+				error: "ServerError",
+				message: "Failed to read IdRegistry",
+			},
+			502,
+		);
+	}
+
+	// Zero address means FID doesn't exist
+	if (custodyAddress === "0x0000000000000000000000000000000000000000") {
+		return c.json(
+			{ error: "InvalidRequest", message: "FID does not exist" },
+			400,
+		);
+	}
+
+	// Verify payer === custody address (case-insensitive hex comparison)
+	if (payerAddress.toLowerCase() !== custodyAddress.toLowerCase()) {
+		return c.json(
+			{
+				error: "Forbidden",
+				message: "Payment address does not match FID custody address",
+			},
+			403,
+		);
+	}
+
+	const result = await createAccountForFid(fid, c.env, getAccountDO, {
+		farcasterAddress: payerAddress,
+	});
 
 	return c.json({
-		accessJwt,
-		refreshJwt,
-		handle,
-		did,
-		active: true,
+		accessJwt: result.accessJwt,
+		refreshJwt: result.refreshJwt,
+		handle: result.handle,
+		did: result.did,
+		fid: result.fid,
+		active: result.active,
 	});
 }
 

@@ -28,7 +28,7 @@ export async function createSession(c: Context<AppEnv>): Promise<Response> {
 		{
 			error: "InvalidRequest",
 			message:
-				"Password-based login is not supported. Use POST /xrpc/is.fid.auth.login with Farcaster Quick Auth.",
+				"Password-based login is not supported. Use POST /xrpc/is.fid.auth.login*",
 		},
 		400,
 	);

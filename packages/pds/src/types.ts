@@ -77,6 +77,18 @@ export interface PDSEnv {
 	ALLOWLIST_ENABLED?: string;
 	/** Alchemy API key for Optimism RPC (used by SIWF verification) */
 	ALCHEMY_API_KEY?: string;
+	/** Optimism RPC URL for reading Farcaster contracts (IdRegistry) */
+	OPTIMISM_RPC_URL?: string;
+	/** x402 payment price in USD (e.g., "0.01") for agent account creation */
+	X402_PRICE?: string;
+	/** x402 facilitator URL for payment verification */
+	X402_FACILITATOR_URL?: string;
+	/** Wallet address to receive x402 payments */
+	X402_PAY_TO?: string;
+	/** x402 network in CAIP-2 format (default: "eip155:8453" for Base mainnet) */
+	X402_NETWORK?: string;
+	/** x402 USDC asset contract address (auto-detected from network if omitted) */
+	X402_ASSET?: string;
 	/**
 	 * Data location for Durable Object placement.
 	 *

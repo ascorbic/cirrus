@@ -78,12 +78,12 @@ These are NOT part of the AT Protocol spec. They manage account creation, auth, 
 
 | Endpoint | Auth | Purpose |
 |----------|------|---------|
-| `POST is.fid.account.create` | Farcaster token | Create account |
+| `POST is.fid.account.createFarcasterMini` | Farcaster token | Create account |
 | `POST is.fid.account.createSiwf` | SIWF signature | Create account (browser) |
 | `POST is.fid.account.delete` | Bearer JWT | Delete account |
 | `GET  is.fid.account.status` | None | Check account existence |
-| `POST is.fid.auth.login` | Farcaster token | Login |
-| `POST is.fid.auth.siwf` | SIWF signature | Login (browser) |
+| `POST is.fid.auth.loginFarcasterMini` | Farcaster token | Login |
+| `POST is.fid.auth.loginSiwf` | SIWF signature | Login (browser) |
 | `POST is.fid.account.syncRelaySeq` | Bearer JWT | Debug: advance firehose seq |
 | `GET  is.fid.settings.getPdsUrl` | Bearer JWT | Get DID/PDS config |
 | `POST is.fid.settings.setPdsUrl` | Bearer JWT | Set custom PDS URL + key |
@@ -402,7 +402,7 @@ and DNS routing.
 
 **Account creation endpoints:**
 
-- `POST /xrpc/is.fid.account.create` — create with Farcaster Quick Auth token
+- `POST /xrpc/is.fid.account.createFarcasterMini` — create with Farcaster Quick Auth token
 - `POST /xrpc/is.fid.account.createSiwf` — create with Sign-In-With-Farcaster
-- `POST /xrpc/is.fid.auth.login` / `loginSiwf` — login endpoints
+- `POST /xrpc/is.fid.auth.loginFarcasterMini` / `loginSiwf` — login endpoints
 - `POST /xrpc/is.fid.account.delete` — delete account (tombstone-preserving)

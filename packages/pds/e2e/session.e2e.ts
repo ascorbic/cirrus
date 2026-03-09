@@ -20,7 +20,7 @@ describe("Session Authentication", () => {
 			const body = (await response.json()) as { error: string; message: string };
 			expect(body.error).toBe("InvalidRequest");
 			expect(body.message).toContain("Password-based login is not supported");
-			expect(body.message).toContain("is.fid.auth.login");
+			expect(body.message).toContain("is.fid.auth.loginFarcasterMini");
 		});
 	});
 

@@ -38,6 +38,7 @@ import * as server from "./xrpc/server";
 import * as fidAccount from "./xrpc/fid-account";
 import * as fidSettings from "./xrpc/fid-settings";
 import * as fidPasskeys from "./xrpc/fid-passkeys";
+import { x402PaymentMiddleware } from "./x402";
 import {
 	hostnameToFid,
 	fidToDid,
@@ -371,8 +372,20 @@ app.get("/xrpc/com.atproto.server.describeServer", (c) => {
 // ============================================
 
 // Create account with Farcaster auth
-app.post("/xrpc/is.fid.account.create", (c) =>
-	fidAccount.createAccount(c, getAccountDO),
+app.post("/xrpc/is.fid.account.createFarcasterMini", (c) =>
+	fidAccount.createAccountFarcasterMini(c, getAccountDO),
+);
+
+// Create account with Sign In With Farcaster (browser-based)
+app.post("/xrpc/is.fid.account.createSiwf", (c) =>
+	fidAccount.createAccountSiwf(c, getAccountDO),
+);
+
+// Create account via x402 payment
+app.post(
+	"/xrpc/is.fid.account.createX402",
+	x402PaymentMiddleware(),
+	(c: any) => fidAccount.createAccountX402(c, getAccountDO, c.get("x402Payer")),
 );
 
 // Delete account (requires auth)
@@ -386,23 +399,18 @@ app.post("/xrpc/is.fid.account.syncRelaySeq", requireAuth, (c: any) =>
 );
 
 // Login with Farcaster auth
-app.post("/xrpc/is.fid.auth.login", (c) =>
-	fidAccount.loginWithFarcaster(c, getAccountDO),
+app.post("/xrpc/is.fid.auth.loginFarcasterMini", (c) =>
+	fidAccount.loginFarcasterMini(c, getAccountDO),
 );
 
 // Login with Sign In With Farcaster (browser-based) — login only
-app.post("/xrpc/is.fid.auth.siwf", (c) =>
-	fidAccount.loginWithSiwf(c, getAccountDO),
+app.post("/xrpc/is.fid.auth.loginSiwf", (c) =>
+	fidAccount.loginSiwf(c, getAccountDO),
 );
 
 // Check account status by FID (lightweight, always 200)
 app.get("/xrpc/is.fid.account.status", (c) =>
 	fidAccount.getAccountStatus(c, getAccountDO),
-);
-
-// Create account with Sign In With Farcaster (browser-based)
-app.post("/xrpc/is.fid.account.createSiwf", (c) =>
-	fidAccount.createAccountSiwf(c, getAccountDO),
 );
 
 // Join the waitlist (when allowlist is enabled)

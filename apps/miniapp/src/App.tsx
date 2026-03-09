@@ -8,10 +8,10 @@ import {
 import "@farcaster/auth-kit/styles.css";
 import { startRegistration } from "@simplewebauthn/browser";
 import {
-	createAccount,
+	createAccountFarcasterMini,
 	createAccountSiwf,
 	login,
-	loginWithSiwf,
+	loginSiwf,
 	getAccountStatus,
 	fetchFarcasterProfile,
 	populateProfile,
@@ -54,7 +54,7 @@ type AppState =
 	| {
 			status: "confirm-create";
 			fid: string;
-			createAccount: (handle?: string) => Promise<void>;
+			createAccountFarcasterMini: (handle?: string) => Promise<void>;
 			profile: FarcasterProfile;
 	  }
 	| {
@@ -1263,9 +1263,9 @@ function AppContent() {
 					status: "confirm-create",
 					fid,
 					profile,
-					createAccount: async (handle?: string) => {
+					createAccountFarcasterMini: async (handle?: string) => {
 						setState({ status: "authenticating" });
-						const session = await createAccount(fid, token, handle);
+						const session = await createAccountFarcasterMini(fid, token, handle);
 						await finalizeNewAccount(session, profile);
 					},
 				});
@@ -1317,7 +1317,7 @@ function AppContent() {
 
 				if (accountStatus.exists) {
 					// Account exists — login to get session tokens
-					const session = await loginWithSiwf(fid, credentials);
+					const session = await loginSiwf(fid, credentials);
 					setState({ status: "authenticated", session, isNew: false });
 				} else if (accountStatus.allowed) {
 					// Allowed to create — prompt to create
@@ -1325,7 +1325,7 @@ function AppContent() {
 						status: "confirm-create",
 						fid,
 						profile,
-						createAccount: async (handle?: string) => {
+						createAccountFarcasterMini: async (handle?: string) => {
 							setState({ status: "authenticating" });
 							const session = await createAccountSiwf(fid, credentials, handle);
 							await finalizeNewAccount(session, profile);
@@ -1432,7 +1432,7 @@ function AppContent() {
 			<ConfirmCreateScreen
 				fid={state.fid}
 				profile={state.profile}
-				onCreateAccount={state.createAccount}
+				onCreateAccount={state.createAccountFarcasterMini}
 			/>
 		);
 	}

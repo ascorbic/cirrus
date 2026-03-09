@@ -36,7 +36,7 @@ A user with a deleted repo can still log in and manage their DID document (e.g.,
 
 Two auth mechanisms are supported:
 
-- **Bearer JWT** — issued by `is.fid.auth.login` / `is.fid.account.create` endpoints. Used by the miniapp.
+- **Bearer JWT** — issued by `is.fid.auth.loginFarcasterMini` / `is.fid.account.createFarcasterMini` endpoints. Used by the miniapp.
 - **OAuth 2.1 DPoP** — standard AT Protocol OAuth flow. Used by Bluesky clients and third-party apps. Tokens are issued via `/oauth/token` and verified by the DPoP middleware.
 
 Both auth types work for all authenticated endpoints including `getSession`.
@@ -181,13 +181,13 @@ curl https://pds-1898.fid.is/xrpc/com.atproto.sync.getRepoStatus?did=did:web:189
 
 | Endpoint | Auth | Purpose |
 |----------|------|---------|
-| `POST is.fid.account.create` | Farcaster token | Create account via Quick Auth |
+| `POST is.fid.account.createFarcasterMini` | Farcaster token | Create account via Quick Auth |
 | `POST is.fid.account.createSiwf` | SIWF signature | Create account via Sign-In-With-Farcaster |
 | `POST is.fid.account.delete` | Bearer JWT | Delete account (tombstone-preserving) |
 | `GET  is.fid.account.status` | None | Check account existence + allowlist/waitlist state |
 | `POST is.fid.waitlist.join` | Farcaster token / SIWF | Request early access (when allowlist enabled) |
-| `POST is.fid.auth.login` | Farcaster token | Login via Quick Auth |
-| `POST is.fid.auth.siwf` | SIWF signature | Login via SIWF |
+| `POST is.fid.auth.loginFarcasterMini` | Farcaster token | Login via Quick Auth |
+| `POST is.fid.auth.loginSiwf` | SIWF signature | Login via SIWF |
 | `POST is.fid.account.syncRelaySeq` | Bearer JWT | Debug: advance firehose seq |
 | `GET  is.fid.settings.getPdsUrl` | Bearer JWT | Get DID/PDS config |
 | `POST is.fid.settings.setPdsUrl` | Bearer JWT | Set custom PDS URL + verification key |
