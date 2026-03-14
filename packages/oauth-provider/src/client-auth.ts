@@ -92,21 +92,37 @@ export async function verifyClientAssertion(
 	// Get the key resolver
 	let keyResolver: Parameters<typeof jwtVerify>[1];
 
+	// Resolve JWKS from inline keys or remote URI
+	let jwks: { keys: Record<string, unknown>[] } | undefined;
 	if (client.jwks && client.jwks.keys.length > 0) {
-		// Use jose's createLocalJWKSet which handles key selection by
-		// kid, alg, use, and key_ops
-		keyResolver = createLocalJWKSet(client.jwks);
+		jwks = client.jwks;
 	} else if (client.jwksUri) {
-		// Use remote JWKS
-		keyResolver = createRemoteJWKSet(new URL(client.jwksUri), {
-			[customFetch]: fetchFn,
+		const res = await fetchFn(client.jwksUri, {
+			headers: { Accept: "application/json" },
 		});
-	} else {
+		if (!res.ok) {
+			throw new ClientAuthError(
+				`Failed to fetch client JWKS: ${res.status}`,
+				"invalid_client",
+			);
+		}
+		jwks = await res.json();
+	}
+
+	if (!jwks?.keys?.length) {
 		throw new ClientAuthError(
 			"Client has no JWKS configured",
 			"invalid_client",
 		);
 	}
+
+	// Strip key_ops before importing — clients in the wild include
+	// invalid operations like "encrypt" on ECDSA signing keys, which
+	// causes Web Crypto to reject the import. The algorithm is already
+	// constrained to ES256 by the jwtVerify options below.
+	keyResolver = createLocalJWKSet({
+		keys: jwks.keys.map(({ key_ops, ...rest }) => rest),
+	});
 
 	let payload: JWTPayload;
 	try {
