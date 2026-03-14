@@ -1,5 +1,16 @@
 # @getcirrus/pds
 
+## 0.10.6
+
+### Patch Changes
+
+- [#134](https://github.com/ascorbic/cirrus/pull/134) [`127f3db`](https://github.com/ascorbic/cirrus/commit/127f3db0f23e2d13ef71a23de6f85a26b1b83c94) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix OAuth client metadata caching to avoid redundant network requests
+
+  Client metadata was re-fetched from the network on every OAuth request instead of using the cache, adding latency to token exchanges and making auth fragile when client metadata endpoints are slow or unavailable.
+
+- Updated dependencies [[`e76f1e4`](https://github.com/ascorbic/cirrus/commit/e76f1e40c3a251c778d257b1715b3d56a3ced5a4), [`127f3db`](https://github.com/ascorbic/cirrus/commit/127f3db0f23e2d13ef71a23de6f85a26b1b83c94)]:
+  - @getcirrus/oauth-provider@0.3.2
+
 ## 0.10.5
 
 ### Patch Changes

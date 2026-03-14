@@ -1,5 +1,17 @@
 # @getcirrus/oauth-provider
 
+## 0.3.2
+
+### Patch Changes
+
+- [#132](https://github.com/ascorbic/cirrus/pull/132) [`e76f1e4`](https://github.com/ascorbic/cirrus/commit/e76f1e40c3a251c778d257b1715b3d56a3ced5a4) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix OAuth client authentication failures for public clients and mixed JWKS
+  - Fix `invalid_client` error for clients that omit `token_endpoint_auth_method` in their metadata (Zod default of `client_secret_basic` was passed through unsupported)
+  - Fix `invalid usage "encrypt"` error when client JWKS contains both signing and encryption keys by using jose's `createLocalJWKSet` for proper key selection
+
+- [#134](https://github.com/ascorbic/cirrus/pull/134) [`127f3db`](https://github.com/ascorbic/cirrus/commit/127f3db0f23e2d13ef71a23de6f85a26b1b83c94) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix OAuth authentication failure for confidential clients whose JWKS contains invalid key_ops
+
+  Clients with ECDSA signing keys that incorrectly declare encryption operations (e.g. `"encrypt"`, `"wrapKey"`) in their JWKS `key_ops` field would fail with "invalid usage" during token exchange.
+
 ## 0.3.1
 
 ### Patch Changes
