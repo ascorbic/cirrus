@@ -20,7 +20,6 @@ export class SqliteOAuthStorage implements OAuthStorage {
 	 */
 	initSchema(): void {
 		this.sql.exec(`
-			-- Authorization codes (5 min TTL)
 			CREATE TABLE IF NOT EXISTS oauth_auth_codes (
 				code TEXT PRIMARY KEY,
 				client_id TEXT NOT NULL,
@@ -34,7 +33,6 @@ export class SqliteOAuthStorage implements OAuthStorage {
 
 			CREATE INDEX IF NOT EXISTS idx_auth_codes_expires ON oauth_auth_codes(expires_at);
 
-			-- OAuth tokens
 			CREATE TABLE IF NOT EXISTS oauth_tokens (
 				access_token TEXT PRIMARY KEY,
 				refresh_token TEXT NOT NULL UNIQUE,
@@ -58,10 +56,12 @@ export class SqliteOAuthStorage implements OAuthStorage {
 				redirect_uris TEXT NOT NULL,
 				logo_uri TEXT,
 				client_uri TEXT,
+				token_endpoint_auth_method TEXT NOT NULL DEFAULT 'none',
+				jwks TEXT,
+				jwks_uri TEXT,
 				cached_at INTEGER NOT NULL
 			);
 
-			-- PAR requests (90 sec TTL)
 			CREATE TABLE IF NOT EXISTS oauth_par_requests (
 				request_uri TEXT PRIMARY KEY,
 				client_id TEXT NOT NULL,
@@ -71,7 +71,6 @@ export class SqliteOAuthStorage implements OAuthStorage {
 
 			CREATE INDEX IF NOT EXISTS idx_par_expires ON oauth_par_requests(expires_at);
 
-			-- DPoP nonces for replay prevention (5 min TTL)
 			CREATE TABLE IF NOT EXISTS oauth_nonces (
 				nonce TEXT PRIMARY KEY,
 				created_at INTEGER NOT NULL
@@ -79,7 +78,6 @@ export class SqliteOAuthStorage implements OAuthStorage {
 
 			CREATE INDEX IF NOT EXISTS idx_nonces_created ON oauth_nonces(created_at);
 
-			-- WebAuthn challenges for passkey authentication (2 min TTL)
 			CREATE TABLE IF NOT EXISTS oauth_webauthn_challenges (
 				challenge TEXT PRIMARY KEY,
 				created_at INTEGER NOT NULL
@@ -87,6 +85,25 @@ export class SqliteOAuthStorage implements OAuthStorage {
 
 			CREATE INDEX IF NOT EXISTS idx_challenges_created ON oauth_webauthn_challenges(created_at);
 		`);
+
+		// Migration: add columns for client auth metadata if missing
+		this.migrateClientTable();
+	}
+
+	private migrateClientTable(): void {
+		const columns = this.sql
+			.exec("PRAGMA table_info(oauth_clients)")
+			.toArray()
+			.map((r) => r.name as string);
+
+		if (!columns.includes("token_endpoint_auth_method")) {
+			this.sql.exec(
+				"ALTER TABLE oauth_clients ADD COLUMN token_endpoint_auth_method TEXT NOT NULL DEFAULT 'none'",
+			);
+			this.sql.exec("ALTER TABLE oauth_clients ADD COLUMN jwks TEXT");
+			this.sql.exec("ALTER TABLE oauth_clients ADD COLUMN jwks_uri TEXT");
+			this.sql.exec("DELETE FROM oauth_clients");
+		}
 	}
 
 	/**
@@ -265,13 +282,16 @@ export class SqliteOAuthStorage implements OAuthStorage {
 	async saveClient(clientId: string, metadata: ClientMetadata): Promise<void> {
 		this.sql.exec(
 			`INSERT OR REPLACE INTO oauth_clients
-			(client_id, client_name, redirect_uris, logo_uri, client_uri, cached_at)
-			VALUES (?, ?, ?, ?, ?, ?)`,
+			(client_id, client_name, redirect_uris, logo_uri, client_uri, token_endpoint_auth_method, jwks, jwks_uri, cached_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			clientId,
 			metadata.clientName,
 			JSON.stringify(metadata.redirectUris),
 			metadata.logoUri ?? null,
 			metadata.clientUri ?? null,
+			metadata.tokenEndpointAuthMethod ?? "none",
+			metadata.jwks ? JSON.stringify(metadata.jwks) : null,
+			metadata.jwksUri ?? null,
 			metadata.cachedAt ?? Date.now(),
 		);
 	}
@@ -279,7 +299,7 @@ export class SqliteOAuthStorage implements OAuthStorage {
 	async getClient(clientId: string): Promise<ClientMetadata | null> {
 		const rows = this.sql
 			.exec(
-				`SELECT client_id, client_name, redirect_uris, logo_uri, client_uri, cached_at
+				`SELECT client_id, client_name, redirect_uris, logo_uri, client_uri, token_endpoint_auth_method, jwks, jwks_uri, cached_at
 				FROM oauth_clients WHERE client_id = ?`,
 				clientId,
 			)
@@ -294,6 +314,13 @@ export class SqliteOAuthStorage implements OAuthStorage {
 			redirectUris: JSON.parse(row.redirect_uris as string) as string[],
 			logoUri: (row.logo_uri as string) ?? undefined,
 			clientUri: (row.client_uri as string) ?? undefined,
+			tokenEndpointAuthMethod:
+				(row.token_endpoint_auth_method as "none" | "private_key_jwt") ??
+				"none",
+			jwks: row.jwks
+				? (JSON.parse(row.jwks as string) as ClientMetadata["jwks"])
+				: undefined,
+			jwksUri: (row.jwks_uri as string) ?? undefined,
 			cachedAt: row.cached_at as number,
 		};
 	}
