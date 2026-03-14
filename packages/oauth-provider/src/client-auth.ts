@@ -5,13 +5,13 @@
 
 import {
 	jwtVerify,
+	createLocalJWKSet,
 	createRemoteJWKSet,
-	importJWK,
 	errors,
 	customFetch,
 } from "jose";
 import type { JWTPayload } from "jose";
-import type { ClientMetadata, JWK } from "./storage.js";
+import type { ClientMetadata } from "./storage.js";
 
 const { JOSEError } = errors;
 
@@ -93,30 +93,9 @@ export async function verifyClientAssertion(
 	let keyResolver: Parameters<typeof jwtVerify>[1];
 
 	if (client.jwks && client.jwks.keys.length > 0) {
-		// For inline JWKS, we need to find the right key based on the JWT header
-		keyResolver = async (header) => {
-			const keys = client.jwks!.keys;
-			// Find key by kid if present, otherwise use first key with matching alg
-			let key: JWK | undefined;
-			if (header.kid) {
-				key = keys.find((k) => k.kid === header.kid);
-			}
-			if (!key) {
-				key = keys.find((k) => !k.alg || k.alg === header.alg);
-			}
-			if (!key) {
-				key = keys[0];
-			}
-			if (!key) {
-				throw new ClientAuthError(
-					"No suitable key found in client JWKS",
-					"invalid_client",
-				);
-			}
-			// Pass the algorithm from the header when the JWK doesn't have one
-			const alg = key.alg ?? header.alg;
-			return importJWK(key as Parameters<typeof importJWK>[0], alg);
-		};
+		// Use jose's createLocalJWKSet which handles key selection by
+		// kid, alg, use, and key_ops
+		keyResolver = createLocalJWKSet(client.jwks);
 	} else if (client.jwksUri) {
 		// Use remote JWKS
 		keyResolver = createRemoteJWKSet(new URL(client.jwksUri), {

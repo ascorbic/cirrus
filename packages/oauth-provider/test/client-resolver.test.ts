@@ -126,6 +126,57 @@ describe("ClientResolver", () => {
 		});
 	});
 
+	describe("token_endpoint_auth_method mapping", () => {
+		it("maps unrecognized auth methods to none (public client)", async () => {
+			const clientId = "https://app.example.com/client-metadata.json";
+
+			// Metadata without token_endpoint_auth_method — Zod schema
+			// defaults it to "client_secret_basic" which we don't support
+			const metadata = {
+				client_id: clientId,
+				client_name: "App",
+				redirect_uris: ["https://app.example.com/callback"],
+				// token_endpoint_auth_method omitted (defaults to client_secret_basic)
+			};
+
+			const mockFetch = vi.fn().mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve(metadata),
+			});
+
+			const resolver = new ClientResolver({
+				fetch: mockFetch as unknown as typeof fetch,
+			});
+
+			const result = await resolver.resolveClient(clientId);
+			expect(result.tokenEndpointAuthMethod).toBe("none");
+		});
+
+		it("preserves private_key_jwt auth method", async () => {
+			const clientId = "https://app.example.com/client-metadata.json";
+
+			const metadata = {
+				client_id: clientId,
+				client_name: "Confidential App",
+				redirect_uris: ["https://app.example.com/callback"],
+				token_endpoint_auth_method: "private_key_jwt",
+				jwks_uri: "https://app.example.com/jwks",
+			};
+
+			const mockFetch = vi.fn().mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve(metadata),
+			});
+
+			const resolver = new ClientResolver({
+				fetch: mockFetch as unknown as typeof fetch,
+			});
+
+			const result = await resolver.resolveClient(clientId);
+			expect(result.tokenEndpointAuthMethod).toBe("private_key_jwt");
+		});
+	});
+
 	describe("cache invalidation", () => {
 		it("re-fetches cached client without tokenEndpointAuthMethod", async () => {
 			// This test ensures we don't use stale cache entries from before
