@@ -1,5 +1,13 @@
 # @getcirrus/pds
 
+## 0.11.0
+
+### Minor Changes
+
+- [#137](https://github.com/ascorbic/cirrus/pull/137) [`90e9771`](https://github.com/ascorbic/cirrus/commit/90e9771f61ad74b276d10cda7b9a900f72691605) Thanks [@ascorbic](https://github.com/ascorbic)! - Add option to auto-generate a password during `pds init` and `pds secret password`, with clipboard copy support
+
+- [#136](https://github.com/ascorbic/cirrus/pull/136) [`287c971`](https://github.com/ascorbic/cirrus/commit/287c971cb82ee41519c51f2528641093bd304172) Thanks [@ascorbic](https://github.com/ascorbic)! - Add live terminal dashboard for PDS monitoring via `pds dashboard`. Shows repository stats, federation sync status, firehose subscribers with IPs, real-time event log, and notifications. Also adds a web dashboard at `/status`.
+
 ## 0.10.6
 
 ### Patch Changes
