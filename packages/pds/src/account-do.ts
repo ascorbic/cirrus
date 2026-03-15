@@ -1088,10 +1088,11 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		// Accept with hibernation
 		this.ctx.acceptWebSocket(server);
 
-		// Store cursor in attachment
+		// Store cursor and client metadata in attachment
 		server.serializeAttachment({
 			cursor: cursor ?? 0,
 			connectedAt: Date.now(),
+			ip: request.headers.get("CF-Connecting-IP") ?? null,
 		});
 
 		// Backfill if cursor provided
@@ -1343,42 +1344,27 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * RPC method: Firehose status - returns subscriber count and latest sequence
 	 */
 	async rpcGetFirehoseStatus(): Promise<{
-		subscribers: number;
-		latestSeq: number | null;
-	}> {
-		const sockets = this.ctx.getWebSockets();
-		await this.ensureStorageInitialized();
-		const storage = await this.getStorage();
-		const seq = await storage.getSeq();
-		return {
-			subscribers: sockets.length,
-			latestSeq: seq || null,
-		};
-	}
-
-	/**
-	 * RPC method: Get firehose subscriber details (public, sanitized)
-	 */
-	async rpcGetSubscribers(): Promise<{
 		subscribers: Array<{
 			connectedAt: number;
 			cursor: number;
+			ip: string | null;
 		}>;
 		latestSeq: number | null;
 	}> {
 		const sockets = this.ctx.getWebSockets();
 		await this.ensureStorageInitialized();
-		const storage = await this.getStorage();
-		const seq = await storage.getSeq();
+		const seq = this.sequencer!.getLatestSeq();
 		return {
 			subscribers: sockets.map((ws) => {
 				const attachment = ws.deserializeAttachment() as {
 					cursor: number;
 					connectedAt: number;
+					ip: string | null;
 				};
 				return {
 					connectedAt: attachment.connectedAt,
 					cursor: attachment.cursor,
+					ip: attachment.ip ?? null,
 				};
 			}),
 			latestSeq: seq || null,

@@ -166,6 +166,42 @@ function friendlyName(collection: string): string {
 	);
 }
 
+/** Shorten IPv6 addresses by collapsing the longest zero run to :: */
+function shortenIP(ip: string): string {
+	if (!ip.includes(":")) return ip;
+	// Expand to full form, then collapse longest zero run
+	const parts = ip.split(":");
+	// Find longest run of "0" groups
+	let bestStart = -1;
+	let bestLen = 0;
+	let curStart = -1;
+	let curLen = 0;
+	for (let i = 0; i < parts.length; i++) {
+		if (parts[i] === "0" || parts[i] === "0000" || parts[i] === "") {
+			if (curStart === -1) curStart = i;
+			curLen++;
+		} else {
+			if (curLen > bestLen) {
+				bestStart = curStart;
+				bestLen = curLen;
+			}
+			curStart = -1;
+			curLen = 0;
+		}
+	}
+	if (curLen > bestLen) {
+		bestStart = curStart;
+		bestLen = curLen;
+	}
+	if (bestLen < 2) {
+		// Strip leading zeros from each group
+		return parts.map((p) => p.replace(/^0+(?=.)/, "")).join(":");
+	}
+	const before = parts.slice(0, bestStart).map((p) => p.replace(/^0+(?=.)/, ""));
+	const after = parts.slice(bestStart + bestLen).map((p) => p.replace(/^0+(?=.)/, ""));
+	return (before.length ? before.join(":") : "") + "::" + (after.length ? after.join(":") : "");
+}
+
 // ============================================
 // Notification formatting
 // ============================================
@@ -232,7 +268,7 @@ interface DashboardState {
 	pdsRev: string | null;
 	subscribers: number;
 	latestSeq: number | null;
-	subscriberDetails: Array<{ connectedAt: number; cursor: number }>;
+	subscriberDetails: Array<{ connectedAt: number; cursor: number; ip: string | null }>;
 	events: DashboardEvent[];
 	notifications: Notification[];
 	accountActive: boolean;
@@ -333,20 +369,16 @@ async function fetchRelaySync(
 	}
 }
 
-async function fetchSubscribers(
+async function fetchFirehoseStatus(
 	client: PDSClient,
 	state: DashboardState,
 	render: () => void,
 ): Promise<void> {
 	try {
-		const [subData, statusData] = await Promise.all([
-			client.getSubscribers(),
-			client.getFirehoseStatus(),
-		]);
-		state.subscribers = subData.subscribers?.length ?? 0;
-		state.subscriberDetails = subData.subscribers ?? [];
-		state.latestSeq =
-			statusData.latestSeq ?? subData.latestSeq ?? state.latestSeq;
+		const data = await client.getFirehoseStatus();
+		state.subscribers = data.subscribers?.length ?? 0;
+		state.subscriberDetails = data.subscribers ?? [];
+		if (data.latestSeq != null) state.latestSeq = data.latestSeq;
 		render();
 	} catch {
 		// Silently retry
@@ -560,8 +592,9 @@ function renderDashboard(
 	if (state.subscriberDetails.length > 0) {
 		col3.push("");
 		for (const sub of state.subscriberDetails.slice(0, 5)) {
+			const ip = sub.ip ? `  ${shortenIP(sub.ip)}` : "";
 			col3.push(
-				pc.dim(`${relativeTime(sub.connectedAt)}  cursor: ${sub.cursor}`),
+				pc.dim(`${relativeTime(sub.connectedAt)}  cursor: ${sub.cursor}${ip}`),
 			);
 		}
 	}
@@ -785,7 +818,7 @@ export const dashboardCommand = defineCommand({
 		render();
 		await Promise.all([
 			fetchRepo(client, did, state, render),
-			fetchSubscribers(client, state, render),
+			fetchFirehoseStatus(client, state, render),
 			fetchAccountStatus(client, state, render),
 			fetchNotifications(client, state, render),
 		]);
@@ -798,7 +831,7 @@ export const dashboardCommand = defineCommand({
 		);
 		intervals.push(setInterval(() => fetchRelaySync(did, state, render), 5000));
 		intervals.push(
-			setInterval(() => fetchSubscribers(client, state, render), 10000),
+			setInterval(() => fetchFirehoseStatus(client, state, render), 10000),
 		);
 		intervals.push(
 			setInterval(() => fetchNotifications(client, state, render), 15000),

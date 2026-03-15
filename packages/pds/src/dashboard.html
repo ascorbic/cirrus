@@ -76,7 +76,7 @@
 			/* Panels */
 			.panels {
 				display: grid;
-				grid-template-columns: 1fr 1.2fr 1fr;
+				grid-template-columns: 1fr 1fr;
 				gap: clamp(0.75rem, 1.5vw, 1.5rem);
 			}
 			.panel {
@@ -192,36 +192,6 @@
 				color: var(--dim);
 				margin-top: 0.5rem;
 				font-variant-numeric: tabular-nums;
-			}
-
-			/* Firehose panel */
-			.sub-line {
-				display: flex;
-				align-items: center;
-				gap: 0.5rem;
-				font-size: clamp(0.9rem, 1.5vw, 1.2rem);
-				margin-bottom: 0.25rem;
-			}
-			.sub-count {
-				color: var(--text-bright);
-				font-weight: 600;
-			}
-			.seq-line {
-				font-size: clamp(0.8rem, 1.2vw, 1rem);
-				color: var(--dim);
-				font-variant-numeric: tabular-nums;
-				margin-bottom: clamp(0.5rem, 1vw, 0.75rem);
-			}
-			.subscriber-list {
-				border-top: 1px solid var(--border);
-				padding-top: 0.5rem;
-			}
-			.subscriber-entry {
-				font-size: clamp(0.7rem, 1vw, 0.85rem);
-				color: var(--dim);
-				padding: 0.2em 0;
-				display: flex;
-				justify-content: space-between;
 			}
 
 			/* Events */
@@ -393,17 +363,6 @@
 				</div>
 				<div class="relay-rev" id="relay-rev"></div>
 			</div>
-			<div class="panel">
-				<h2>FIREHOSE</h2>
-				<div class="sub-line">
-					<span class="dot" id="sub-dot" style="background: var(--dim)"></span>
-					<span
-						><span class="sub-count" id="sub-count">0</span> subscribers</span
-					>
-				</div>
-				<div class="seq-line">seq: <span id="seq-num">&mdash;</span></div>
-				<div class="subscriber-list" id="sub-list"></div>
-			</div>
 		</section>
 
 		<section class="events-container">
@@ -558,15 +517,6 @@
 				const friendlyName = (collection) =>
 					COLLECTION_NAMES[collection] || collection.split(".").pop();
 
-				const relativeTime = (ts) => {
-					const diff = Math.floor((Date.now() - ts) / 1000);
-					if (diff < 10) return "just now";
-					if (diff < 60) return `${diff}s ago`;
-					if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-					if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-					return `${Math.floor(diff / 86400)}d ago`;
-				};
-
 				const animateNumber = (el, target) => {
 					let current = parseInt(el.textContent) || 0;
 					if (current === target) return;
@@ -662,36 +612,7 @@
 					}
 				};
 
-				const fetchSubscribers = async () => {
-					try {
-						const res = await fetch(
-							`${BASE}/xrpc/gg.mk.experimental.getSubscribers`,
-						);
-						const data = await res.json();
-						const count = data.subscribers?.length || 0;
-						animateNumber($("sub-count"), count);
-						$("sub-dot").style.background =
-							count > 0 ? "var(--green)" : "var(--dim)";
-						if (data.latestSeq != null) {
-							$("seq-num").textContent = data.latestSeq;
-						}
-						const list = $("sub-list");
-						if (count === 0) {
-							list.innerHTML = "";
-							return;
-						}
-						list.innerHTML = data.subscribers
-							.map(
-								(s) =>
-									`<div class="subscriber-entry"><span>${relativeTime(s.connectedAt)}</span><span>cursor: ${s.cursor}</span></div>`,
-							)
-							.join("");
-					} catch (e) {
-						console.error("Failed to fetch subscribers:", e);
-					}
-				};
-
-				// -- Sync status display --
+					// -- Sync status display --
 				const setSyncStatus = (status, rev) => {
 					if (status === currentSyncStatus) return;
 					const el = $("sync-status");
@@ -768,12 +689,10 @@
 					applyConfig();
 					fetchRepoData();
 					fetchRelaySync();
-					fetchSubscribers();
 					connectFirehose();
 
 					setInterval(fetchRelaySync, 5000);
 					setInterval(fetchRepoData, 30000);
-					setInterval(fetchSubscribers, 10000);
 				};
 
 				if (document.readyState === "loading") {

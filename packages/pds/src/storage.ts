@@ -136,23 +136,6 @@ export class SqliteRepoStorage
 		return rows.length > 0 ? ((rows[0]!.rev as string) ?? null) : null;
 	}
 
-	/**
-	 * Get the current sequence number for firehose events.
-	 */
-	async getSeq(): Promise<number> {
-		const rows = this.sql
-			.exec("SELECT seq FROM repo_state WHERE id = 1")
-			.toArray();
-		return rows.length > 0 ? ((rows[0]!.seq as number) ?? 0) : 0;
-	}
-
-	/**
-	 * Increment and return the next sequence number.
-	 */
-	async nextSeq(): Promise<number> {
-		this.sql.exec("UPDATE repo_state SET seq = seq + 1 WHERE id = 1");
-		return this.getSeq();
-	}
 
 	/**
 	 * Get the raw bytes for a block by CID.

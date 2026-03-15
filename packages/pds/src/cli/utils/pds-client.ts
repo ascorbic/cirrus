@@ -574,7 +574,11 @@ export class PDSClient {
 	 * Custom endpoint - not in standard lexicons
 	 */
 	async getFirehoseStatus(): Promise<{
-		subscribers: number;
+		subscribers: Array<{
+			connectedAt: number;
+			cursor: number;
+			ip: string | null;
+		}>;
 		latestSeq: number | null;
 	}> {
 		const url = new URL(
@@ -604,7 +608,11 @@ export class PDSClient {
 			});
 		}
 		return res.json() as Promise<{
-			subscribers: number;
+			subscribers: Array<{
+				connectedAt: number;
+				cursor: number;
+				ip: string | null;
+			}>;
 			latestSeq: number | null;
 		}>;
 	}
@@ -874,27 +882,6 @@ export class PDSClient {
 		}
 		const data = (await res.json()) as { token: string };
 		return { success: true, token: data.token };
-	}
-
-	/**
-	 * Get firehose subscriber details
-	 */
-	async getSubscribers(): Promise<{
-		subscribers: Array<{ connectedAt: number; cursor: number }>;
-		latestSeq: number | null;
-	}> {
-		const url = new URL(
-			"/xrpc/gg.mk.experimental.getSubscribers",
-			this.baseUrl,
-		);
-		const res = await fetch(url.toString());
-		if (!res.ok) {
-			throw new Error(`Failed to get subscribers: ${res.status}`);
-		}
-		return res.json() as Promise<{
-			subscribers: Array<{ connectedAt: number; cursor: number }>;
-			latestSeq: number | null;
-		}>;
 	}
 
 	/**
