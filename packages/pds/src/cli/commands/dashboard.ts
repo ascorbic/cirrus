@@ -124,6 +124,22 @@ const COLLECTION_NAMES: Record<string, string> = {
 	"app.bsky.feed.generator": "feeds",
 	"app.bsky.feed.threadgate": "threadgates",
 	"app.bsky.graph.starterpack": "starter packs",
+	"chat.bsky.actor.declaration": "chat",
+	"app.bsky.feed.postgate": "postgates",
+	"app.bsky.labeler.service": "labeler",
+};
+
+/** Sort priority for collections (lower = first). Unlisted collections sort alphabetically at the end. */
+const COLLECTION_ORDER: Record<string, number> = {
+	"app.bsky.feed.post": 1,
+	"app.bsky.feed.like": 2,
+	"app.bsky.graph.follow": 3,
+	"app.bsky.feed.repost": 4,
+	"app.bsky.graph.list": 5,
+	"app.bsky.feed.generator": 6,
+	"app.bsky.graph.block": 7,
+	"app.bsky.graph.starterpack": 8,
+	"app.bsky.actor.profile": 100,
 };
 
 function friendlyName(collection: string): string {
@@ -258,7 +274,15 @@ async function fetchRepo(
 			}),
 		);
 
-		state.collections = results;
+		// Sort by priority order, then alphabetically; filter out empty internal collections
+		results.sort((a, b) => {
+			const oa = COLLECTION_ORDER[a.name] ?? 50;
+			const ob = COLLECTION_ORDER[b.name] ?? 50;
+			if (oa !== ob) return oa - ob;
+			return a.friendlyName.localeCompare(b.friendlyName);
+		});
+
+		state.collections = results.filter((c) => c.count > 0);
 		render();
 	} catch {
 		// Silently retry on next interval
@@ -297,10 +321,14 @@ async function fetchSubscribers(
 	render: () => void,
 ): Promise<void> {
 	try {
-		const data = await client.getSubscribers();
-		state.subscribers = data.subscribers?.length ?? 0;
-		state.subscriberDetails = data.subscribers ?? [];
-		if (data.latestSeq != null) state.latestSeq = data.latestSeq;
+		const [subData, statusData] = await Promise.all([
+			client.getSubscribers(),
+			client.getFirehoseStatus(),
+		]);
+		state.subscribers = subData.subscribers?.length ?? 0;
+		state.subscriberDetails = subData.subscribers ?? [];
+		state.latestSeq =
+			statusData.latestSeq ?? subData.latestSeq ?? state.latestSeq;
 		render();
 	} catch {
 		// Silently retry
@@ -554,7 +582,7 @@ function renderDashboard(
 	// Events panel
 	const wsStatusText = state.wsConnected ? "\u25cf connected" : "\u25cb disconnected";
 	const eventsPrefix = indent + "EVENTS ";
-	const eventsSuffix = "  " + wsStatusText;
+	const eventsSuffix = "  " + wsStatusText + "  ";
 	const eventsSeparator = "\u2500".repeat(
 		Math.max(0, cols - eventsPrefix.length - eventsSuffix.length),
 	);
