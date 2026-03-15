@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs";
 import * as p from "@clack/prompts";
 import { setSecret, setVar, type SecretName } from "./wrangler.js";
 import { setDevVar } from "./dotenv.js";
+import { promptSelect, copyToClipboard } from "./cli-helpers.js";
 
 export interface SigningKeypair {
 	privateKey: string; // hex-encoded
@@ -54,9 +55,41 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 /**
- * Prompt for password with confirmation (max 3 attempts)
+ * Generate a random password (base64url, 24 bytes = 32 chars)
+ */
+export function generatePassword(): string {
+	return randomBytes(24).toString("base64url");
+}
+
+/**
+ * Prompt for password with confirmation (max 3 attempts),
+ * or generate one automatically
  */
 export async function promptPassword(handle?: string): Promise<string> {
+	const method = await promptSelect<"manual" | "generate">({
+		message: handle
+			? `Set a password for @${handle}:`
+			: "Set a password:",
+		options: [
+			{ value: "manual", label: "Choose a password" },
+			{ value: "generate", label: "Generate one automatically" },
+		],
+	});
+
+	if (method === "generate") {
+		const password = generatePassword();
+		p.note(password, "Generated password");
+		const copied = await copyToClipboard(password);
+		if (copied) {
+			p.log.success("Copied to clipboard");
+		} else {
+			p.log.warn(
+				"Could not copy to clipboard — save this password somewhere safe!",
+			);
+		}
+		return password;
+	}
+
 	const message = handle
 		? `Choose a password for @${handle}:`
 		: "Enter password:";
