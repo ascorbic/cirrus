@@ -203,6 +203,56 @@ export async function saveTo1Password(
 	});
 }
 
+/**
+ * Save a password to 1Password as a Login item for bsky.app
+ */
+export async function savePasswordTo1Password(
+	password: string,
+	handle: string,
+): Promise<{ success: boolean; itemName?: string; error?: string }> {
+	const itemName = `Bluesky - @${handle}`;
+
+	return new Promise((resolve) => {
+		const child = spawn(
+			"op",
+			[
+				"item",
+				"create",
+				"--category",
+				"Login",
+				"--title",
+				itemName,
+				`--username=${handle}`,
+				`password=${password}`,
+				"--url=https://bsky.app",
+				"--tags",
+				"cirrus,pds,bluesky",
+			],
+			{ stdio: ["ignore", "pipe", "pipe"] },
+		);
+
+		let stderr = "";
+		child.stderr?.on("data", (data) => {
+			stderr += data.toString();
+		});
+
+		child.on("error", (err) => {
+			resolve({ success: false, error: err.message });
+		});
+
+		child.on("close", (code) => {
+			if (code === 0) {
+				resolve({ success: true, itemName });
+			} else {
+				resolve({
+					success: false,
+					error: stderr || `1Password CLI exited with code ${code}`,
+				});
+			}
+		});
+	});
+}
+
 export interface RunCommandOptions {
 	/** If true, stream output to stdout/stderr in real-time */
 	stream?: boolean;

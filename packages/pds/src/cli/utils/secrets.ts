@@ -7,7 +7,12 @@ import bcrypt from "bcryptjs";
 import * as p from "@clack/prompts";
 import { setSecret, setVar, type SecretName } from "./wrangler.js";
 import { setDevVar } from "./dotenv.js";
-import { promptSelect, copyToClipboard } from "./cli-helpers.js";
+import {
+	promptSelect,
+	copyToClipboard,
+	is1PasswordAvailable,
+	savePasswordTo1Password,
+} from "./cli-helpers.js";
 
 export interface SigningKeypair {
 	privateKey: string; // hex-encoded
@@ -78,14 +83,65 @@ export async function promptPassword(handle?: string): Promise<string> {
 
 	if (method === "generate") {
 		const password = generatePassword();
-		const copied = await copyToClipboard(password);
-		if (copied) {
-			p.log.success("Password generated and copied to clipboard");
-		} else {
-			// Clipboard unavailable — must show the password
-			p.note(password, "Generated password");
-			p.log.warn("Could not copy to clipboard — save this password somewhere safe!");
+		const has1Password = await is1PasswordAvailable();
+
+		type SaveOption = "1password" | "clipboard" | "show";
+		const saveOptions: Array<{
+			value: SaveOption;
+			label: string;
+			hint: string;
+		}> = [];
+
+		if (has1Password) {
+			saveOptions.push({
+				value: "1password",
+				label: "Save to 1Password",
+				hint: "as a bsky.app login",
+			});
 		}
+
+		saveOptions.push(
+			{ value: "clipboard", label: "Copy to clipboard", hint: "paste into password manager" },
+			{ value: "show", label: "Display it", hint: "shown in terminal" },
+		);
+
+		const saveChoice = await promptSelect<SaveOption>({
+			message: "Where should we save the password?",
+			options: saveOptions,
+		});
+
+		if (saveChoice === "1password") {
+			const spinner = p.spinner();
+			spinner.start("Saving to 1Password...");
+			const result = await savePasswordTo1Password(password, handle ?? "");
+			if (result.success) {
+				spinner.stop("Saved to 1Password");
+				p.log.success(`Created: "${result.itemName}"`);
+			} else {
+				spinner.stop("Failed to save to 1Password");
+				p.log.error(result.error || "Unknown error");
+				// Fall back to clipboard
+				const copied = await copyToClipboard(password);
+				if (copied) {
+					p.log.info("Copied to clipboard instead");
+				} else {
+					p.note(password, "Generated password");
+					p.log.warn("Save this password somewhere safe!");
+				}
+			}
+		} else if (saveChoice === "clipboard") {
+			const copied = await copyToClipboard(password);
+			if (copied) {
+				p.log.success("Password generated and copied to clipboard");
+			} else {
+				p.note(password, "Generated password");
+				p.log.warn("Could not copy to clipboard — save this password somewhere safe!");
+			}
+		} else {
+			p.note(password, "Generated password");
+			p.log.warn("Save this password somewhere safe!");
+		}
+
 		return password;
 	}
 
