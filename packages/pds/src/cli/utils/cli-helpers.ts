@@ -222,7 +222,7 @@ export async function savePasswordTo1Password(
 				"Login",
 				"--title",
 				itemName,
-				`--username=${handle}`,
+				`username=${handle}`,
 				`password=${password}`,
 				"--url=https://bsky.app",
 				"--tags",
