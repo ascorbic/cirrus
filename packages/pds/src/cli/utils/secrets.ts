@@ -78,14 +78,13 @@ export async function promptPassword(handle?: string): Promise<string> {
 
 	if (method === "generate") {
 		const password = generatePassword();
-		p.note(password, "Generated password");
 		const copied = await copyToClipboard(password);
 		if (copied) {
-			p.log.success("Copied to clipboard");
+			p.log.success("Password generated and copied to clipboard");
 		} else {
-			p.log.warn(
-				"Could not copy to clipboard — save this password somewhere safe!",
-			);
+			// Clipboard unavailable — must show the password
+			p.note(password, "Generated password");
+			p.log.warn("Could not copy to clipboard — save this password somewhere safe!");
 		}
 		return password;
 	}
