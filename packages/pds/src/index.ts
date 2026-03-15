@@ -420,13 +420,10 @@ app.get(
 );
 
 // Firehose subscribers (public, sanitized)
-app.get(
-	"/xrpc/gg.mk.experimental.getSubscribers",
-	async (c) => {
-		const accountDO = getAccountDO(c.env);
-		return c.json(await accountDO.rpcGetSubscribers());
-	},
-);
+app.get("/xrpc/gg.mk.experimental.getSubscribers", async (c) => {
+	const accountDO = getAccountDO(c.env);
+	return c.json(await accountDO.rpcGetSubscribers());
+});
 
 // ============================================
 // Passkey Routes
