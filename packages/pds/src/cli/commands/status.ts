@@ -310,8 +310,9 @@ export const statusCommand = defineCommand({
 		// Firehose status
 		try {
 			const firehose = await client.getFirehoseStatus();
+			const subCount = firehose.subscribers.length;
 			console.log(
-				`  ${INFO} ${firehose.subscribers} firehose subscriber${firehose.subscribers !== 1 ? "s" : ""}, seq: ${firehose.latestSeq ?? "none"}`,
+				`  ${INFO} ${subCount} firehose subscriber${subCount !== 1 ? "s" : ""}, seq: ${firehose.latestSeq ?? "none"}`,
 			);
 		} catch {
 			console.log(`  ${pc.dim("  Could not get firehose status")}`);

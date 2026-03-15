@@ -755,9 +755,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		// Lazily iterate SQLite rows — the cursor is already lazy,
 		// only .toArray() would materialize everything in memory.
-		const cursor = this.ctx.storage.sql.exec(
-			"SELECT cid, bytes FROM blocks",
-		);
+		const cursor = this.ctx.storage.sql.exec("SELECT cid, bytes FROM blocks");
 
 		async function* blocks(): AsyncGenerator<CarBlock> {
 			for (const row of cursor) {
@@ -1090,10 +1088,11 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		// Accept with hibernation
 		this.ctx.acceptWebSocket(server);
 
-		// Store cursor in attachment
+		// Store cursor and client metadata in attachment
 		server.serializeAttachment({
 			cursor: cursor ?? 0,
 			connectedAt: Date.now(),
+			ip: request.headers.get("CF-Connecting-IP") ?? null,
 		});
 
 		// Backfill if cursor provided
@@ -1345,15 +1344,29 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * RPC method: Firehose status - returns subscriber count and latest sequence
 	 */
 	async rpcGetFirehoseStatus(): Promise<{
-		subscribers: number;
+		subscribers: Array<{
+			connectedAt: number;
+			cursor: number;
+			ip: string | null;
+		}>;
 		latestSeq: number | null;
 	}> {
 		const sockets = this.ctx.getWebSockets();
 		await this.ensureStorageInitialized();
-		const storage = await this.getStorage();
-		const seq = await storage.getSeq();
+		const seq = this.sequencer!.getLatestSeq();
 		return {
-			subscribers: sockets.length,
+			subscribers: sockets.map((ws) => {
+				const attachment = ws.deserializeAttachment() as {
+					cursor: number;
+					connectedAt: number;
+					ip: string | null;
+				};
+				return {
+					connectedAt: attachment.connectedAt,
+					cursor: attachment.cursor,
+					ip: attachment.ip ?? null,
+				};
+			}),
 			latestSeq: seq || null,
 		};
 	}

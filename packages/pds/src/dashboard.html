@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>CIRRUS</title>
+		<style>
+			* {
+				margin: 0;
+				padding: 0;
+				box-sizing: border-box;
+			}
+			:root {
+				--bg: #08090d;
+				--panel: #0f1117;
+				--border: #1a1d2e;
+				--text: #b4bcd0;
+				--text-bright: #e8ecf4;
+				--accent: #7dd3fc;
+				--green: #4ade80;
+				--amber: #fbbf24;
+				--red: #f87171;
+				--dim: #3f4558;
+			}
+			html,
+			body {
+				height: 100%;
+				background: var(--bg);
+				color: var(--text);
+				font-family:
+					ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas,
+					"DejaVu Sans Mono", monospace;
+				overflow: hidden;
+			}
+			body {
+				display: flex;
+				flex-direction: column;
+				padding: clamp(1rem, 2vw, 2rem);
+				gap: clamp(0.75rem, 1.5vw, 1.5rem);
+			}
+
+			/* Header */
+			header {
+				display: flex;
+				align-items: baseline;
+				gap: 1.5rem;
+				flex-wrap: wrap;
+			}
+			.brand {
+				font-size: clamp(1.5rem, 3vw, 2.5rem);
+				font-weight: 700;
+				color: var(--text-bright);
+				letter-spacing: 0.15em;
+			}
+			.server-info {
+				display: flex;
+				gap: 1.5rem;
+				align-items: baseline;
+				font-size: clamp(0.9rem, 1.5vw, 1.2rem);
+			}
+			.hostname {
+				color: var(--accent);
+			}
+			.ver {
+				color: var(--dim);
+			}
+			.identity {
+				font-size: clamp(0.8rem, 1.2vw, 1rem);
+				color: var(--dim);
+				width: 100%;
+			}
+			.identity .handle {
+				color: var(--text);
+			}
+
+			/* Panels */
+			.panels {
+				display: grid;
+				grid-template-columns: 1fr 1fr;
+				gap: clamp(0.75rem, 1.5vw, 1.5rem);
+			}
+			.panel {
+				background: var(--panel);
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				padding: clamp(1rem, 2vw, 1.5rem);
+			}
+			.panel h2 {
+				font-size: clamp(0.7rem, 1vw, 0.85rem);
+				letter-spacing: 0.2em;
+				color: var(--dim);
+				margin-bottom: clamp(0.75rem, 1.5vw, 1.25rem);
+				font-weight: 500;
+			}
+
+			/* Repository panel */
+			.record-row {
+				display: flex;
+				justify-content: space-between;
+				padding: 0.3em 0;
+				font-size: clamp(0.9rem, 1.5vw, 1.2rem);
+			}
+			.record-name {
+				color: var(--text);
+			}
+			.record-count {
+				color: var(--text-bright);
+				font-weight: 600;
+				font-variant-numeric: tabular-nums;
+			}
+			.empty-state {
+				color: var(--dim);
+				font-style: italic;
+				font-size: clamp(0.85rem, 1.3vw, 1.1rem);
+			}
+
+			/* Federation panel */
+			.relay-name {
+				font-size: clamp(0.85rem, 1.3vw, 1.1rem);
+				color: var(--text);
+				margin-bottom: clamp(0.5rem, 1vw, 1rem);
+			}
+			.sync-status {
+				display: flex;
+				align-items: center;
+				gap: 0.75rem;
+				transition: all 0.5s ease;
+			}
+			.sync-status .status-text {
+				font-size: clamp(1.5rem, 3vw, 2.5rem);
+				font-weight: 700;
+				letter-spacing: 0.1em;
+				transition:
+					color 0.5s ease,
+					text-shadow 0.8s ease;
+			}
+			.dot {
+				width: clamp(10px, 1.2vw, 16px);
+				height: clamp(10px, 1.2vw, 16px);
+				border-radius: 50%;
+				display: inline-block;
+				flex-shrink: 0;
+				transition:
+					background 0.5s ease,
+					box-shadow 0.8s ease;
+			}
+			.sync-status.checking .dot {
+				background: var(--dim);
+			}
+			.sync-status.checking .status-text {
+				color: var(--dim);
+			}
+			.sync-status.unknown .dot {
+				background: var(--dim);
+				animation: pulse-dim 3s ease-in-out infinite;
+			}
+			.sync-status.unknown .status-text {
+				color: var(--dim);
+			}
+			.sync-status.behind .dot {
+				background: var(--amber);
+				animation: pulse 1.5s ease-in-out infinite;
+			}
+			.sync-status.behind .status-text {
+				color: var(--amber);
+			}
+			.sync-status.synced .dot {
+				background: var(--green);
+				box-shadow: 0 0 12px var(--green);
+			}
+			.sync-status.synced .status-text {
+				color: var(--green);
+			}
+			.sync-status.error .dot {
+				background: var(--red);
+			}
+			.sync-status.error .status-text {
+				color: var(--red);
+			}
+			.sync-status.flash .status-text {
+				text-shadow:
+					0 0 30px currentColor,
+					0 0 60px currentColor;
+			}
+			.sync-status.flash .dot {
+				box-shadow:
+					0 0 20px currentColor,
+					0 0 40px currentColor;
+			}
+			.relay-rev {
+				font-size: clamp(0.7rem, 1vw, 0.85rem);
+				color: var(--dim);
+				margin-top: 0.5rem;
+				font-variant-numeric: tabular-nums;
+			}
+
+			/* Events */
+			.events-container {
+				flex: 1;
+				display: flex;
+				flex-direction: column;
+				background: var(--panel);
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				overflow: hidden;
+				min-height: 0;
+			}
+			.events-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: clamp(0.75rem, 1.5vw, 1rem) clamp(1rem, 2vw, 1.5rem);
+				border-bottom: 1px solid var(--border);
+				flex-shrink: 0;
+			}
+			.events-header h2 {
+				font-size: clamp(0.7rem, 1vw, 0.85rem);
+				letter-spacing: 0.2em;
+				color: var(--dim);
+				font-weight: 500;
+			}
+			.ws-status {
+				display: flex;
+				align-items: center;
+				gap: 0.5rem;
+				font-size: clamp(0.7rem, 1vw, 0.85rem);
+				color: var(--dim);
+			}
+			.ws-status.connected .dot {
+				background: var(--green);
+				animation: pulse 2s ease-in-out infinite;
+			}
+			.ws-status.connected .ws-label {
+				color: var(--green);
+			}
+			.ws-status.disconnected .dot {
+				background: var(--dim);
+			}
+			.ws-status.error .dot {
+				background: var(--red);
+			}
+			.events-list {
+				flex: 1;
+				overflow-y: auto;
+				padding: 0 clamp(1rem, 2vw, 1.5rem);
+			}
+			.events-list .empty-state {
+				padding: 1rem 0;
+			}
+			.event {
+				display: flex;
+				gap: clamp(0.75rem, 1.5vw, 1.5rem);
+				padding: 0.4em 0;
+				font-size: clamp(0.85rem, 1.3vw, 1.1rem);
+				border-bottom: 1px solid rgba(26, 29, 46, 0.5);
+				animation: slide-in 0.3s ease-out;
+			}
+			.event.new {
+				background: rgba(125, 211, 252, 0.06);
+				transition: background 1.5s ease-out;
+			}
+			.event-time {
+				color: var(--dim);
+				font-variant-numeric: tabular-nums;
+				flex-shrink: 0;
+			}
+			.event-seq {
+				color: var(--dim);
+				font-variant-numeric: tabular-nums;
+				flex-shrink: 0;
+				min-width: 3em;
+				text-align: right;
+			}
+			.event-action {
+				flex-shrink: 0;
+				font-weight: 600;
+				min-width: 5em;
+			}
+			.event-action.create {
+				color: var(--green);
+			}
+			.event-action.update {
+				color: var(--amber);
+			}
+			.event-action.delete {
+				color: var(--red);
+			}
+			.event-path {
+				color: var(--text);
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+				flex: 1;
+			}
+			/* Animations */
+			@keyframes pulse {
+				0%,
+				100% {
+					opacity: 0.5;
+				}
+				50% {
+					opacity: 1;
+				}
+			}
+			@keyframes pulse-dim {
+				0%,
+				100% {
+					opacity: 0.3;
+				}
+				50% {
+					opacity: 0.6;
+				}
+			}
+			@keyframes slide-in {
+				from {
+					opacity: 0;
+					transform: translateX(20px);
+				}
+				to {
+					opacity: 1;
+					transform: translateX(0);
+				}
+			}
+
+			/* Scrollbar */
+			.events-list::-webkit-scrollbar {
+				width: 4px;
+			}
+			.events-list::-webkit-scrollbar-track {
+				background: transparent;
+			}
+			.events-list::-webkit-scrollbar-thumb {
+				background: var(--border);
+				border-radius: 2px;
+			}
+		</style>
+	</head>
+	<body>
+		<header>
+			<div class="brand">&#9729;&#65039; CIRRUS</div>
+			<div class="server-info">
+				<span class="hostname" id="cfg-hostname"></span>
+				<span class="ver" id="cfg-version"></span>
+			</div>
+			<div class="identity">
+				<span class="handle" id="cfg-handle"></span>
+				<span>&middot;</span>
+				<span id="cfg-did"></span>
+			</div>
+		</header>
+
+		<section class="panels">
+			<div class="panel">
+				<h2>REPOSITORY</h2>
+				<div id="records"><span class="empty-state">Loading&hellip;</span></div>
+			</div>
+			<div class="panel">
+				<h2>FEDERATION</h2>
+				<div class="relay-name">bsky.network</div>
+				<div class="sync-status checking" id="sync-status">
+					<span class="dot"></span>
+					<span class="status-text">CHECKING</span>
+				</div>
+				<div class="relay-rev" id="relay-rev"></div>
+			</div>
+		</section>
+
+		<section class="events-container">
+			<div class="events-header">
+				<h2>EVENTS</h2>
+				<div class="ws-status disconnected" id="ws-status">
+					<span class="dot"></span>
+					<span class="ws-label">disconnected</span>
+				</div>
+			</div>
+			<div class="events-list" id="events">
+				<div class="empty-state">Waiting for events&hellip;</div>
+			</div>
+		</section>
+
+		<script>
+			{
+				const CONFIG = window.__CIRRUS_CONFIG || {};
+				const BASE = window.location.origin;
+				const RELAY = "https://bsky.network";
+				const DID = CONFIG.did || "";
+				const MAX_EVENTS = 100;
+				let pdsRev = null;
+				let currentSyncStatus = null;
+				let reconnectTimer = null;
+
+				const $ = (id) => document.getElementById(id);
+
+				// -- Populate config into DOM --
+				const applyConfig = () => {
+					document.title = `CIRRUS \u00b7 ${CONFIG.hostname || ""}`;
+					$("cfg-hostname").textContent = CONFIG.hostname || "";
+					$("cfg-version").textContent = CONFIG.version
+						? `v${CONFIG.version}`
+						: "";
+					$("cfg-handle").textContent = CONFIG.handle
+						? `@${CONFIG.handle}`
+						: "";
+					$("cfg-did").textContent = CONFIG.did || "";
+				};
+
+				// -- Minimal CBOR decoder for firehose frames --
+				const decodeCBOR = (d, o) => {
+					const view = new DataView(d.buffer, d.byteOffset, d.byteLength);
+					const major = d[o] >> 5;
+					const additional = d[o] & 0x1f;
+
+					const readLen = (off, add) => {
+						if (add < 24) return [add, off + 1];
+						if (add === 24) return [d[off + 1], off + 2];
+						if (add === 25) return [view.getUint16(off + 1), off + 3];
+						if (add === 26) return [view.getUint32(off + 1), off + 5];
+						if (add === 27)
+							return [
+								view.getUint32(off + 1) * 0x100000000 + view.getUint32(off + 5),
+								off + 9,
+							];
+						return [0, off + 1];
+					};
+
+					switch (major) {
+						case 0:
+							return readLen(o, additional);
+						case 1: {
+							const [n, p] = readLen(o, additional);
+							return [-1 - n, p];
+						}
+						case 2: {
+							const [n, p] = readLen(o, additional);
+							return [d.slice(p, p + n), p + n];
+						}
+						case 3: {
+							const [n, p] = readLen(o, additional);
+							return [new TextDecoder().decode(d.subarray(p, p + n)), p + n];
+						}
+						case 4: {
+							let [count, pos] = readLen(o, additional);
+							const arr = [];
+							for (let i = 0; i < count; i++) {
+								const [val, next] = decodeCBOR(d, pos);
+								arr.push(val);
+								pos = next;
+							}
+							return [arr, pos];
+						}
+						case 5: {
+							let [count, pos] = readLen(o, additional);
+							const obj = {};
+							for (let i = 0; i < count; i++) {
+								const [key, kNext] = decodeCBOR(d, pos);
+								const [val, vNext] = decodeCBOR(d, kNext);
+								obj[key] = val;
+								pos = vNext;
+							}
+							return [obj, pos];
+						}
+						case 6: {
+							const [, p] = readLen(o, additional);
+							return decodeCBOR(d, p);
+						}
+						case 7: {
+							if (additional === 20) return [false, o + 1];
+							if (additional === 21) return [true, o + 1];
+							if (additional === 22) return [null, o + 1];
+							if (additional === 23) return [undefined, o + 1];
+							if (additional === 25) return [null, o + 3];
+							if (additional === 26) return [view.getFloat32(o + 1), o + 5];
+							if (additional === 27) return [view.getFloat64(o + 1), o + 9];
+							return [null, o + 1];
+						}
+					}
+					return [null, o + 1];
+				};
+
+				const parseFirehoseMessage = (buffer) => {
+					try {
+						const d = new Uint8Array(buffer);
+						const [header, bodyOff] = decodeCBOR(d, 0);
+						if (!header || header.op !== 1 || header.t !== "#commit")
+							return null;
+						const [body] = decodeCBOR(d, bodyOff);
+						if (!body) return null;
+						return {
+							seq: body.seq,
+							repo: body.repo,
+							rev: body.rev,
+							ops: (body.ops || []).map((op) => ({
+								action: op.action,
+								path: op.path,
+							})),
+						};
+					} catch {
+						return null;
+					}
+				};
+
+				// -- Friendly collection names --
+				const COLLECTION_NAMES = {
+					"app.bsky.feed.post": "posts",
+					"app.bsky.feed.like": "likes",
+					"app.bsky.graph.follow": "follows",
+					"app.bsky.feed.repost": "reposts",
+					"app.bsky.actor.profile": "profile",
+					"app.bsky.graph.block": "blocks",
+					"app.bsky.graph.list": "lists",
+					"app.bsky.graph.listitem": "list items",
+					"app.bsky.feed.generator": "feeds",
+					"app.bsky.feed.threadgate": "threadgates",
+					"app.bsky.graph.starterpack": "starter packs",
+				};
+
+				const friendlyName = (collection) =>
+					COLLECTION_NAMES[collection] || collection.split(".").pop();
+
+				const animateNumber = (el, target) => {
+					let current = parseInt(el.textContent) || 0;
+					if (current === target) return;
+					const diff = target - current;
+					const steps = Math.min(Math.abs(diff), 20);
+					const stepSize = diff / steps;
+					let step = 0;
+					const tick = () => {
+						step++;
+						if (step >= steps) {
+							el.textContent = target;
+							return;
+						}
+						el.textContent = Math.round(current + stepSize * step);
+						requestAnimationFrame(tick);
+					};
+					requestAnimationFrame(tick);
+				};
+
+				// -- Data fetching --
+				const fetchRepoData = async () => {
+					try {
+						const reposRes = await fetch(
+							`${BASE}/xrpc/com.atproto.sync.listRepos`,
+						);
+						const reposData = await reposRes.json();
+						const repo = reposData.repos?.[0];
+						if (repo) pdsRev = repo.rev;
+
+						const descRes = await fetch(
+							`${BASE}/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(DID)}`,
+						);
+						const desc = await descRes.json();
+						const collections = desc.collections || [];
+
+						if (collections.length === 0) {
+							$("records").innerHTML =
+								'<span class="empty-state">No records yet</span>';
+							return;
+						}
+
+						const results = await Promise.all(
+							collections.map(async (col) => {
+								const res = await fetch(
+									`${BASE}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(DID)}&collection=${encodeURIComponent(col)}&limit=100`,
+								);
+								const data = await res.json();
+								return {
+									collection: col,
+									count: data.records?.length || 0,
+									hasMore: !!data.cursor,
+								};
+							}),
+						);
+
+						const container = $("records");
+						for (const r of results) {
+							const id = `rec-${r.collection.replaceAll(".", "-")}`;
+							const existing = $(id);
+							if (existing) {
+								const countEl = existing.querySelector(".record-count");
+								animateNumber(countEl, r.count);
+								if (r.hasMore) countEl.textContent = `${r.count}+`;
+							} else {
+								if (container.querySelector(".empty-state"))
+									container.innerHTML = "";
+								const row = document.createElement("div");
+								row.className = "record-row";
+								row.id = id;
+								row.innerHTML = `<span class="record-name">${friendlyName(r.collection)}</span><span class="record-count">${r.count}${r.hasMore ? "+" : ""}</span>`;
+								container.appendChild(row);
+							}
+						}
+					} catch (e) {
+						console.error("Failed to fetch repo data:", e);
+					}
+				};
+
+				const fetchRelaySync = async () => {
+					if (!pdsRev) return;
+					try {
+						const res = await fetch(
+							`${RELAY}/xrpc/com.atproto.sync.getLatestCommit?did=${encodeURIComponent(DID)}`,
+						);
+						if (res.status === 404) {
+							setSyncStatus("unknown");
+							return;
+						}
+						const data = await res.json();
+						setSyncStatus(data.rev === pdsRev ? "synced" : "behind", data.rev);
+					} catch {
+						setSyncStatus("error");
+					}
+				};
+
+					// -- Sync status display --
+				const setSyncStatus = (status, rev) => {
+					if (status === currentSyncStatus) return;
+					const el = $("sync-status");
+					const prevStatus = currentSyncStatus;
+
+					el.className = `sync-status ${status}`;
+					el.querySelector(".status-text").textContent = status.toUpperCase();
+					$("relay-rev").textContent = rev ? `rev: ${rev.slice(0, 12)}` : "";
+
+					if (prevStatus && prevStatus !== status) {
+						el.classList.add("flash");
+						setTimeout(() => el.classList.remove("flash"), 1200);
+					}
+					currentSyncStatus = status;
+				};
+
+				// -- Event stream --
+				const addEvent = (seq, action, path) => {
+					const container = $("events");
+					container.querySelector(".empty-state")?.remove();
+
+					const el = document.createElement("div");
+					el.className = "event new";
+					const time = new Date().toLocaleTimeString("en-GB", {
+						hour12: false,
+					});
+					el.innerHTML =
+						`<span class="event-time">${time}</span>` +
+						`<span class="event-seq">#${seq}</span>` +
+						`<span class="event-action ${action}">${action.toUpperCase()}</span>` +
+						`<span class="event-path">${path}</span>`;
+					container.prepend(el);
+					setTimeout(() => el.classList.remove("new"), 1500);
+					while (container.children.length > MAX_EVENTS) {
+						container.lastChild.remove();
+					}
+				};
+
+				// -- WebSocket --
+				const setWsStatus = (status) => {
+					const el = $("ws-status");
+					el.className = `ws-status ${status}`;
+					el.querySelector(".ws-label").textContent = status;
+				};
+
+				const connectFirehose = () => {
+					if (reconnectTimer) {
+						clearTimeout(reconnectTimer);
+						reconnectTimer = null;
+					}
+					const proto = location.protocol === "https:" ? "wss:" : "ws:";
+					const ws = new WebSocket(
+						`${proto}//${location.host}/xrpc/com.atproto.sync.subscribeRepos`,
+					);
+					ws.binaryType = "arraybuffer";
+
+					ws.onopen = () => setWsStatus("connected");
+					ws.onmessage = (e) => {
+						const commit = parseFirehoseMessage(e.data);
+						if (!commit) return;
+						for (const op of commit.ops) {
+							addEvent(commit.seq, op.action, op.path);
+						}
+					};
+					ws.onclose = () => {
+						setWsStatus("disconnected");
+						reconnectTimer = setTimeout(connectFirehose, 3000);
+					};
+					ws.onerror = () => setWsStatus("error");
+				};
+
+				// -- Init --
+				const init = () => {
+					applyConfig();
+					fetchRepoData();
+					fetchRelaySync();
+					connectFirehose();
+
+					setInterval(fetchRelaySync, 5000);
+					setInterval(fetchRepoData, 30000);
+				};
+
+				if (document.readyState === "loading") {
+					document.addEventListener("DOMContentLoaded", init);
+				} else {
+					init();
+				}
+			}
+		</script>
+	</body>
+</html>

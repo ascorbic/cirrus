@@ -86,9 +86,7 @@ export async function createDpopProof(
  * @param alg The algorithm (default: ES256)
  * @returns The key pair and public JWK
  */
-export async function generateDpopKeyPair(
-	alg: string = "ES256",
-): Promise<{
+export async function generateDpopKeyPair(alg: string = "ES256"): Promise<{
 	privateKey: CryptoKey;
 	publicKey: CryptoKey;
 	publicJwk: JsonWebKey;
