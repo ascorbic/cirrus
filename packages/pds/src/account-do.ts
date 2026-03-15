@@ -755,9 +755,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		// Lazily iterate SQLite rows — the cursor is already lazy,
 		// only .toArray() would materialize everything in memory.
-		const cursor = this.ctx.storage.sql.exec(
-			"SELECT cid, bytes FROM blocks",
-		);
+		const cursor = this.ctx.storage.sql.exec("SELECT cid, bytes FROM blocks");
 
 		async function* blocks(): AsyncGenerator<CarBlock> {
 			for (const row of cursor) {
