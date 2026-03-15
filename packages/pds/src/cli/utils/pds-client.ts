@@ -876,6 +876,102 @@ export class PDSClient {
 		return { success: true, token: data.token };
 	}
 
+	/**
+	 * Get firehose subscriber details
+	 */
+	async getSubscribers(): Promise<{
+		subscribers: Array<{ connectedAt: number; cursor: number }>;
+		latestSeq: number | null;
+	}> {
+		const url = new URL(
+			"/xrpc/gg.mk.experimental.getSubscribers",
+			this.baseUrl,
+		);
+		const res = await fetch(url.toString());
+		if (!res.ok) {
+			throw new Error(`Failed to get subscribers: ${res.status}`);
+		}
+		return res.json() as Promise<{
+			subscribers: Array<{ connectedAt: number; cursor: number }>;
+			latestSeq: number | null;
+		}>;
+	}
+
+	/**
+	 * List notifications (proxied through PDS to AppView)
+	 */
+	async listNotifications(limit = 25): Promise<{
+		notifications: Array<{
+			uri: string;
+			author: { handle: string; displayName?: string };
+			reason: string;
+			reasonSubject?: string;
+			record?: { text?: string };
+			isRead: boolean;
+			indexedAt: string;
+		}>;
+	}> {
+		const url = new URL(
+			"/xrpc/app.bsky.notification.listNotifications",
+			this.baseUrl,
+		);
+		url.searchParams.set("limit", String(limit));
+		const headers: Record<string, string> = {};
+		if (this.authToken) {
+			headers["Authorization"] = `Bearer ${this.authToken}`;
+		}
+		const res = await fetch(url.toString(), { headers });
+		if (!res.ok) {
+			throw new Error(`Failed to get notifications: ${res.status}`);
+		}
+		return res.json() as Promise<{
+			notifications: Array<{
+				uri: string;
+				author: { handle: string; displayName?: string };
+				reason: string;
+				reasonSubject?: string;
+				record?: { text?: string };
+				isRead: boolean;
+				indexedAt: string;
+			}>;
+		}>;
+	}
+
+	/**
+	 * List repos (for getting PDS rev)
+	 */
+	async listRepos(): Promise<{
+		repos: Array<{ did: string; rev: string }>;
+	}> {
+		const url = new URL("/xrpc/com.atproto.sync.listRepos", this.baseUrl);
+		const res = await fetch(url.toString());
+		if (!res.ok) {
+			throw new Error(`Failed to list repos: ${res.status}`);
+		}
+		return res.json() as Promise<{
+			repos: Array<{ did: string; rev: string }>;
+		}>;
+	}
+
+	/**
+	 * List records in a collection
+	 */
+	async listRecords(
+		did: string,
+		collection: string,
+		limit = 100,
+	): Promise<{ records: unknown[]; cursor?: string }> {
+		const url = new URL("/xrpc/com.atproto.repo.listRecords", this.baseUrl);
+		url.searchParams.set("repo", did);
+		url.searchParams.set("collection", collection);
+		url.searchParams.set("limit", String(limit));
+		const res = await fetch(url.toString());
+		if (!res.ok) {
+			throw new Error(`Failed to list records: ${res.status}`);
+		}
+		return res.json() as Promise<{ records: unknown[]; cursor?: string }>;
+	}
+
 	static RELAY_URLS = [
 		"https://relay1.us-west.bsky.network",
 		"https://relay1.us-east.bsky.network",
