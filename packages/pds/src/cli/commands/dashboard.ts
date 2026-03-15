@@ -80,12 +80,14 @@ function renderColumns(cols: string[][], widths: number[]): string[] {
 // Firehose frame parser
 // ============================================
 
-interface FirehoseCommit {
+interface FirehoseEvent {
 	seq: number;
+	type: "commit" | "identity";
 	ops: Array<{ action: string; path: string }>;
+	handle?: string;
 }
 
-function parseFirehoseMessage(data: Uint8Array): FirehoseCommit | null {
+function parseFirehoseMessage(data: Uint8Array): FirehoseEvent | null {
 	try {
 		const decoded = [...decodeAll(data)];
 		if (decoded.length !== 2) return null;
@@ -93,16 +95,32 @@ function parseFirehoseMessage(data: Uint8Array): FirehoseCommit | null {
 		const body = decoded[1] as {
 			seq?: number;
 			ops?: Array<{ action: string; path: string }>;
+			handle?: string;
 		};
-		if (!header || header.op !== 1 || header.t !== "#commit") return null;
+		if (!header || header.op !== 1) return null;
 		if (!body || typeof body.seq !== "number") return null;
-		return {
-			seq: body.seq,
-			ops: (body.ops ?? []).map((op) => ({
-				action: op.action,
-				path: op.path,
-			})),
-		};
+
+		if (header.t === "#commit") {
+			return {
+				seq: body.seq,
+				type: "commit",
+				ops: (body.ops ?? []).map((op) => ({
+					action: op.action,
+					path: op.path,
+				})),
+			};
+		}
+
+		if (header.t === "#identity") {
+			return {
+				seq: body.seq,
+				type: "identity",
+				ops: [],
+				handle: body.handle,
+			};
+		}
+
+		return null;
 	} catch {
 		return null;
 	}
@@ -401,18 +419,27 @@ function connectFirehose(
 			};
 
 			ws.onmessage = (e: MessageEvent) => {
-				const commit = parseFirehoseMessage(
+				const event = parseFirehoseMessage(
 					new Uint8Array(e.data as ArrayBuffer),
 				);
-				if (!commit) return;
+				if (!event) return;
 				const time = new Date().toLocaleTimeString("en-GB", { hour12: false });
-				for (const op of commit.ops) {
+				if (event.type === "identity") {
 					state.events.unshift({
 						time,
-						seq: commit.seq,
-						action: op.action,
-						path: op.path,
+						seq: event.seq,
+						action: "identity",
+						path: event.handle ?? "",
 					});
+				} else {
+					for (const op of event.ops) {
+						state.events.unshift({
+							time,
+							seq: event.seq,
+							action: op.action,
+							path: op.path,
+						});
+					}
 				}
 				if (state.events.length > MAX_EVENTS) {
 					state.events.length = MAX_EVENTS;
@@ -600,6 +627,7 @@ function renderDashboard(
 				create: pc.green,
 				update: pc.yellow,
 				delete: pc.red,
+				identity: pc.cyan,
 			};
 			const actionColor = actionColors[ev.action] ?? pc.dim;
 			const line = `${indent}${pc.dim(ev.time)}  ${pc.dim("#" + String(ev.seq).padStart(4))}  ${actionColor(ev.action.toUpperCase().padEnd(7))}  ${ev.path}`;
