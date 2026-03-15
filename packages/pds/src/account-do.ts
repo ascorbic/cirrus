@@ -1358,6 +1358,35 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		};
 	}
 
+	/**
+	 * RPC method: Get firehose subscriber details (public, sanitized)
+	 */
+	async rpcGetSubscribers(): Promise<{
+		subscribers: Array<{
+			connectedAt: number;
+			cursor: number;
+		}>;
+		latestSeq: number | null;
+	}> {
+		const sockets = this.ctx.getWebSockets();
+		await this.ensureStorageInitialized();
+		const storage = await this.getStorage();
+		const seq = await storage.getSeq();
+		return {
+			subscribers: sockets.map((ws) => {
+				const attachment = ws.deserializeAttachment() as {
+					cursor: number;
+					connectedAt: number;
+				};
+				return {
+					connectedAt: attachment.connectedAt,
+					cursor: attachment.cursor,
+				};
+			}),
+			latestSeq: seq || null,
+		};
+	}
+
 	// ============================================
 	// OAuth Storage RPC Methods
 	// These methods proxy to SqliteOAuthStorage since we can't serialize the storage object

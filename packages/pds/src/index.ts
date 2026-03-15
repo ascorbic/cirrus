@@ -23,6 +23,7 @@ import {
 	getPasskeyUiCsp,
 	PASSKEY_ERROR_CSP,
 } from "./passkey-ui";
+import { renderDashboard } from "./dashboard";
 import type { PDSEnv } from "./types";
 
 import { version } from "../package.json" with { type: "json" };
@@ -194,6 +195,18 @@ body {
 </body>
 </html>`;
 	return c.html(html);
+});
+
+// Status dashboard
+app.get("/status", (c) => {
+	return c.html(
+		renderDashboard({
+			hostname: c.env.PDS_HOSTNAME,
+			handle: c.env.HANDLE,
+			did: c.env.DID,
+			version,
+		}),
+	);
 });
 
 // Sync endpoints (federation)
@@ -403,6 +416,15 @@ app.get(
 	async (c) => {
 		const accountDO = getAccountDO(c.env);
 		return c.json(await accountDO.rpcGetFirehoseStatus());
+	},
+);
+
+// Firehose subscribers (public, sanitized)
+app.get(
+	"/xrpc/gg.mk.experimental.getSubscribers",
+	async (c) => {
+		const accountDO = getAccountDO(c.env);
+		return c.json(await accountDO.rpcGetSubscribers());
 	},
 );
 

@@ -1,3 +1,4 @@
+import { readFileSync } from "fs";
 import { defineConfig } from "tsdown";
 
 export default defineConfig([
@@ -7,6 +8,17 @@ export default defineConfig([
 		fixedExtension: false,
 		dts: true,
 		external: [/^cloudflare:/],
+		plugins: [
+			{
+				name: "html-loader",
+				load(id) {
+					if (id.endsWith(".html")) {
+						const content = readFileSync(id, "utf-8");
+						return `export default ${JSON.stringify(content)};`;
+					}
+				},
+			},
+		],
 	},
 	{
 		entry: { cli: "src/cli/index.ts" },
