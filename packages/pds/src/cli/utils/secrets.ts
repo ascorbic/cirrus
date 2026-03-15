@@ -57,7 +57,7 @@ export async function hashPassword(password: string): Promise<string> {
 /**
  * Generate a random password (base64url, 24 bytes = 32 chars)
  */
-export function generatePassword(): string {
+function generatePassword(): string {
 	return randomBytes(24).toString("base64url");
 }
 
