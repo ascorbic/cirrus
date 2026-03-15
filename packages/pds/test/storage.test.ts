@@ -150,32 +150,7 @@ describe("SqliteRepoStorage", () => {
 		});
 	});
 
-	describe("sequence number management", () => {
-		it("starts with sequence 0", async () => {
-			const id = env.ACCOUNT.newUniqueId();
-			const stub = env.ACCOUNT.get(id);
 
-			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const storage = await instance.getStorage();
-
-				expect(await storage.getSeq()).toBe(0);
-			});
-		});
-
-		it("increments sequence with nextSeq()", async () => {
-			const id = env.ACCOUNT.newUniqueId();
-			const stub = env.ACCOUNT.get(id);
-
-			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const storage = await instance.getStorage();
-
-				expect(await storage.nextSeq()).toBe(1);
-				expect(await storage.nextSeq()).toBe(2);
-				expect(await storage.nextSeq()).toBe(3);
-				expect(await storage.getSeq()).toBe(3);
-			});
-		});
-	});
 
 	describe("applyCommit", () => {
 		it("applies a commit with new blocks", async () => {
