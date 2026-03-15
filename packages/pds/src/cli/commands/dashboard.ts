@@ -552,12 +552,15 @@ function renderDashboard(
 	lines.push("");
 
 	// Events panel
+	const wsStatusText = state.wsConnected ? "\u25cf connected" : "\u25cb disconnected";
+	const eventsPrefix = indent + "EVENTS ";
+	const eventsSuffix = "  " + wsStatusText;
 	const eventsSeparator = "\u2500".repeat(
-		Math.max(0, cols - visibleLength(indent + "EVENTS ") - 2),
+		Math.max(0, cols - eventsPrefix.length - eventsSuffix.length),
 	);
 	const wsStatus = state.wsConnected
-		? pc.green("\u25cf connected")
-		: pc.dim("\u25cb disconnected");
+		? pc.green(wsStatusText)
+		: pc.dim(wsStatusText);
 	lines.push(`${indent}${pc.dim("EVENTS " + eventsSeparator)}  ${wsStatus}`);
 	if (state.events.length === 0) {
 		lines.push(`${indent}${pc.dim("Waiting for events\u2026")}`);
