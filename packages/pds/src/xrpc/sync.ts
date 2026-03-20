@@ -47,15 +47,10 @@ export async function getRepo(
 		);
 	}
 
-	const carBytes = await accountDO.rpcGetRepoCar();
-
-	return new Response(carBytes, {
-		status: 200,
-		headers: {
-			"Content-Type": "application/vnd.ipld.car",
-			"Content-Length": carBytes.length.toString(),
-		},
-	});
+	// Stream through the DO's fetch handler to avoid buffering the entire CAR
+	return accountDO.fetch(
+		new Request("https://do/xrpc/com.atproto.sync.getRepo"),
+	);
 }
 
 export async function getLatestCommit(
