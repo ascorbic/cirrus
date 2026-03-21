@@ -1,6 +1,6 @@
 {
 	"name": "@getcirrus/pds",
-	"version": "0.11.0",
+	"version": "0.12.0",
 	"description": "Cirrus – A single-user AT Protocol PDS on Cloudflare Workers",
 	"type": "module",
 	"main": "dist/index.js",
