@@ -261,10 +261,18 @@ interface Notification {
 	isRead: boolean;
 }
 
+type RelayStatus = "checking" | "synced" | "behind" | "unknown" | "error";
+
+interface RelayState {
+	name: string;
+	url: string;
+	status: RelayStatus;
+	rev: string | null;
+}
+
 interface DashboardState {
 	collections: CollectionInfo[];
-	syncStatus: "checking" | "synced" | "behind" | "unknown" | "error";
-	relayRev: string | null;
+	relays: RelayState[];
 	pdsRev: string | null;
 	subscribers: number;
 	latestSeq: number | null;
@@ -280,11 +288,21 @@ interface DashboardState {
 const MAX_EVENTS = 100;
 const MAX_NOTIFICATIONS = 50;
 
+const RELAY_ENDPOINTS = [
+	{ name: "us-west", url: "https://relay1.us-west.bsky.network" },
+	{ name: "us-east", url: "https://relay1.us-east.bsky.network" },
+	{ name: "bsky.network", url: "https://bsky.network" },
+];
+
 function createInitialState(): DashboardState {
 	return {
 		collections: [],
-		syncStatus: "checking",
-		relayRev: null,
+		relays: RELAY_ENDPOINTS.map((r) => ({
+			name: r.name,
+			url: r.url,
+			status: "checking" as RelayStatus,
+			rev: null,
+		})),
 		pdsRev: null,
 		subscribers: 0,
 		latestSeq: null,
@@ -349,24 +367,28 @@ async function fetchRelaySync(
 	render: () => void,
 ): Promise<void> {
 	if (!state.pdsRev) return;
-	try {
-		const res = await fetch(
-			`https://bsky.network/xrpc/com.atproto.sync.getLatestCommit?did=${encodeURIComponent(did)}`,
-		);
-		if (res.status === 404) {
-			state.syncStatus = "unknown";
-		} else if (res.ok) {
-			const data = (await res.json()) as { rev: string };
-			state.syncStatus = data.rev === state.pdsRev ? "synced" : "behind";
-			state.relayRev = data.rev;
-		} else {
-			state.syncStatus = "error";
-		}
-		render();
-	} catch {
-		state.syncStatus = "error";
-		render();
-	}
+	await Promise.all(
+		state.relays.map(async (relay) => {
+			try {
+				const res = await fetch(
+					`${relay.url}/xrpc/com.atproto.sync.getLatestCommit?did=${encodeURIComponent(did)}`,
+				);
+				if (res.status === 404) {
+					relay.status = "unknown";
+					relay.rev = null;
+				} else if (res.ok) {
+					const data = (await res.json()) as { rev: string };
+					relay.status = data.rev === state.pdsRev ? "synced" : "behind";
+					relay.rev = data.rev;
+				} else {
+					relay.status = "error";
+				}
+			} catch {
+				relay.status = "error";
+			}
+		}),
+	);
+	render();
 }
 
 async function fetchFirehoseStatus(
@@ -557,7 +579,6 @@ function renderDashboard(
 
 	// Column 2: Federation
 	const col2: string[] = [pc.dim("FEDERATION"), ""];
-	col2.push(pc.dim("bsky.network"));
 	const statusColors: Record<string, (s: string) => string> = {
 		synced: pc.green,
 		behind: pc.yellow,
@@ -572,12 +593,13 @@ function renderDashboard(
 		checking: pc.dim("\u25cb"),
 		unknown: pc.dim("\u25cb"),
 	};
-	const colorFn = statusColors[state.syncStatus] ?? pc.dim;
-	col2.push(
-		`${dotColors[state.syncStatus] ?? pc.dim("\u25cb")} ${colorFn(state.syncStatus.toUpperCase())}`,
-	);
-	if (state.relayRev) {
-		col2.push(pc.dim(`rev: ${state.relayRev.slice(0, 12)}`));
+	for (const relay of state.relays) {
+		const dot = dotColors[relay.status] ?? pc.dim("\u25cb");
+		const colorFn = statusColors[relay.status] ?? pc.dim;
+		const revStr = relay.rev ? pc.dim(` ${relay.rev.slice(0, 8)}`) : "";
+		col2.push(
+			`${dot} ${pc.dim(relay.name)} ${colorFn(relay.status.toUpperCase())}${revStr}`,
+		);
 	}
 
 	// Column 3: Firehose

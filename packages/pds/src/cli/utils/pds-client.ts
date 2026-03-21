@@ -962,6 +962,7 @@ export class PDSClient {
 	static RELAY_URLS = [
 		"https://relay1.us-west.bsky.network",
 		"https://relay1.us-east.bsky.network",
+		"https://bsky.network",
 	];
 
 	/**

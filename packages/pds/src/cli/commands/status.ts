@@ -280,7 +280,9 @@ export const statusCommand = defineCommand({
 				for (const relayStatus of relayStatuses) {
 					const relayName = relayStatus.relay.includes("us-west")
 						? "us-west"
-						: "us-east";
+						: relayStatus.relay.includes("us-east")
+							? "us-east"
+							: new URL(relayStatus.relay).hostname;
 					const statusIcon =
 						relayStatus.status === "active"
 							? CHECK
