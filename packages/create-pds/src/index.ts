@@ -23,8 +23,9 @@ const BANNER = `
   ██║     ██║██╔══██╗██╔══██╗██║   ██║╚════██║
   ╚██████╗██║██║  ██║██║  ██║╚██████╔╝███████║
    ╚═════╝╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝
-
-   ☁️  The lightest PDS in the Atmosphere  ☁️
+    ☁️      ☁️  ☁️      ☁️  ☁️    ☁️    ☁️  ☁️
+  ☁️    ☁️  Your personal data server  ☁️    ☁️
+     ☁️    ☁️     ☁️  ☁️      ☁️      ☁️    ☁️
 `;
 
 type PackageManager = "npm" | "yarn" | "pnpm" | "bun";
