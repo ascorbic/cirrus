@@ -1,20 +1,21 @@
 # FID Creation & Signup for Non-Farcaster Users
 
+**Status: Complete** — Agent path (x402) is working end-to-end. Remaining work
+(human onboarding, fname UX, production deploy, ops polish) extracted to separate
+todo plans.
+
 ## Problem
 
-Today, fid.is requires users to already have a Farcaster ID (FID). This limits the audience
-to existing Farcaster users. We want to let anyone create a fid.is account — including
-people who have never used Farcaster and AI agents that need an online identity.
-
-This means we need to **create an onchain Farcaster FID** as part of the signup flow,
-then use it to create the fid.is AT Protocol account.
+fid.is required users to already have a Farcaster ID (FID). We needed to let anyone
+create a fid.is account — including people who have never used Farcaster and AI agents
+that need an online identity — by creating an onchain FID as part of the signup flow.
 
 ## Architecture
 
 The signup flow is handled by a **standalone signup service** (`apps/signup/`), separate
 from the PDS. The signup service is a Hono API on Cloudflare Workers that orchestrates:
 
-1. x402 payment verification (agent path) or Privy auth (human path, not yet built)
+1. x402 payment verification (agent path)
 2. On-chain FID registration via Privy server wallet
 3. Farcaster signer key registration via KeyGateway (key generated/stored by sync service)
 4. Optional fname registration
@@ -34,7 +35,7 @@ stored in a per-FID Durable Object.
 |----------|----------|
 | Signup architecture | Separate signup service (`apps/signup/`), not on the PDS |
 | Agent auth | x402 payment (USDC on Base) — payer address = custody address |
-| Human auth (planned) | Privy — SMS + Sign in with Farcaster |
+| Human auth (planned) | Privy — SMS + Sign in with Farcaster (see `todo/human-onboarding.md`) |
 | Gas sponsorship | Privy server wallet pays gas + storage rent |
 | Agent custody model | Agent provides its own Ethereum address via x402 payer |
 | Recovery address | fid.is-controlled address (we can assist recovery) |
@@ -116,48 +117,9 @@ exposed to the client:
 - Funder wallet transfers exact x402 price (0.01 USDC) to test wallet
 - x402 uses EIP-3009 `TransferWithAuthorization` (gasless USDC signatures)
 
-## Remaining Work
+## Extracted Follow-up Work
 
-### Phase 1: Human Path (Privy + Web Frontend)
-
-The signup service currently has no frontend. Needs:
-- React frontend with Privy SDK for auth (SMS + Sign in with Farcaster)
-- Signup flow UI: auth → FID creation → fname selection → account creation
-- Could be a separate app or added to `apps/signup/` as static assets
-- Deploy to `signup.fid.is`
-
-### Phase 2: Fname UX
-
-- Fname availability check endpoint/UI
-- Fname selection as part of signup flow (both human and agent paths)
-- Set fname as AT Protocol handle alongside `NNN.fid.is`
-
-### Phase 3: Production Deployment
-
-- Deploy signup service to Cloudflare Workers
-- Configure production env vars (OP Mainnet contracts, Privy prod credentials)
-- Fund Privy server wallet with OP ETH for gas + storage rent
-- Set `ACCOUNT_CREATION_KEY` on both signup service and PDS
-
-### Phase 4: Operational Polish
-
-- Privy server wallet balance monitoring + alerts
-- Rate limiting (beyond x402 payment gating)
-- Analytics and conversion tracking
-- Error recovery for failed on-chain transactions
-
-## Open Questions
-
-1. **x402 pricing**: Current price (0.01 USDC) only covers account creation overhead.
-   Should it also cover the ~$0.30 FID storage rent + gas that Privy pays? Or keep
-   the x402 price low and absorb registration costs?
-
-2. **FID confirmation latency**: Optimism block time is ~2s. We create the PDS account
-   immediately after tx inclusion (optimistic). Reorgs on OP are extremely rare but
-   technically possible.
-
-3. **Rate limiting**: x402 payment gates agents. What gates the human path beyond
-   Privy auth? Per-IP, per-phone-number limits?
-
-4. **Privy server wallet funding**: Manual top-ups vs automated monitoring + alerts?
-   Need a runbook for refilling.
+- `plans/todo/human-onboarding.md` — Human signup path (Privy + web frontend)
+- `plans/todo/agent-fname-registration.md` — Fname registration in agent flow
+- `plans/todo/fid-creation-production-deploy.md` — Production deployment (OP Mainnet)
+- `plans/todo/fid-creation-ops-polish.md` — Operational polish (monitoring, rate limiting)
