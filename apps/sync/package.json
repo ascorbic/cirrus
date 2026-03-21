@@ -1,5 +1,5 @@
 {
-	"name": "@getcirrus/sync",
+	"name": "@fidis/sync",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",

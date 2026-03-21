@@ -4,12 +4,12 @@ import type {
 	OAuthStorage,
 	PARData,
 	TokenData,
-} from "@getcirrus/oauth-provider";
+} from "@fidis/oauth-provider";
 
 /**
  * SQLite-backed OAuth storage for Cloudflare Durable Objects.
  *
- * Implements the OAuthStorage interface from @getcirrus/oauth-provider,
+ * Implements the OAuthStorage interface from @fidis/oauth-provider,
  * storing OAuth data in SQLite tables within a Durable Object.
  */
 export class SqliteOAuthStorage implements OAuthStorage {

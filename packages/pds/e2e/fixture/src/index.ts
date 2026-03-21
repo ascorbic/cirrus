@@ -1,6 +1,6 @@
-export { AccountDurableObject } from "@getcirrus/pds";
-import type { PDSEnv } from "@getcirrus/pds";
-import pds from "@getcirrus/pds";
+export { AccountDurableObject } from "@fidis/pds";
+import type { PDSEnv } from "@fidis/pds";
+import pds from "@fidis/pds";
 
 /**
  * Wrap the PDS worker to add test-only endpoints for e2e testing.

@@ -1,7 +1,7 @@
 # OAuth Provider Implementation
 
 **Status:** ✅ Complete
-**Package:** `@getcirrus/oauth-provider`
+**Package:** `@fidis/oauth-provider`
 
 ## Overview
 
@@ -9,7 +9,7 @@ OAuth 2.1 provider with AT Protocol extensions enabling "Login with Bluesky" eco
 
 ## What Was Built
 
-### Package: `@getcirrus/oauth-provider`
+### Package: `@fidis/oauth-provider`
 
 A purpose-built OAuth 2.1 provider (not extending Cloudflare's OAuth provider) with:
 
@@ -117,7 +117,7 @@ packages/pds/src/
 ## Usage
 
 ```typescript
-import { ATProtoOAuthProvider } from "@getcirrus/oauth-provider";
+import { ATProtoOAuthProvider } from "@fidis/oauth-provider";
 
 const provider = new ATProtoOAuthProvider({
   issuer: "https://your-pds.com",

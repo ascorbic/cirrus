@@ -1,6 +1,6 @@
 # Personal PDS on Cloudflare Workers
 
-This is an example deployment of `@getcirrus/pds` - a single-user AT Protocol Personal Data Server on Cloudflare Workers.
+This is an example deployment of `@fidis/pds` - a single-user AT Protocol Personal Data Server on Cloudflare Workers.
 
 > **⚠️ Experimental Software**
 >
@@ -76,11 +76,11 @@ Configuration is via environment variables: vars in the `wrangler.jsonc` and sec
 
 ## Architecture
 
-This deployment simply re-exports the `@getcirrus/pds` package:
+This deployment simply re-exports the `@fidis/pds` package:
 
 ```typescript
 // src/index.ts
-export { default, AccountDurableObject } from "@getcirrus/pds";
+export { default, AccountDurableObject } from "@fidis/pds";
 ```
 
 No additional code needed!

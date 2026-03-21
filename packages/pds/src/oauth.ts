@@ -1,7 +1,7 @@
 /**
  * OAuth 2.1 integration for the PDS
  *
- * Connects the @getcirrus/oauth-provider package with the PDS
+ * Connects the @fidis/oauth-provider package with the PDS
  * by providing storage through Durable Objects and user authentication
  * through passkeys.
  *
@@ -10,14 +10,14 @@
  */
 
 import { Hono, type Context } from "hono";
-import { ATProtoOAuthProvider } from "@getcirrus/oauth-provider";
+import { ATProtoOAuthProvider } from "@fidis/oauth-provider";
 import type {
 	OAuthStorage,
 	AuthCodeData,
 	TokenData,
 	ClientMetadata,
 	PARData,
-} from "@getcirrus/oauth-provider";
+} from "@fidis/oauth-provider";
 import type { PDSEnv } from "./types";
 import type { AccountDurableObject } from "./account-do";
 import {
@@ -293,9 +293,9 @@ export function createOAuthApp(accountDOGetter: GetAccountDO) {
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Cirrus Authorization</title>
-	<meta name="description" content="Cirrus PDS authorization page. Open this link in your browser to continue.">
-	<meta property="og:title" content="Cirrus Authorization">
+	<title>fid.is Authorization</title>
+	<meta name="description" content="fid.is PDS authorization page. Open this link in your browser to continue.">
+	<meta property="og:title" content="fid.is Authorization">
 	<meta property="og:description" content="Open this link in your browser to continue.">
 </head>
 <body>

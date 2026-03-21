@@ -3,7 +3,7 @@
 	"changelog": [
 		"@changesets/changelog-github",
 		{
-			"repo": "ascorbic/cirrus"
+			"repo": "cboscolo/fidis"
 		}
 	],
 	"commit": false,
@@ -12,5 +12,5 @@
 	"access": "public",
 	"baseBranch": "main",
 	"updateInternalDependencies": "patch",
-	"ignore": ["@demo/*"]
+	"ignore": ["@fidis/demo-pds"]
 }

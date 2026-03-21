@@ -1,11 +1,11 @@
 {
-	"name": "@demo/pds",
+	"name": "@fidis/demo-pds",
 	"version": "1.0.0",
 	"description": "Demo PDS deployment",
 	"type": "module",
 	"private": true,
 	"dependencies": {
-		"@getcirrus/pds": "workspace:*"
+		"@fidis/pds": "workspace:*"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "^1.17.0",
@@ -15,7 +15,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
-		"deploy": "pnpm --filter @demo/pds... build && wrangler deploy",
+		"deploy": "pnpm --filter @fidis/demo-pds... build && wrangler deploy",
 		"preview": "vite preview",
 		"pds": "pds",
 		"wrangler": "wrangler",

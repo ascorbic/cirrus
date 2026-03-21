@@ -1,5 +1,5 @@
 {
-	"name": "fid-pds",
+	"name": "@fidis/fid-pds",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -11,7 +11,7 @@
 		"wrangler": "wrangler"
 	},
 	"dependencies": {
-		"@getcirrus/pds": "workspace:*"
+		"@fidis/pds": "workspace:*"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "^1.17.0",

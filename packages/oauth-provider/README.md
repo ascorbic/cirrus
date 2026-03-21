@@ -1,4 +1,4 @@
-# @getcirrus/oauth-provider
+# @fidis/oauth-provider
 
 AT Protocol OAuth 2.1 Authorization Server for Cloudflare Workers.
 
@@ -16,15 +16,15 @@ A complete OAuth 2.1 provider implementation that enables "Login with Bluesky" f
 ## Installation
 
 ```bash
-npm install @getcirrus/oauth-provider
+npm install @fidis/oauth-provider
 # or
-pnpm add @getcirrus/oauth-provider
+pnpm add @fidis/oauth-provider
 ```
 
 ## Quick Start
 
 ```typescript
-import { OAuthProvider } from "@getcirrus/oauth-provider";
+import { OAuthProvider } from "@fidis/oauth-provider";
 import { OAuthStorage } from "./your-storage-implementation";
 
 // Initialize the provider
@@ -98,7 +98,7 @@ export interface OAuthProviderStorage {
 }
 ```
 
-A SQLite implementation for Durable Objects is included in the `@getcirrus/pds` package.
+A SQLite implementation for Durable Objects is included in the `@fidis/pds` package.
 
 ## OAuth 2.1 Flow
 
@@ -279,6 +279,6 @@ MIT
 
 ## Related Packages
 
-- `@getcirrus/pds` - AT Protocol PDS implementation using this OAuth provider
+- `@fidis/pds` - AT Protocol PDS implementation using this OAuth provider
 - `@atproto/oauth-client` - Official AT Protocol OAuth client
 - `@atproto/oauth-types` - TypeScript types for AT Protocol OAuth

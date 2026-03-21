@@ -1,5 +1,5 @@
 /**
- * Passkey (WebAuthn) support for Cirrus PDS
+ * Passkey (WebAuthn) support for fid.is PDS
  *
  * Handles passkey registration and authentication using the @simplewebauthn/server library.
  * Uses a CLI-driven flow where:
@@ -112,7 +112,7 @@ export async function initPasskeyRegistration(
 	// Generate WebAuthn registration options
 	// We need to generate a challenge here so it's available when the user visits the URL
 	const options = await generateRegistrationOptions({
-		rpName: "Cirrus PDS",
+		rpName: "fid.is PDS",
 		rpID: pdsHostname,
 		userName: did,
 		userDisplayName: name || did,
@@ -170,7 +170,7 @@ export async function getRegistrationOptions(
 
 	// Generate fresh options with the stored challenge
 	const options = await generateRegistrationOptions({
-		rpName: "Cirrus PDS",
+		rpName: "fid.is PDS",
 		rpID: pdsHostname,
 		userName: did,
 		userDisplayName: did,

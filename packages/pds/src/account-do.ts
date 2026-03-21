@@ -18,7 +18,7 @@ import type {
 	ClientMetadata,
 	PARData,
 	TokenData,
-} from "@getcirrus/oauth-provider";
+} from "@fidis/oauth-provider";
 /** Record type compatible with @atproto/repo operations */
 type RepoRecord = Record<string, unknown>;
 import { Secp256k1Keypair } from "@atproto/crypto";

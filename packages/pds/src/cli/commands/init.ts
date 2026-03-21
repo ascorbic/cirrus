@@ -171,7 +171,7 @@ export const initCommand = defineCommand({
 					"  • For did:web: Generate a new key (old signatures become unverifiable)",
 					"  • For did:plc: Use a recovery key if you have one",
 					"",
-					"See: https://github.com/ascorbic/cirrus#key-recovery",
+					"See: https://github.com/cboscolo/fidis#key-recovery",
 				].join("\n"),
 				"Key Recovery Required",
 			);

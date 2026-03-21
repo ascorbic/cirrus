@@ -1,5 +1,5 @@
 /**
- * @getcirrus/oauth-provider
+ * @fidis/oauth-provider
  * OAuth 2.1 Provider with AT Protocol extensions for Cloudflare Workers
  */
 

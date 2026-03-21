@@ -10,7 +10,7 @@
 
 The name carries a double meaning: every Farcaster ID (FID) *is* an identity — your FID is your key to the AT Protocol network.
 
-When referring to the underlying PDS framework (developer/technical contexts only), use **Cirrus**.
+The underlying PDS framework is part of the fid.is project. There is no separate framework brand.
 
 ## Messaging Hierarchy
 

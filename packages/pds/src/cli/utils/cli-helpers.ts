@@ -155,7 +155,7 @@ export async function saveTo1Password(
 	key: string,
 	handle: string,
 ): Promise<{ success: boolean; itemName?: string; error?: string }> {
-	const itemName = `Cirrus PDS Signing Key - ${handle}`;
+	const itemName = `fid.is PDS Signing Key - ${handle}`;
 
 	return new Promise((resolve) => {
 		// Create a secure note with the signing key

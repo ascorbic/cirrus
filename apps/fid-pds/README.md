@@ -45,11 +45,11 @@ Both auth types work for all authenticated endpoints including `getSession`.
 
 ```
 apps/fid-pds/          ← This package (deployment wrapper)
-  src/index.ts         ← Re-exports from @getcirrus/pds
+  src/index.ts         ← Re-exports from @fidis/pds
   wrangler.jsonc       ← Cloudflare Workers config
   .dev.vars            ← Local development secrets
 
-packages/pds/          ← Core library (@getcirrus/pds)
+packages/pds/          ← Core library (@fidis/pds)
   src/index.ts         ← Worker entry point, routing, DID doc serving
   src/account-do.ts    ← AccountDurableObject (per-user state)
   src/oauth.ts         ← OAuth 2.1 provider
@@ -160,7 +160,7 @@ Configured in `wrangler.jsonc`:
 pnpm --filter fid-pds build && pnpm --filter fid-pds deploy
 ```
 
-Vite resolves the `@getcirrus/pds` workspace link directly to source (`packages/pds/src/`), so you don't need to build the library separately.
+Vite resolves the `@fidis/pds` workspace link directly to source (`packages/pds/src/`), so you don't need to build the library separately.
 
 ### Verify
 

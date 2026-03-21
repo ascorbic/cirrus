@@ -1,17 +1,17 @@
 {
-	"name": "cirrus",
+	"name": "fidis",
 	"private": true,
 	"version": "1.0.0",
-	"description": "Cirrus – A multi-tenant AT Protocol PDS on Cloudflare Workers",
+	"description": "fid.is – AT Protocol PDS for Farcaster identities on Cloudflare Workers",
 	"workspaces": [
 		"packages/*",
 		"demos/*",
 		"apps/*"
 	],
 	"scripts": {
-		"check": "bun run --filter '@getcirrus/*' --filter 'create-pds' check",
-		"test": "bun run --filter '@getcirrus/*' --filter 'create-pds' test",
-		"build": "bun run --filter '@getcirrus/*' --filter 'create-pds' build",
+		"check": "bun run --filter '@fidis/*' check",
+		"test": "bun run --filter '@fidis/*' test",
+		"build": "bun run --filter '@fidis/*' build",
 		"format": "prettier --write .",
 		"knip": "knip"
 	},

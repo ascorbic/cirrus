@@ -1,7 +1,7 @@
 {
-	"name": "@getcirrus/pds",
+	"name": "@fidis/pds",
 	"version": "0.10.4",
-	"description": "Cirrus – A multi-tenant AT Protocol PDS on Cloudflare Workers",
+	"description": "fid.is – AT Protocol PDS for Farcaster identities on Cloudflare Workers",
 	"type": "module",
 	"main": "dist/index.js",
 	"bin": {
@@ -39,7 +39,7 @@
 		"@clack/prompts": "^0.11.0",
 		"@farcaster/auth-client": "^0.7.0",
 		"@farcaster/quick-auth": "^0.0.8",
-		"@getcirrus/oauth-provider": "workspace:*",
+		"@fidis/oauth-provider": "workspace:*",
 		"@simplewebauthn/server": "^13.2.2",
 		"@x402/core": "^2.6.0",
 		"bcryptjs": "^3.0.3",
@@ -70,13 +70,13 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/ascorbic/cirrus.git",
+		"url": "git+https://github.com/cboscolo/fidis.git",
 		"directory": "packages/pds"
 	},
 	"peerDependencies": {
 		"wrangler": "^4.54.0"
 	},
-	"homepage": "https://github.com/ascorbic/cirrus",
+	"homepage": "https://github.com/cboscolo/fidis",
 	"keywords": [
 		"atproto",
 		"bluesky",

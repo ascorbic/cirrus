@@ -2,7 +2,7 @@
  * Identity command - update DID document to point to new PDS
  *
  * This command handles the PLC operation flow for migrating identity
- * from source PDS to Cirrus. It:
+ * from source PDS to fid.is. It:
  * 1. Requests an email token from the source PDS
  * 2. Gets the source PDS to sign a PLC operation with the new endpoint
  * 3. Submits the signed operation to the PLC directory

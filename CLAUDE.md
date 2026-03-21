@@ -4,7 +4,7 @@ This file provides guidance to agentic coding tools when working with code in th
 
 **ALWAYS verify your current working directory before operating on files:**
 
-- Repository root is `cirrus` not `packages/pds/`
+- Repository root is `fidis` not `packages/pds/`
 - Use `pwd` or check `process.cwd()` to confirm location
 - Many project files (CLAUDE.md, plans/) are at repository root
 - Package-specific files are in `packages/pds/`
@@ -61,7 +61,7 @@ Each account provides two separable functions:
   AccountDurableObject, all XRPC handlers, storage, and auth. This IS the PDS and DID
   provider.
 
-- **`apps/fid-pds`** — Thin deployment wrapper. Re-exports `@getcirrus/pds` and provides
+- **`apps/fid-pds`** — Thin deployment wrapper. Re-exports `@fidis/pds` and provides
   `wrangler.jsonc` for deploying to Cloudflare. No application logic.
 
 - **`apps/miniapp`** — Account management UI (React + Vite). Used to create accounts,
@@ -99,9 +99,9 @@ Internal tools, not part of any spec. Used by the debug page in the miniapp.
 
 This is a monorepo using pnpm workspaces with the following structure:
 
-- **Root** (`cirrus`): Workspace configuration, shared tooling, plan documents
-- **packages/pds**: The main PDS library (`@getcirrus/pds`)
-- **packages/oauth-provider**: OAuth 2.1 Provider (`@getcirrus/oauth-provider`)
+- **Root** (`fidis`): Workspace configuration, shared tooling, plan documents
+- **packages/pds**: The main PDS library (`@fidis/pds`)
+- **packages/oauth-provider**: OAuth 2.1 Provider (`@fidis/oauth-provider`)
 - **packages/create-pds**: CLI scaffolding tool (`create-pds`)
 - **demos/pds**: Demo PDS deployment
 

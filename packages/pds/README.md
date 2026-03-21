@@ -1,12 +1,10 @@
 <div align="center">
-    <h1>☁️</h1>
-    <h1><samp>CIRRUS</samp></h1>
-	<p><em>The lightest PDS in the Atmosphere</em></p>
+    <h1>f.i</h1>
+    <h1><samp>@fidis/pds</samp></h1>
+	<p><em>AT Protocol PDS for Farcaster identities</em></p>
 </div>
 
-Cirrus is a single-user [AT Protocol](https://atproto.com) Personal Data Server (PDS) that runs on Cloudflare Workers. Named for the highest, lightest clouds in a blue sky – fitting for a Bluesky server running on Cloudflare.
-
-Host your own Bluesky identity with minimal infrastructure.
+The core PDS library powering [fid.is](https://fid.is) — an AT Protocol Personal Data Server on Cloudflare Workers that gives every Farcaster user an identity on Bluesky.
 
 > **⚠️ Beta Software**
 >
@@ -44,14 +42,14 @@ npm run dev
 ### 1. Install the package
 
 ```bash
-npm install @getcirrus/pds
+npm install @fidis/pds
 ```
 
 ### 2. Create a worker entry point
 
 ```typescript
 // src/index.ts
-export { default, AccountDurableObject } from "@getcirrus/pds";
+export { default, AccountDurableObject } from "@fidis/pds";
 ```
 
 ### 3. Configure wrangler.jsonc
@@ -458,7 +456,7 @@ The PDS includes a complete OAuth 2.1 provider for "Login with Bluesky":
 
 **Passkey support:** The authorization page supports passwordless login via passkeys (WebAuthn). If the user has registered passkeys, a "Sign in with Passkey" button appears. This works across devices – scan a QR code from your phone to authenticate on a desktop.
 
-See the [@getcirrus/oauth-provider](../oauth-provider/) package for implementation details.
+See the [@fidis/oauth-provider](../oauth-provider/) package for implementation details.
 
 ## Deploying to Production
 
