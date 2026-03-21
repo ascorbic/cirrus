@@ -1,5 +1,11 @@
 # create-pds
 
+## 0.0.12
+
+### Patch Changes
+
+- [#140](https://github.com/ascorbic/cirrus/pull/140) [`6cc3cfc`](https://github.com/ascorbic/cirrus/commit/6cc3cfcedfcde0faa99a1374daeb5534e4e082a1) Thanks [@ascorbic](https://github.com/ascorbic)! - Improve CLI dashboard design
+
 ## 0.0.11
 
 ### Patch Changes
