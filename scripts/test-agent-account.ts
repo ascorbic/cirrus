@@ -12,8 +12,9 @@
  *      - USDC faucet: https://faucet.circle.com/ (select Base Sepolia)
  *
  * Usage:
- *   bun scripts/test-agent-account.ts              # 402 response only
- *   bun scripts/test-agent-account.ts --pay         # full payment flow (Privy registers FID on OP Sepolia)
+ *   bun scripts/test-agent-account.ts                        # 402 response only
+ *   bun scripts/test-agent-account.ts --pay                  # full payment flow (Privy registers FID on OP Sepolia)
+ *   bun scripts/test-agent-account.ts --pay --fname alice    # full flow + register fname "alice"
  *
  * Test wallets are saved to scripts/.test-wallets.json for reuse.
  */
@@ -37,6 +38,8 @@ const BASE_SEPOLIA_RPC = process.env.BASE_SEPOLIA_RPC || "https://sepolia.base.o
 const FUNDER_PRIVATE_KEY = (process.env.FUNDER_PRIVATE_KEY ||
 	"0x5c135a62e8230b2ab2afb508605ed7a076be5c95ff947359d6eed102ee5a5e59") as `0x${string}`; // 0xd4A261D90Dc96E04A3f2D490374ffb44d2A9Fc9c
 const DO_PAY = process.argv.includes("--pay");
+const FNAME_ARG = process.argv.find((_, i, a) => a[i - 1] === "--fname");
+const DO_FNAME = !!FNAME_ARG;
 
 // OP Sepolia Farcaster contract addresses (custom deployment)
 const ID_REGISTRY = "0x0acc54228887f9717633aD107FC683B4d66C6164" as const;
@@ -101,7 +104,8 @@ console.log(`Signup:  ${SIGNUP_URL}`);
 console.log(`OP Sepolia: ${OP_SEPOLIA_RPC}`);
 console.log(`Base Sepolia: ${BASE_SEPOLIA_RPC}`);
 console.log(`Funder:  ${funderAccount.address}`);
-console.log(`Mode:    ${DO_PAY ? "full payment flow" : "402 response only"}\n`);
+console.log(`Mode:    ${DO_PAY ? "full payment flow" : "402 response only"}`);
+console.log(`Fname:   ${DO_FNAME ? FNAME_ARG : "none (use --fname <name> to register)"}\n`);
 
 // --- Step 1: Create a new wallet ---
 console.log("--- Step 1: Create new wallet ---");
@@ -272,6 +276,60 @@ if (regParams.addTypedData && regParams.signerKeyInfo) {
 	console.log("--- Step 5b: Skip signer (REQUEST_FID not configured on server) ---\n");
 }
 
+// --- Step 5c: Sign EIP-712 fname UserNameProof (if --fname) ---
+let fnameSig: string | undefined;
+let fnameTimestamp: number | undefined;
+
+if (DO_FNAME) {
+	console.log(`--- Step 5c: Sign EIP-712 fname UserNameProof for "${FNAME_ARG}" ---`);
+
+	// Check availability first
+	const checkResp = await fetch(`https://fnames.farcaster.xyz/transfers/current?name=${FNAME_ARG}`);
+	if (checkResp.ok) {
+		const existing = await checkResp.json() as { transfer?: { to: number } };
+		if (existing.transfer) {
+			console.error(`\nFname "${FNAME_ARG}" is already taken (owned by FID ${existing.transfer.to}).`);
+			console.error("Choose a different name with --fname <name>");
+			process.exit(1);
+		}
+	}
+	console.log(`Fname "${FNAME_ARG}" is available`);
+
+	fnameTimestamp = Math.floor(Date.now() / 1000);
+
+	// EIP-712 domain and types from the signup service's eip712.ts
+	const fnameDomain = {
+		name: "Farcaster name verification",
+		version: "1",
+		chainId: 1,
+		verifyingContract: "0xe3be01d99baa8db9905b33a3ca391238234b79d1" as const,
+	};
+
+	const fnameTypes = {
+		UserNameProof: [
+			{ name: "name", type: "string" },
+			{ name: "timestamp", type: "uint256" },
+			{ name: "owner", type: "address" },
+		],
+	} as const;
+
+	fnameSig = await account.signTypedData({
+		domain: fnameDomain,
+		types: fnameTypes,
+		primaryType: "UserNameProof",
+		message: {
+			name: FNAME_ARG!,
+			timestamp: BigInt(fnameTimestamp),
+			owner: account.address,
+		},
+	});
+
+	console.log(`Fname signature: ${fnameSig.slice(0, 20)}...`);
+	console.log();
+} else {
+	console.log("--- Step 5c: Skip fname (use --fname <name> to register) ---\n");
+}
+
 // --- Step 6: Call signup service without payment → expect 402 ---
 console.log("--- Step 6: Request without payment (expect 402) ---");
 const url = `${SIGNUP_URL}/api/create`;
@@ -282,6 +340,7 @@ const createBody = {
 	...(addSig && { addSig }),
 	...(signerPubKey && { signerPubKey }),
 	...(signerMetadata && { signerMetadata }),
+	...(DO_FNAME && { fname: FNAME_ARG, fnameSig, fnameTimestamp }),
 };
 
 const resp1 = await fetch(url, {
@@ -385,6 +444,47 @@ if (resp2.status === 200) {
 			console.log(`  ✓ Signer key is ADDED in KeyRegistry`);
 		} else {
 			console.log(`  ✗ Signer key state is not ADDED (got ${keyState[0]})`);
+		}
+	}
+
+	// Verify fname registration if requested
+	if (DO_FNAME) {
+		console.log("\n--- Verify fname registration ---");
+
+		// NOTE: fnames.farcaster.xyz is production-only and validates FIDs against
+		// Optimism mainnet. On testnet (OP Sepolia), fname registration will fail
+		// because the FID doesn't exist on mainnet. The EIP-712 signing and request
+		// plumbing is exercised, but actual registration only works in production.
+		const isTestnet = OP_SEPOLIA_RPC.includes("sepolia");
+		if (isTestnet) {
+			console.log("  ⚠ Fname registration skipped on testnet (fnames.farcaster.xyz is mainnet-only)");
+			console.log("  ✓ EIP-712 UserNameProof signed and sent to signup service");
+			console.log("  → Fname will work in production with Optimism mainnet FIDs");
+		} else {
+			const fnameCheckResp = await fetch(`https://fnames.farcaster.xyz/transfers/current?name=${FNAME_ARG}`);
+			if (fnameCheckResp.ok) {
+				const fnameData = await fnameCheckResp.json() as { transfer?: { to: number; username: string } };
+				if (fnameData.transfer) {
+					const assignedFid = body2.fid || newFid.toString();
+					if (fnameData.transfer.to.toString() === assignedFid) {
+						console.log(`  ✓ Fname "${fnameData.transfer.username}" registered to FID ${assignedFid}`);
+					} else {
+						console.log(`  ✗ Fname registered to FID ${fnameData.transfer.to}, expected ${assignedFid}`);
+					}
+				} else {
+					console.log(`  ✗ Fname "${FNAME_ARG}" not found in registry`);
+				}
+			} else {
+				console.log(`  ✗ Failed to check fname (status ${fnameCheckResp.status})`);
+			}
+
+			// Verify handle was set correctly
+			const expectedHandle = `${FNAME_ARG}.farcaster.social`;
+			if (body2.handle === expectedHandle) {
+				console.log(`  ✓ Handle set to ${expectedHandle}`);
+			} else {
+				console.log(`  ✗ Handle is "${body2.handle}", expected "${expectedHandle}"`);
+			}
 		}
 	}
 

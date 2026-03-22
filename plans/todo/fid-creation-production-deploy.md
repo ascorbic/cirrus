@@ -11,6 +11,7 @@ This covers moving to OP Mainnet.
 - Configure production env vars (OP Mainnet contracts, Privy prod credentials)
 - Fund Privy server wallet with OP ETH for gas + storage rent
 - Set `ACCOUNT_CREATION_KEY` on both signup service and PDS
+- E2e test fname registration (requires mainnet FIDs — can't be tested on testnet)
 
 ## Open Questions
 
