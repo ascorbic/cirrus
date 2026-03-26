@@ -207,25 +207,35 @@ export async function handleXrpcProxy(
 		}
 	}
 
-	// Forward request with potentially replaced auth header
-	// Use Headers object for case-insensitive handling
-	const forwardHeaders = new Headers(c.req.raw.headers);
+	// Forward request with allowlisted headers only.
+	// Cloudflare Workers subrequests to CF-proxied origins (like api.bsky.app)
+	// can intermittently inject `transfer-encoding: chunked`, causing the upstream
+	// XRPC server to reject the request with "A request body was provided when
+	// none was expected" (see https://github.com/bluesky-social/atproto/issues/3267).
+	// Using an allowlist (instead of cloning all headers and removing some) prevents
+	// CF-internal headers from leaking into the subrequest.
+	const forwardHeaders = new Headers();
+	const allowHeaders = new Set([
+		"accept",
+		"accept-encoding",
+		"accept-language",
+		"atproto-accept-labelers",
+		"if-none-match",
+		"if-modified-since",
+		"user-agent",
+	]);
 
-	// Remove headers that shouldn't be forwarded (security/privacy)
-	const headersToRemove = [
-		"authorization", // Replaced with service JWT
-		"atproto-proxy", // Internal routing header
-		"host", // Will be set by fetch
-		"connection", // Connection-specific
-		"cookie", // Privacy - don't leak cookies
-		"x-forwarded-for", // Don't leak client IP
-		"x-real-ip", // Don't leak client IP
-		"x-forwarded-proto", // Internal
-		"x-forwarded-host", // Internal
-	];
+	const isBodyless = c.req.method === "GET" || c.req.method === "HEAD";
 
-	for (const header of headersToRemove) {
-		forwardHeaders.delete(header);
+	if (!isBodyless) {
+		allowHeaders.add("content-type");
+		allowHeaders.add("content-length");
+	}
+
+	for (const [key, value] of c.req.raw.headers.entries()) {
+		if (allowHeaders.has(key.toLowerCase())) {
+			forwardHeaders.set(key, value);
+		}
 	}
 
 	// Add service auth if we have it
@@ -233,15 +243,42 @@ export async function handleXrpcProxy(
 		forwardHeaders.set("Authorization", headers["Authorization"]);
 	}
 
-	const reqInit: RequestInit = {
-		method: c.req.method,
-		headers: forwardHeaders,
-	};
+	const targetUrlStr = targetUrl.toString();
 
-	// Include body for non-GET requests
-	if (c.req.method !== "GET" && c.req.method !== "HEAD") {
-		reqInit.body = c.req.raw.body;
+	// Use explicit Request constructor for bodyless requests to ensure a clean
+	// wire format. Retry on the specific upstream body-presence validation error,
+	// which can occur intermittently due to CF Workers subrequest behavior.
+	const doFetch = () =>
+		isBodyless
+			? fetch(
+					new Request(targetUrlStr, {
+						method: c.req.method,
+						headers: new Headers(forwardHeaders),
+					}),
+				)
+			: fetch(targetUrlStr, {
+					method: c.req.method,
+					headers: forwardHeaders,
+					body: c.req.raw.body,
+				});
+
+	for (let attempt = 0; attempt < 3; attempt++) {
+		const resp = await doFetch();
+		if (resp.status === 400) {
+			const body = await resp.text();
+			if (body.includes("request body was provided when none was expected")) {
+				continue;
+			}
+			return new Response(body, { status: 400, headers: resp.headers });
+		}
+		return resp;
 	}
 
-	return fetch(targetUrl.toString(), reqInit);
+	return c.json(
+		{
+			error: "InvalidRequest",
+			message: "Upstream request failed after retries",
+		},
+		502,
+	);
 }
