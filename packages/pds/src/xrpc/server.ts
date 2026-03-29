@@ -32,7 +32,7 @@ function generateAppPassword(): string {
 }
 
 /** Check if a string looks like an app password (xxxx-xxxx-xxxx-xxxx). */
-export function isAppPassword(password: string): boolean {
+function isAppPassword(password: string): boolean {
 	return /^[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}$/.test(password);
 }
 
