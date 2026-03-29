@@ -337,6 +337,23 @@ app.get("/xrpc/com.atproto.server.getSession", (c) =>
 );
 app.post("/xrpc/com.atproto.server.deleteSession", server.deleteSession);
 
+// App passwords
+app.post(
+	"/xrpc/com.atproto.server.createAppPassword",
+	requireAuth,
+	(c) => server.createAppPassword(c, getAccountDO(c.env)),
+);
+app.get(
+	"/xrpc/com.atproto.server.listAppPasswords",
+	requireAuth,
+	(c) => server.listAppPasswords(c, getAccountDO(c.env)),
+);
+app.post(
+	"/xrpc/com.atproto.server.revokeAppPassword",
+	requireAuth,
+	(c) => server.revokeAppPassword(c, getAccountDO(c.env)),
+);
+
 // Account lifecycle
 app.get("/xrpc/com.atproto.server.checkAccountStatus", requireAuth, (c) =>
 	server.checkAccountStatus(c, getAccountDO(c.env)),

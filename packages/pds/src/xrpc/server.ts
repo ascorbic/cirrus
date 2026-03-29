@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { hash as bcryptHash } from "bcryptjs";
 import type { AccountDurableObject } from "../account-do";
 import { createServiceJwt, getSigningKeypair } from "../service-auth";
 import {
@@ -11,6 +12,30 @@ import {
 } from "../session";
 import type { AppEnv, AuthedAppEnv } from "../types";
 
+/**
+ * Generate an AT Protocol app password in the format xxxx-xxxx-xxxx-xxxx.
+ * Uses crypto.getRandomValues for secure randomness.
+ */
+function generateAppPassword(): string {
+	const chars = "abcdefghijklmnopqrstuvwxyz";
+	const bytes = new Uint8Array(16);
+	crypto.getRandomValues(bytes);
+	const groups: string[] = [];
+	for (let g = 0; g < 4; g++) {
+		let segment = "";
+		for (let i = 0; i < 4; i++) {
+			segment += chars[bytes[g * 4 + i]! % chars.length];
+		}
+		groups.push(segment);
+	}
+	return groups.join("-");
+}
+
+/** Check if a string looks like an app password (xxxx-xxxx-xxxx-xxxx). */
+export function isAppPassword(password: string): boolean {
+	return /^[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}$/.test(password);
+}
+
 export async function describeServer(c: Context<AppEnv>): Promise<Response> {
 	return c.json({
 		did: c.env.DID,
@@ -20,7 +45,8 @@ export async function describeServer(c: Context<AppEnv>): Promise<Response> {
 }
 
 /**
- * Create a new session (login)
+ * Create a new session (login).
+ * Accepts either the account password or an app password.
  */
 export async function createSession(
 	c: Context<AppEnv>,
@@ -54,16 +80,41 @@ export async function createSession(
 		);
 	}
 
-	// Verify password
-	const passwordValid = await verifyPassword(password, c.env.PASSWORD_HASH);
-	if (!passwordValid) {
-		return c.json(
-			{
-				error: "AuthenticationRequired",
-				message: "Invalid identifier or password",
-			},
-			401,
+	// Try app password first if it matches the format
+	if (isAppPassword(password)) {
+		const appPasswords = await accountDO.rpcGetAppPasswordHashes();
+		let matched = false;
+		for (const ap of appPasswords) {
+			const valid = await verifyPassword(password, ap.passwordHash);
+			if (valid) {
+				matched = true;
+				break;
+			}
+		}
+		if (!matched) {
+			return c.json(
+				{
+					error: "AuthenticationRequired",
+					message: "Invalid identifier or password",
+				},
+				401,
+			);
+		}
+	} else {
+		// Verify account password
+		const passwordValid = await verifyPassword(
+			password,
+			c.env.PASSWORD_HASH,
 		);
+		if (!passwordValid) {
+			return c.json(
+				{
+					error: "AuthenticationRequired",
+					message: "Invalid identifier or password",
+				},
+				401,
+			);
+		}
 	}
 
 	// Create tokens
@@ -476,4 +527,101 @@ export async function resetMigration(
 			500,
 		);
 	}
+}
+
+/**
+ * Create an app password.
+ * com.atproto.server.createAppPassword
+ */
+export async function createAppPassword(
+	c: Context<AuthedAppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
+	const body = await c.req.json<{ name: string }>();
+
+	if (!body.name || body.name.trim().length === 0) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required field: name",
+			},
+			400,
+		);
+	}
+
+	const name = body.name.trim();
+
+	// Check for duplicate names
+	const existing = await accountDO.rpcListAppPasswords();
+	if (existing.some((p) => p.name === name)) {
+		return c.json(
+			{
+				error: "DuplicateName",
+				message: `App password with name "${name}" already exists`,
+			},
+			400,
+		);
+	}
+
+	const password = generateAppPassword();
+	const passwordHash = await bcryptHash(password, 10);
+
+	await accountDO.rpcSaveAppPassword(name, passwordHash);
+
+	return c.json({
+		name,
+		password,
+		createdAt: new Date().toISOString(),
+	});
+}
+
+/**
+ * List app passwords (names and dates, never the passwords themselves).
+ * com.atproto.server.listAppPasswords
+ */
+export async function listAppPasswords(
+	c: Context<AuthedAppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
+	const passwords = await accountDO.rpcListAppPasswords();
+	return c.json({
+		passwords: passwords.map((p) => ({
+			name: p.name,
+			createdAt: p.createdAt,
+		})),
+	});
+}
+
+/**
+ * Revoke an app password by name.
+ * com.atproto.server.revokeAppPassword
+ */
+export async function revokeAppPassword(
+	c: Context<AuthedAppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
+	const body = await c.req.json<{ name: string }>();
+
+	if (!body.name) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required field: name",
+			},
+			400,
+		);
+	}
+
+	const deleted = await accountDO.rpcDeleteAppPassword(body.name);
+	if (!deleted) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: `App password "${body.name}" not found`,
+			},
+			400,
+		);
+	}
+
+	return c.json({});
 }

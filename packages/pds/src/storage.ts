@@ -103,6 +103,13 @@ export class SqliteRepoStorage
 				expires_at INTEGER NOT NULL,
 				name TEXT
 			);
+
+			-- App passwords (AT Protocol com.atproto.server.createAppPassword)
+			CREATE TABLE IF NOT EXISTS app_passwords (
+				name TEXT PRIMARY KEY,
+				password_hash TEXT NOT NULL,
+				created_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
 		`);
 
 		// Migration: add email column for existing databases
@@ -672,5 +679,67 @@ export class SqliteRepoStorage
 			"DELETE FROM passkey_tokens WHERE expires_at < ?",
 			Date.now(),
 		);
+	}
+
+	// ============================================
+	// App Password Methods
+	// ============================================
+
+	/**
+	 * Save an app password (store bcrypt hash, not plaintext).
+	 */
+	saveAppPassword(name: string, passwordHash: string): void {
+		this.sql.exec(
+			`INSERT INTO app_passwords (name, password_hash) VALUES (?, ?)`,
+			name,
+			passwordHash,
+		);
+	}
+
+	/**
+	 * List all app passwords (names and creation dates only — never return hashes).
+	 */
+	listAppPasswords(): Array<{
+		name: string;
+		createdAt: string;
+	}> {
+		const rows = this.sql
+			.exec(
+				`SELECT name, created_at FROM app_passwords ORDER BY created_at DESC`,
+			)
+			.toArray();
+
+		return rows.map((row) => ({
+			name: row.name as string,
+			createdAt: row.created_at as string,
+		}));
+	}
+
+	/**
+	 * Delete an app password by name.
+	 */
+	deleteAppPassword(name: string): boolean {
+		const before = this.sql
+			.exec("SELECT COUNT(*) as c FROM app_passwords")
+			.one();
+		this.sql.exec("DELETE FROM app_passwords WHERE name = ?", name);
+		const after = this.sql
+			.exec("SELECT COUNT(*) as c FROM app_passwords")
+			.one();
+		return (before.c as number) > (after.c as number);
+	}
+
+	/**
+	 * Get all app password hashes for verification during login.
+	 */
+	getAppPasswordHashes(): Array<{ name: string; passwordHash: string }> {
+		const rows = this.sql
+			.exec(`SELECT name, password_hash FROM app_passwords`)
+			.toArray();
+
+		return rows.map((row) => ({
+			name: row.name as string,
+			passwordHash: row.password_hash as string,
+		}));
 	}
 }

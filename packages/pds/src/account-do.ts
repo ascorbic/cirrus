@@ -1574,6 +1574,41 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		return oauthStorage.consumeWebAuthnChallenge(challenge);
 	}
 
+	// ============================================
+	// App Password RPC Methods
+	// ============================================
+
+	/** Save an app password (bcrypt hash) */
+	async rpcSaveAppPassword(
+		name: string,
+		passwordHash: string,
+	): Promise<void> {
+		const storage = await this.getStorage();
+		storage.saveAppPassword(name, passwordHash);
+	}
+
+	/** List all app passwords (names and dates only) */
+	async rpcListAppPasswords(): Promise<
+		Array<{ name: string; createdAt: string }>
+	> {
+		const storage = await this.getStorage();
+		return storage.listAppPasswords();
+	}
+
+	/** Delete an app password by name */
+	async rpcDeleteAppPassword(name: string): Promise<boolean> {
+		const storage = await this.getStorage();
+		return storage.deleteAppPassword(name);
+	}
+
+	/** Get all app password hashes for login verification */
+	async rpcGetAppPasswordHashes(): Promise<
+		Array<{ name: string; passwordHash: string }>
+	> {
+		const storage = await this.getStorage();
+		return storage.getAppPasswordHashes();
+	}
+
 	/**
 	 * HTTP fetch handler for WebSocket upgrades and streaming responses.
 	 * Used instead of RPC when the response can't be serialized (WebSocket)
