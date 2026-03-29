@@ -125,11 +125,13 @@ export const createCommand = defineCommand({
 			`App password ${pc.bold(`"${result.name}"`)} created.`,
 		);
 		p.log.info("");
-		p.note(result.password, "App Password");
-		p.log.info("");
 
 		// Try to copy to clipboard
 		const copied = await copyToClipboard(result.password);
+
+		// Show the password
+		p.note(result.password, "App Password");
+
 		if (copied) {
 			p.log.info(pc.dim("Copied to clipboard."));
 		}
@@ -137,6 +139,24 @@ export const createCommand = defineCommand({
 		p.log.warn(
 			"This password will not be shown again. Save it now.",
 		);
+
+		// Wait for confirmation, then hide the password from terminal
+		const confirmed = await p.confirm({
+			message: "Have you saved the password?",
+		});
+
+		if (p.isCancel(confirmed)) {
+			p.outro("Done! (password still visible above)");
+			return;
+		}
+
+		// Overwrite the password display with a masked version
+		// Lines to clear: note(6) + clipboard log(0|2) + warn(2) + confirm(2)
+		const linesToClear = 6 + (copied ? 2 : 0) + 2 + 2;
+		process.stdout.write(`\x1b[${linesToClear}A\x1b[0J`);
+
+		p.note("xxxx-xxxx-xxxx-xxxx", "App Password (hidden)");
+		p.log.info(pc.dim("Password hidden from terminal."));
 
 		p.outro("Done!");
 	},
