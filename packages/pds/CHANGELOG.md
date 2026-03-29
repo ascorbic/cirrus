@@ -1,5 +1,11 @@
 # @getcirrus/pds
 
+## 0.13.0
+
+### Minor Changes
+
+- [#147](https://github.com/ascorbic/cirrus/pull/147) [`2f06391`](https://github.com/ascorbic/cirrus/commit/2f06391127683f0212ac7a837a90946875a91bd5) Thanks [@ascorbic](https://github.com/ascorbic)! - Add app password support for AT Protocol client authentication. Implements `com.atproto.server.createAppPassword`, `listAppPasswords`, `revokeAppPassword`, and login via app passwords. Includes CLI commands for creating, listing, and revoking app passwords.
+
 ## 0.12.0
 
 ### Minor Changes
