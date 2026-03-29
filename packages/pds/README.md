@@ -221,6 +221,34 @@ Lists all registered passkeys with their names, IDs, and last used timestamps.
 
 Interactively select and remove a passkey from the account.
 
+### `pds app-password`
+
+Manage app passwords for third-party client access.
+
+```bash
+pds app-password create  # Create a new app password
+pds app-password list    # List app passwords
+pds app-password revoke  # Revoke an app password
+```
+
+All app-password commands support:
+
+- `--dev` – Target the local development server instead of production
+
+#### `pds app-password create`
+
+Creates a new app password. Prompts for a name (for example, "Graysky" or "Skeet client"), generates a secure password in `xxxx-xxxx-xxxx-xxxx` format, and displays it once. The password cannot be retrieved after creation.
+
+App passwords grant the same access as the account password but are designed for use in third-party clients. They can be individually revoked without changing the account password.
+
+#### `pds app-password list`
+
+Lists all app passwords with their names and creation dates. Passwords themselves are never shown — only the names.
+
+#### `pds app-password revoke`
+
+Interactively select and revoke an app password. Use `-y` to skip the confirmation prompt. Sessions created with a revoked app password continue to work until the access token expires, but no new sessions can be created.
+
 ### `pds secret`
 
 Manage individual secrets.
@@ -424,6 +452,9 @@ See [Cloudflare's data location documentation](https://developers.cloudflare.com
 | `POST /xrpc/com.atproto.server.createSession`     | No   | Login with password, get JWT        |
 | `POST /xrpc/com.atproto.server.refreshSession`    | Yes  | Refresh JWT tokens                  |
 | `GET /xrpc/com.atproto.server.getSession`         | Yes  | Get current session info            |
+| `POST /xrpc/com.atproto.server.createAppPassword`  | Yes  | Create an app password              |
+| `GET /xrpc/com.atproto.server.listAppPasswords`    | Yes  | List app passwords                  |
+| `POST /xrpc/com.atproto.server.revokeAppPassword`  | Yes  | Revoke an app password              |
 | `POST /xrpc/com.atproto.server.deleteSession`     | Yes  | Logout                              |
 | `GET /xrpc/com.atproto.server.getServiceAuth`     | Yes  | Get JWT for external services       |
 | `GET /xrpc/com.atproto.server.getAccountStatus`   | Yes  | Account status (active/deactivated) |

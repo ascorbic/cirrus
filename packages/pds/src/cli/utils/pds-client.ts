@@ -723,6 +723,126 @@ export class PDSClient {
 	// ============================================
 
 	// ============================================
+	// App Password Operations
+	// ============================================
+
+	/**
+	 * Create a new app password
+	 */
+	async createAppPassword(name: string): Promise<{
+		name: string;
+		password: string;
+		createdAt: string;
+	}> {
+		const url = new URL(
+			"/xrpc/com.atproto.server.createAppPassword",
+			this.baseUrl,
+		);
+		const headers: Record<string, string> = {
+			"Content-Type": "application/json",
+		};
+		if (this.authToken) {
+			headers["Authorization"] = `Bearer ${this.authToken}`;
+		}
+		const res = await fetch(url.toString(), {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ name }),
+		});
+		if (!res.ok) {
+			const errorBody = (await res.json().catch(() => ({}))) as {
+				error?: string;
+				message?: string;
+			};
+			throw new ClientResponseError({
+				status: res.status,
+				headers: res.headers,
+				data: {
+					error: errorBody.error ?? "Unknown",
+					message: errorBody.message,
+				},
+			});
+		}
+		return res.json() as Promise<{
+			name: string;
+			password: string;
+			createdAt: string;
+		}>;
+	}
+
+	/**
+	 * List all app passwords
+	 */
+	async listAppPasswords(): Promise<{
+		passwords: Array<{ name: string; createdAt: string }>;
+	}> {
+		const url = new URL(
+			"/xrpc/com.atproto.server.listAppPasswords",
+			this.baseUrl,
+		);
+		const headers: Record<string, string> = {};
+		if (this.authToken) {
+			headers["Authorization"] = `Bearer ${this.authToken}`;
+		}
+		const res = await fetch(url.toString(), {
+			method: "GET",
+			headers,
+		});
+		if (!res.ok) {
+			const errorBody = (await res.json().catch(() => ({}))) as {
+				error?: string;
+				message?: string;
+			};
+			throw new ClientResponseError({
+				status: res.status,
+				headers: res.headers,
+				data: {
+					error: errorBody.error ?? "Unknown",
+					message: errorBody.message,
+				},
+			});
+		}
+		return res.json() as Promise<{
+			passwords: Array<{ name: string; createdAt: string }>;
+		}>;
+	}
+
+	/**
+	 * Revoke an app password by name
+	 */
+	async revokeAppPassword(name: string): Promise<void> {
+		const url = new URL(
+			"/xrpc/com.atproto.server.revokeAppPassword",
+			this.baseUrl,
+		);
+		const headers: Record<string, string> = {
+			"Content-Type": "application/json",
+		};
+		if (this.authToken) {
+			headers["Authorization"] = `Bearer ${this.authToken}`;
+		}
+		const res = await fetch(url.toString(), {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ name }),
+		});
+		if (!res.ok) {
+			const errorBody = (await res.json().catch(() => ({}))) as {
+				error?: string;
+				message?: string;
+			};
+			throw new ClientResponseError({
+				status: res.status,
+				headers: res.headers,
+				data: {
+					error: errorBody.error ?? "Unknown",
+					message: errorBody.message,
+				},
+			});
+		}
+	}
+
+	// ============================================
 	// Passkey Operations
 	// ============================================
 
