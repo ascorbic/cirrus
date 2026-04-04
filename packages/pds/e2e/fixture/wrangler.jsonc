@@ -1,4 +1,5 @@
 {
+	"$schema": "https://cdn.jsdelivr.net/npm/wrangler@4.80.0/config-schema.json",
 	"name": "pds-e2e-test",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-01-01",
@@ -12,6 +13,17 @@
 		{ "tag": "v1", "new_sqlite_classes": ["AccountDurableObject"] }
 	],
 	"r2_buckets": [
-		{ "binding": "BLOBS", "bucket_name": "test-blobs" }
-	]
+		{ "binding": "BLOBS" }
+	],
+	// Public vars for Vite dev (required alongside secrets.required + .dev.vars)
+	"vars": {
+		"DID": "did:web:test.local",
+		"HANDLE": "test.local",
+		"PDS_HOSTNAME": "test.local",
+		"SIGNING_KEY_PUBLIC": "zQ3shbUq6umkAhwsxEXj6fRZ3ptBtF5CNZbAGoKjvFRatUkVY",
+		"INITIAL_ACTIVE": "true"
+	},
+	"secrets": {
+		"required": ["AUTH_TOKEN", "SIGNING_KEY", "JWT_SECRET", "PASSWORD_HASH"]
+	}
 }

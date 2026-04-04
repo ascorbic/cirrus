@@ -25,8 +25,14 @@
 	"packageManager": "pnpm@10.26.2",
 	"pnpm": {
 		"overrides": {
-			"wrangler": "^4.63.0",
+			"wrangler": "^4.80.0",
 			"miniflare": "^4.20260205.0"
-		}
+		},
+		"ignoredBuiltDependencies": [
+			"@atcute/time-ms",
+			"esbuild",
+			"sharp",
+			"workerd"
+		]
 	}
 }

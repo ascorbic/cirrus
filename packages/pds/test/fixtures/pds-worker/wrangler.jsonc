@@ -1,4 +1,5 @@
 {
+	"$schema": "https://cdn.jsdelivr.net/npm/wrangler@4.80.0/config-schema.json",
 	// Test configuration for the PDS worker fixture
 	"name": "pds-test",
 	"main": "index.ts",
@@ -21,7 +22,9 @@
 	"r2_buckets": [
 		{
 			"binding": "BLOBS",
-			"bucket_name": "test-blobs",
 		},
 	],
+	"secrets": {
+		"required": ["AUTH_TOKEN", "SIGNING_KEY", "JWT_SECRET", "PASSWORD_HASH"]
+	},
 }
