@@ -87,6 +87,10 @@ packages/pds/src/
    - Bearer tokens (session JWTs)
    - DPoP tokens (OAuth access tokens)
 
+## Post-Completion Updates
+
+- ✅ PDS auth middleware now returns DPoP `WWW-Authenticate` invalid_token challenges on 401 responses so OAuth clients can trigger automatic refresh.
+
 ## OAuth Endpoints
 
 | Endpoint                                  | Method | Description                               |
