@@ -163,7 +163,8 @@ describe("XRPC Endpoints", () => {
 				scope: "atproto",
 				dpopJkt,
 				issuedAt: now - 2 * 60 * 60 * 1000,
-				expiresAt: now - 60 * 1000,
+				accessExpiresAt: now - 60 * 1000,
+				refreshExpiresAt: now + 30 * 24 * 60 * 60 * 1000,
 				revoked: false,
 			});
 

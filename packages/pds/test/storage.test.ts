@@ -5,6 +5,8 @@ import { encode, cidForCbor, type LexValue } from "@atproto/lex-cbor";
 import { BlockMap, CidSet } from "@atproto/repo";
 import { AccountDurableObject } from "../src/account-do";
 import { SqliteRepoStorage } from "../src/storage";
+import { SqliteOAuthStorage } from "../src/oauth-storage";
+import { REFRESH_TOKEN_TTL } from "@getcirrus/oauth-provider";
 
 // Helper to create a CID from data
 async function createCid(
@@ -329,6 +331,107 @@ describe("AccountDurableObject", () => {
 			const repo = await instance.getRepo();
 			expect(repo.cid.toString()).toBe(firstRepoCid);
 			expect(repo.did).toBe(env.DID);
+		});
+	});
+});
+
+
+describe("SqliteOAuthStorage", () => {
+	it("preserves refresh-valid tokens when access token has expired", async () => {
+		const id = env.ACCOUNT.newUniqueId();
+		const stub = env.ACCOUNT.get(id);
+
+		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+			const oauthStorage = await instance.getOAuthStorage();
+			const now = Date.now();
+			const tokenData = {
+				accessToken: "expired-access-token",
+				refreshToken: "still-valid-refresh-token",
+				clientId: "did:web:app.example",
+				sub: env.DID,
+				scope: "atproto",
+				issuedAt: now - 2 * 60 * 60 * 1000,
+				accessExpiresAt: now - 60 * 1000,
+				refreshExpiresAt: now + 24 * 60 * 60 * 1000,
+				revoked: false,
+			};
+
+			await oauthStorage.saveTokens(tokenData);
+			oauthStorage.cleanup();
+
+			const tokenByRefresh = await oauthStorage.getTokenByRefresh(
+				tokenData.refreshToken,
+			);
+			expect(tokenByRefresh).not.toBeNull();
+			expect(tokenByRefresh?.refreshToken).toBe(tokenData.refreshToken);
+			expect(await oauthStorage.getTokenByAccess(tokenData.accessToken)).toBeNull();
+		});
+	});
+
+	it("migrates legacy oauth_tokens schema without failing on missing new columns", async () => {
+		const id = env.ACCOUNT.newUniqueId();
+		const stub = env.ACCOUNT.get(id);
+
+		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+			const sql = (instance as unknown as { ctx: { storage: { sql: SqlStorage } } })
+				.ctx.storage.sql;
+			const now = Date.now();
+			const issuedAt = now - 2 * 60 * 60 * 1000;
+			const expiresAt = now - 60 * 1000;
+
+			sql.exec(`
+				CREATE TABLE oauth_tokens (
+					access_token TEXT PRIMARY KEY,
+					refresh_token TEXT NOT NULL UNIQUE,
+					client_id TEXT NOT NULL,
+					sub TEXT NOT NULL,
+					scope TEXT NOT NULL,
+					dpop_jkt TEXT,
+					issued_at INTEGER NOT NULL,
+					expires_at INTEGER NOT NULL,
+					revoked INTEGER NOT NULL DEFAULT 0
+				);
+			`);
+
+			sql.exec(
+				`INSERT INTO oauth_tokens
+				(access_token, refresh_token, client_id, sub, scope, dpop_jkt, issued_at, expires_at, revoked)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				"legacy-access",
+				"legacy-refresh",
+				"did:web:app.example",
+				env.DID,
+				"atproto",
+				null,
+				issuedAt,
+				expiresAt,
+				0,
+			);
+
+			const oauthStorage = new SqliteOAuthStorage(sql);
+			expect(() => oauthStorage.initSchema()).not.toThrow();
+
+			const columns = sql
+				.exec("PRAGMA table_info(oauth_tokens)")
+				.toArray()
+				.map((row) => row.name as string);
+
+			expect(columns).toContain("access_expires_at");
+			expect(columns).toContain("refresh_expires_at");
+			expect(columns).not.toContain("expires_at");
+
+			const migratedRow = sql
+				.exec(
+					`SELECT access_expires_at, refresh_expires_at FROM oauth_tokens WHERE access_token = ?`,
+					"legacy-access",
+				)
+				.one();
+
+			expect(migratedRow).toBeDefined();
+			expect(migratedRow.access_expires_at as number).toBe(expiresAt);
+			expect(migratedRow.refresh_expires_at as number).toBe(
+				Math.max(expiresAt, issuedAt + REFRESH_TOKEN_TTL),
+			);
 		});
 	});
 });

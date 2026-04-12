@@ -41,8 +41,10 @@ export interface TokenData {
 	dpopJkt?: string;
 	/** Issuance timestamp (Unix ms) */
 	issuedAt: number;
-	/** Expiration timestamp (Unix ms) */
-	expiresAt: number;
+	/** Access token expiration timestamp (Unix ms) */
+	accessExpiresAt: number;
+	/** Refresh token expiration timestamp (Unix ms) */
+	refreshExpiresAt: number;
 	/** Whether the token has been revoked */
 	revoked?: boolean;
 }
@@ -258,7 +260,7 @@ export class InMemoryOAuthStorage implements OAuthStorage {
 	async getTokenByAccess(accessToken: string): Promise<TokenData | null> {
 		const data = this.tokens.get(accessToken);
 		if (!data) return null;
-		if (data.revoked || Date.now() > data.expiresAt) {
+		if (data.revoked || Date.now() > data.accessExpiresAt) {
 			return null;
 		}
 		return data;
@@ -269,8 +271,7 @@ export class InMemoryOAuthStorage implements OAuthStorage {
 		if (!accessToken) return null;
 		const data = this.tokens.get(accessToken);
 		if (!data) return null;
-		if (data.revoked) return null;
-		// Refresh tokens don't use accessToken expiresAt
+		if (data.revoked || Date.now() > data.refreshExpiresAt) return null;
 		return data;
 	}
 
