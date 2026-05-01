@@ -421,6 +421,17 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		const updatedRepo = await repo.applyWrites([deleteOp], keypair);
 		this.repo = updatedRepo;
 
+		// If the collection has no records left, remove it from the cache
+		let collectionStillHasRecords = false;
+		for await (const remaining of this.repo.walkRecords(`${collection}/`)) {
+			if (remaining.collection !== collection) break;
+			collectionStillHasRecords = true;
+			break;
+		}
+		if (!collectionStillHasRecords) {
+			this.storage!.removeCollection(collection);
+		}
+
 		// Sequence the commit for firehose
 		if (this.sequencer) {
 			// Get blocks that changed
