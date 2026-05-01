@@ -288,6 +288,94 @@ describe("SqliteRepoStorage", () => {
 	});
 });
 
+describe("Collections cache", () => {
+	it("addCollection / removeCollection / getCollections", async () => {
+		const id = env.ACCOUNT.newUniqueId();
+		const stub = env.ACCOUNT.get(id);
+
+		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+			const storage = await instance.getStorage();
+
+			expect(storage.getCollections()).toEqual([]);
+			expect(storage.hasCollections()).toBe(false);
+
+			storage.addCollection("app.bsky.feed.post");
+			storage.addCollection("app.bsky.feed.like");
+
+			expect(storage.getCollections()).toEqual([
+				"app.bsky.feed.like",
+				"app.bsky.feed.post",
+			]);
+			expect(storage.hasCollections()).toBe(true);
+
+			storage.removeCollection("app.bsky.feed.post");
+			expect(storage.getCollections()).toEqual(["app.bsky.feed.like"]);
+
+			// removing a missing collection is a no-op
+			storage.removeCollection("app.bsky.feed.post");
+			expect(storage.getCollections()).toEqual(["app.bsky.feed.like"]);
+		});
+	});
+
+	it("removes a collection from the cache when its last record is deleted", async () => {
+		const id = env.ACCOUNT.newUniqueId();
+		const stub = env.ACCOUNT.get(id);
+
+		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+			await instance.getStorage();
+
+			await instance.rpcCreateRecord("app.bsky.feed.post", "rkey-1", {
+				text: "first",
+				createdAt: new Date().toISOString(),
+			});
+			await instance.rpcCreateRecord("app.bsky.feed.like", "rkey-2", {
+				subject: {
+					uri: `at://${env.DID}/app.bsky.feed.post/rkey-1`,
+					cid: "bafyreigh2akiscaildc7ypw7e6tqocp3vy3uwgyq37e6kz3sm6f5l3hbjm",
+				},
+				createdAt: new Date().toISOString(),
+			});
+
+			const storage = await instance.getStorage();
+			expect(storage.getCollections().sort()).toEqual([
+				"app.bsky.feed.like",
+				"app.bsky.feed.post",
+			]);
+
+			await instance.rpcDeleteRecord("app.bsky.feed.like", "rkey-2");
+
+			expect(storage.getCollections()).toEqual(["app.bsky.feed.post"]);
+		});
+	});
+
+	it("keeps the collection in the cache when records remain", async () => {
+		const id = env.ACCOUNT.newUniqueId();
+		const stub = env.ACCOUNT.get(id);
+
+		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+			await instance.getStorage();
+
+			await instance.rpcCreateRecord("app.bsky.feed.post", "rkey-1", {
+				text: "first",
+				createdAt: new Date().toISOString(),
+			});
+			await instance.rpcCreateRecord("app.bsky.feed.post", "rkey-2", {
+				text: "second",
+				createdAt: new Date().toISOString(),
+			});
+
+			await instance.rpcDeleteRecord("app.bsky.feed.post", "rkey-1");
+
+			const storage = await instance.getStorage();
+			expect(storage.getCollections()).toEqual(["app.bsky.feed.post"]);
+
+			await instance.rpcDeleteRecord("app.bsky.feed.post", "rkey-2");
+
+			expect(storage.getCollections()).toEqual([]);
+		});
+	});
+});
+
 describe("AccountDurableObject", () => {
 	it("initializes storage on first access", async () => {
 		const id = env.ACCOUNT.newUniqueId();
