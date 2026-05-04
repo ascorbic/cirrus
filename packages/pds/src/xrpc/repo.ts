@@ -469,14 +469,19 @@ export async function uploadBlob(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	let contentType = c.req.header("Content-Type");
+	// Strip any MIME parameters (e.g. "image/png; charset=utf-8") before
+	// scope-checking — `@atproto/oauth-scopes`' BlobPermission.matches uses
+	// strict MIME validation that rejects parameterised values.
+	const mimeOf = (ct: string) => ct.split(";")[0]!.trim();
 
 	// Pre-buffer scope gate: if the caller declared a Content-Type, check it
 	// before reading the (up to 60 MB) body. Streaming up megabytes only to
 	// reject on scope is wasteful. If no Content-Type is declared, fall
 	// through and re-check after sniffing.
 	if (contentType && contentType !== "*/*") {
+		const mime = mimeOf(contentType);
 		const preCheck = requireScope(c, (perms) =>
-			perms.assertBlob({ mime: contentType! }),
+			perms.assertBlob({ mime }),
 		);
 		if (preCheck) return preCheck;
 	}
@@ -484,8 +489,9 @@ export async function uploadBlob(
 	const bytes = new Uint8Array(await c.req.arrayBuffer());
 	if (!contentType || contentType === "*/*") {
 		contentType = detectContentType(bytes) || "application/octet-stream";
+		const mime = mimeOf(contentType);
 		const postCheck = requireScope(c, (perms) =>
-			perms.assertBlob({ mime: contentType! }),
+			perms.assertBlob({ mime }),
 		);
 		if (postCheck) return postCheck;
 	}

@@ -129,41 +129,49 @@ function getNetworkPermissionSetResolver(): PermissionSetResolver {
  * Wrap the network-backed resolver in a DO-SQLite cache implementing
  * stale-while-revalidate semantics from the atproto permission spec
  * (24h soft / 90d hard). Stale-entry refreshes use the Workers global
- * `waitUntil` so they outlive the request that triggered them.
+ * `waitUntil` so they outlive the request that triggered them, and an
+ * in-memory in-flight map ensures concurrent stale hits coalesce into a
+ * single network fetch.
  */
+const inflightRefresh = new Map<string, Promise<LexiconPermissionSet | null>>();
+
 function createCachedPermissionSetResolver(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): PermissionSetResolver {
 	const network = getNetworkPermissionSetResolver();
+	const fetchAndStore = (nsid: string): Promise<LexiconPermissionSet | null> => {
+		const existing = inflightRefresh.get(nsid);
+		if (existing) return existing;
+		const p = (async () => {
+			try {
+				const fresh = await network.resolve(nsid);
+				if (fresh)
+					await accountDO.rpcSavePermissionSet(
+						nsid,
+						fresh as LexiconPermissionSet,
+					);
+				return fresh;
+			} finally {
+				inflightRefresh.delete(nsid);
+			}
+		})();
+		inflightRefresh.set(nsid, p);
+		return p;
+	};
 	return {
 		async resolve(nsid) {
 			const cached = await accountDO.rpcGetPermissionSet(nsid);
 			if (cached && !cached.stale) return cached.set;
 			if (cached?.stale) {
 				waitUntil(
-					(async () => {
-						try {
-							const fresh = await network.resolve(nsid);
-							if (fresh)
-								await accountDO.rpcSavePermissionSet(
-									nsid,
-									fresh as LexiconPermissionSet,
-								);
-						} catch {
-							// stale-while-revalidate: drop refresh errors silently;
-							// next request will retry.
-						}
-					})(),
+					fetchAndStore(nsid).catch(() => {
+						// stale-while-revalidate: drop refresh errors silently;
+						// next request will retry.
+					}),
 				);
 				return cached.set;
 			}
-			const fresh = await network.resolve(nsid);
-			if (fresh)
-				await accountDO.rpcSavePermissionSet(
-					nsid,
-					fresh as LexiconPermissionSet,
-				);
-			return fresh;
+			return fetchAndStore(nsid);
 		},
 	};
 }

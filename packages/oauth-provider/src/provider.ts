@@ -241,10 +241,12 @@ export class ATProtoOAuthProvider {
 
 		if (request.method === "POST") {
 			// POST: parse from form data (includes hidden fields with OAuth params).
-			// The form fields are untrusted (the user could tamper with the
-			// hidden inputs), so when the request was originally pushed via
-			// PAR we treat the PAR record as the source of truth for everything
-			// except a small whitelist of submission-only fields.
+			// Form fields are untrusted — a malicious page can submit arbitrary
+			// values cross-origin if SameSite policy permits, so when PAR is
+			// enabled we *require* request_uri and treat the stored PAR record
+			// as the source of truth for every security-relevant field. Only
+			// a small whitelist of submission fields (action, password, response
+			// _mode) is taken from the form.
 			const formData = await request.formData();
 			params = {};
 			for (const [key, value] of formData.entries()) {
@@ -252,8 +254,14 @@ export class ATProtoOAuthProvider {
 					params[key] = value;
 				}
 			}
-			const requestUri = params.request_uri;
-			if (requestUri && this.enablePAR && params.client_id) {
+			if (this.enablePAR) {
+				const requestUri = params.request_uri;
+				if (!requestUri || !params.client_id) {
+					return await this.renderError(
+						"invalid_request",
+						"Pushed Authorization Request required. Use the PAR endpoint first.",
+					);
+				}
 				const parParams = await this.parHandler.retrieveParams(
 					requestUri,
 					params.client_id,

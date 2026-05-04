@@ -209,8 +209,16 @@ export async function requireAuth(
 					401,
 				);
 			}
-			const requestedLxm = path.slice(xrpcPrefix.length);
-			if (requestedLxm !== payload.lxm) {
+			// Strip a single optional trailing slash and reject double-slash
+			// or empty segments — keeps the comparison robust against URL
+			// normalisation quirks without admitting path-traversal cousins.
+			const rest = path.slice(xrpcPrefix.length);
+			const requestedLxm = rest.endsWith("/") ? rest.slice(0, -1) : rest;
+			if (
+				!requestedLxm ||
+				requestedLxm.includes("/") ||
+				requestedLxm !== payload.lxm
+			) {
 				return c.json(
 					{
 						error: "AuthenticationRequired",
