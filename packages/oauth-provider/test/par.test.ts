@@ -44,7 +44,7 @@ describe("PAR Handler", () => {
 			const json = await response.json();
 			expect(json).toHaveProperty("request_uri");
 			expect(json.request_uri).toMatch(/^urn:ietf:params:oauth:request_uri:/);
-			expect(json).toHaveProperty("expires_in", 90);
+			expect(json).toHaveProperty("expires_in", 300);
 		});
 
 		it("rejects request with wrong content type", async () => {

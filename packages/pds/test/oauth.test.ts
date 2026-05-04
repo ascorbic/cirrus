@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { env, worker } from "./helpers";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { env, runInDurableObject, worker } from "./helpers";
+import type { AccountDurableObject } from "../src/account-do";
 
 describe("OAuth 2.1 Endpoints", () => {
 	describe("Server Metadata", () => {
@@ -224,6 +225,78 @@ describe("OAuth 2.1 Endpoints", () => {
 				env,
 			);
 			expect(response.status).toBe(200);
+		});
+	});
+
+	describe("Permission Set Cache", () => {
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		const fakeSet = {
+			type: "permission-set" as const,
+			title: "Basic",
+			permissions: [
+				{
+					type: "permission" as const,
+					resource: "repo",
+					collection: ["com.example.post"],
+				},
+			],
+		};
+
+		it("round-trips a saved permission set", async () => {
+			const id = env.ACCOUNT.newUniqueId();
+			const stub = env.ACCOUNT.get(id);
+			await runInDurableObject(
+				stub,
+				async (instance: AccountDurableObject) => {
+					await instance.rpcSavePermissionSet("com.example.basic", fakeSet);
+					const cached = await instance.rpcGetPermissionSet(
+						"com.example.basic",
+					);
+					expect(cached).not.toBeNull();
+					expect(cached!.set.title).toBe("Basic");
+					expect(cached!.stale).toBe(false);
+				},
+			);
+		});
+
+		it("marks the entry stale after the 24h soft-expiry", async () => {
+			const id = env.ACCOUNT.newUniqueId();
+			const stub = env.ACCOUNT.get(id);
+			vi.useFakeTimers();
+			vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+			await runInDurableObject(
+				stub,
+				async (instance: AccountDurableObject) => {
+					await instance.rpcSavePermissionSet("com.example.basic", fakeSet);
+					vi.setSystemTime(new Date("2026-01-02T01:00:00Z"));
+					const cached = await instance.rpcGetPermissionSet(
+						"com.example.basic",
+					);
+					expect(cached).not.toBeNull();
+					expect(cached!.stale).toBe(true);
+				},
+			);
+		});
+
+		it("drops the entry once past the 90-day hard-expiry", async () => {
+			const id = env.ACCOUNT.newUniqueId();
+			const stub = env.ACCOUNT.get(id);
+			vi.useFakeTimers();
+			vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+			await runInDurableObject(
+				stub,
+				async (instance: AccountDurableObject) => {
+					await instance.rpcSavePermissionSet("com.example.basic", fakeSet);
+					vi.setSystemTime(new Date("2026-04-15T00:00:00Z"));
+					const cached = await instance.rpcGetPermissionSet(
+						"com.example.basic",
+					);
+					expect(cached).toBeNull();
+				},
+			);
 		});
 	});
 });

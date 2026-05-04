@@ -7,14 +7,25 @@
  */
 
 import { Hono } from "hono";
-import { ATProtoOAuthProvider } from "@getcirrus/oauth-provider";
+import { waitUntil } from "cloudflare:workers";
+import {
+	ATProtoOAuthProvider,
+	createAtcutePermissionSetResolver,
+} from "@getcirrus/oauth-provider";
 import type {
 	OAuthStorage,
 	AuthCodeData,
+	LexiconPermissionSet,
+	PermissionSetResolver,
 	TokenData,
 	ClientMetadata,
 	PARData,
 } from "@getcirrus/oauth-provider";
+import {
+	CompositeDidDocumentResolver,
+	PlcDidDocumentResolver,
+	WebDidDocumentResolver,
+} from "@atcute/identity-resolver";
 import { compare } from "bcryptjs";
 import type { PDSEnv } from "./types";
 import type { AccountDurableObject } from "./account-do";
@@ -92,6 +103,87 @@ class DOProxyOAuthStorage implements OAuthStorage {
 }
 
 /**
+ * Build a network-backed permission-set resolver. Constructed once per
+ * isolate; `@atcute/lexicon-resolver` is stateless beyond the cache it
+ * doesn't have, so it's safe to share.
+ */
+let networkPermissionSetResolver: PermissionSetResolver | undefined;
+function getNetworkPermissionSetResolver(): PermissionSetResolver {
+	if (!networkPermissionSetResolver) {
+		networkPermissionSetResolver = createAtcutePermissionSetResolver({
+			dohUrl: "https://mozilla.cloudflare-dns.com/dns-query",
+			didDocumentResolver: new CompositeDidDocumentResolver({
+				methods: {
+					plc: new PlcDidDocumentResolver({
+						apiUrl: "https://plc.directory",
+					}),
+					web: new WebDidDocumentResolver({}),
+				},
+			}),
+		});
+	}
+	return networkPermissionSetResolver;
+}
+
+/**
+ * Wrap the network-backed resolver in a DO-SQLite cache implementing
+ * stale-while-revalidate semantics from the atproto permission spec
+ * (24h soft / 90d hard). Stale-entry refreshes use the Workers global
+ * `waitUntil` so they outlive the request that triggered them, and an
+ * in-memory in-flight map ensures concurrent stale hits coalesce into a
+ * single network fetch.
+ *
+ * Note: cirrus PDS is single-tenant per Worker isolate (one account DID
+ * per deployment), so an NSID-keyed inflight map is correct — every
+ * resolver call within an isolate targets the same `accountDO` and the
+ * subsequent `rpcSavePermissionSet` writes to the right cache. If cirrus
+ * ever becomes multi-tenant, this map needs to be keyed by `${did}:${nsid}`
+ * or each observer needs to fan out their own save.
+ */
+const inflightRefresh = new Map<string, Promise<LexiconPermissionSet | null>>();
+
+function createCachedPermissionSetResolver(
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): PermissionSetResolver {
+	const network = getNetworkPermissionSetResolver();
+	const fetchAndStore = (nsid: string): Promise<LexiconPermissionSet | null> => {
+		const existing = inflightRefresh.get(nsid);
+		if (existing) return existing;
+		const p = (async () => {
+			try {
+				const fresh = await network.resolve(nsid);
+				if (fresh)
+					await accountDO.rpcSavePermissionSet(
+						nsid,
+						fresh as LexiconPermissionSet,
+					);
+				return fresh;
+			} finally {
+				inflightRefresh.delete(nsid);
+			}
+		})();
+		inflightRefresh.set(nsid, p);
+		return p;
+	};
+	return {
+		async resolve(nsid) {
+			const cached = await accountDO.rpcGetPermissionSet(nsid);
+			if (cached && !cached.stale) return cached.set;
+			if (cached?.stale) {
+				waitUntil(
+					fetchAndStore(nsid).catch(() => {
+						// stale-while-revalidate: drop refresh errors silently;
+						// next request will retry.
+					}),
+				);
+				return cached.set;
+			}
+			return fetchAndStore(nsid);
+		},
+	};
+}
+
+/**
  * Get the OAuth provider for the given environment
  * Exported for use in auth middleware for token verification
  */
@@ -136,6 +228,8 @@ export function getProvider(env: PDSEnv): ATProtoOAuthProvider {
 				handle: env.HANDLE,
 			};
 		},
+		// DO-SQLite-cached permission-set resolver for `include:` scopes.
+		permissionSetResolver: createCachedPermissionSetResolver(accountDO),
 	});
 }
 

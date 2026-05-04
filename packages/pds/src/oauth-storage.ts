@@ -1,10 +1,22 @@
 import type {
 	AuthCodeData,
 	ClientMetadata,
+	LexiconPermissionSet,
 	OAuthStorage,
 	PARData,
 	TokenData,
 } from "@getcirrus/oauth-provider";
+
+/**
+ * A cached permission-set lookup. `stale` means the entry has passed its
+ * 24h soft-expiry: it is still safe to use but should be refreshed
+ * opportunistically.
+ */
+export interface CachedPermissionSet {
+	set: LexiconPermissionSet;
+	fetchedAt: number;
+	stale: boolean;
+}
 
 /**
  * SQLite-backed OAuth storage for Cloudflare Durable Objects.
@@ -84,6 +96,20 @@ export class SqliteOAuthStorage implements OAuthStorage {
 			);
 
 			CREATE INDEX IF NOT EXISTS idx_challenges_created ON oauth_webauthn_challenges(created_at);
+
+			-- Cached permission-set lexicons resolved via @atcute/lexicon-resolver.
+			-- Cache is per-account (lives inside this AccountDurableObject) and
+			-- uses the stale-while-revalidate semantics from the atproto
+			-- permission spec.
+			CREATE TABLE IF NOT EXISTS oauth_permission_sets (
+				nsid TEXT PRIMARY KEY,
+				lexicon TEXT NOT NULL,
+				fetched_at INTEGER NOT NULL,
+				stale_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_permission_sets_expires ON oauth_permission_sets(expires_at);
 		`);
 
 		// Migration: add columns for client auth metadata if missing
@@ -117,6 +143,10 @@ export class SqliteOAuthStorage implements OAuthStorage {
 			now,
 		);
 		this.sql.exec("DELETE FROM oauth_par_requests WHERE expires_at < ?", now);
+		this.sql.exec(
+			"DELETE FROM oauth_permission_sets WHERE expires_at < ?",
+			now,
+		);
 		// Nonces expire after 5 minutes
 		const nonceExpiry = now - 5 * 60 * 1000;
 		this.sql.exec("DELETE FROM oauth_nonces WHERE created_at < ?", nonceExpiry);
@@ -409,11 +439,59 @@ export class SqliteOAuthStorage implements OAuthStorage {
 		this.sql.exec("DELETE FROM oauth_par_requests");
 		this.sql.exec("DELETE FROM oauth_nonces");
 		this.sql.exec("DELETE FROM oauth_webauthn_challenges");
+		this.sql.exec("DELETE FROM oauth_permission_sets");
 	}
 
 	// ============================================
 	// WebAuthn Challenges
 	// ============================================
+
+	// ============================================
+	// Permission-set cache
+	// ============================================
+
+	/** Soft-expiry: serve stale, but try to refresh. */
+	static readonly PERMISSION_SET_STALE_MS = 24 * 60 * 60 * 1000;
+	/** Hard-expiry: drop entirely. */
+	static readonly PERMISSION_SET_EXPIRY_MS = 90 * 24 * 60 * 60 * 1000;
+
+	savePermissionSet(
+		nsid: string,
+		set: LexiconPermissionSet,
+		now: number = Date.now(),
+	): void {
+		this.sql.exec(
+			`INSERT OR REPLACE INTO oauth_permission_sets
+			(nsid, lexicon, fetched_at, stale_at, expires_at)
+			VALUES (?, ?, ?, ?, ?)`,
+			nsid,
+			JSON.stringify(set),
+			now,
+			now + SqliteOAuthStorage.PERMISSION_SET_STALE_MS,
+			now + SqliteOAuthStorage.PERMISSION_SET_EXPIRY_MS,
+		);
+	}
+
+	getPermissionSet(nsid: string): CachedPermissionSet | null {
+		const rows = this.sql
+			.exec(
+				"SELECT lexicon, fetched_at, stale_at, expires_at FROM oauth_permission_sets WHERE nsid = ?",
+				nsid,
+			)
+			.toArray();
+		if (rows.length === 0) return null;
+		const row = rows[0]!;
+		const now = Date.now();
+		if (now > (row.expires_at as number)) {
+			this.sql.exec("DELETE FROM oauth_permission_sets WHERE nsid = ?", nsid);
+			return null;
+		}
+		return {
+			set: JSON.parse(row.lexicon as string) as LexiconPermissionSet,
+			fetchedAt: row.fetched_at as number,
+			stale: now > (row.stale_at as number),
+		};
+	}
 
 	/**
 	 * Save a WebAuthn challenge for later verification
