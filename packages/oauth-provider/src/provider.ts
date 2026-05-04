@@ -916,6 +916,7 @@ export class ATProtoOAuthProvider {
 				"blob",
 				"account",
 				"identity",
+				...(this.permissionSetResolver ? ["include"] : []),
 			],
 			subject_types_supported: ["public"],
 			authorization_response_iss_parameter_supported: true,

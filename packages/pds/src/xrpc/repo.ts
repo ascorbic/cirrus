@@ -475,27 +475,34 @@ export async function uploadBlob(
 	// types are case-insensitive per RFC 9110 §8.3.1.
 	const mimeOf = (ct: string) => ct.split(";")[0]!.trim().toLowerCase();
 
-	// Pre-buffer scope gate: if the caller declared a Content-Type, check it
-	// before reading the (up to 60 MB) body. Streaming up megabytes only to
-	// reject on scope is wasteful. If no Content-Type is declared, fall
-	// through and re-check after sniffing.
+	// Optimistic pre-buffer gate: if the caller declared a Content-Type,
+	// reject obviously-mismatched scopes before reading the (up to 60 MB)
+	// body. This is bandwidth-saving only — a lying client can still trick
+	// it by declaring a permitted type, so the authoritative scope check
+	// runs post-buffer against the detected MIME below.
 	if (contentType && contentType !== "*/*") {
-		const mime = mimeOf(contentType);
+		const declared = mimeOf(contentType);
 		const preCheck = requireScope(c, (perms) =>
-			perms.assertBlob({ mime }),
+			perms.assertBlob({ mime: declared }),
 		);
 		if (preCheck) return preCheck;
 	}
 
 	const bytes = new Uint8Array(await c.req.arrayBuffer());
-	if (!contentType || contentType === "*/*") {
-		contentType = detectContentType(bytes) || "application/octet-stream";
-		const mime = mimeOf(contentType);
-		const postCheck = requireScope(c, (perms) =>
-			perms.assertBlob({ mime }),
-		);
-		if (postCheck) return postCheck;
-	}
+	const detected = detectContentType(bytes);
+	// Authoritative scope check uses the sniffed MIME when available so a
+	// client can't bypass `blob:image/*` by labelling JS bytes as image/png.
+	// If detection fails, fall back to the declared header (or octet-stream).
+	const effective =
+		detected ??
+		(contentType && contentType !== "*/*"
+			? mimeOf(contentType)
+			: "application/octet-stream");
+	const postCheck = requireScope(c, (perms) =>
+		perms.assertBlob({ mime: effective }),
+	);
+	if (postCheck) return postCheck;
+	contentType = effective;
 
 	// Size limit check (60MB)
 	const MAX_BLOB_SIZE = 60 * 1024 * 1024;
