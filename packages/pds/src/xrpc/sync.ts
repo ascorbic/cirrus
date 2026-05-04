@@ -78,13 +78,23 @@ export async function getRepoStatus(
 		);
 	}
 
-	const data = await accountDO.rpcGetRepoStatus();
+	const [data, active] = await Promise.all([
+		accountDO.rpcGetRepoStatus(),
+		accountDO.rpcGetActive(),
+	]);
+
+	if (active) {
+		return c.json({
+			did: data.did,
+			active: true,
+			rev: data.rev,
+		});
+	}
 
 	return c.json({
 		did: data.did,
-		active: true,
-		status: "active",
-		rev: data.rev,
+		active: false,
+		status: "deactivated",
 	});
 }
 

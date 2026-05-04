@@ -26,6 +26,28 @@ class MockClientResolver extends ClientResolver {
 	}
 }
 
+/**
+ * Push a PAR request and return the resulting request_uri. Tests that POST
+ * directly to /oauth/authorize need to thread this through as a hidden form
+ * field; with `enablePAR: true` the provider rejects POSTs without a valid
+ * PAR record (defense against form-tampering / cross-origin form attacks).
+ */
+async function pushPAR(
+	provider: ATProtoOAuthProvider,
+	params: Record<string, string>,
+): Promise<string> {
+	const body = new URLSearchParams(params);
+	const response = await provider.handlePAR(
+		new Request("https://pds.example.com/oauth/par", {
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: body.toString(),
+		}),
+	);
+	const data = (await response.json()) as { request_uri: string };
+	return data.request_uri;
+}
+
 describe("OAuth Flow", () => {
 	let storage: InMemoryOAuthStorage;
 	let clientResolver: MockClientResolver;
@@ -122,29 +144,31 @@ describe("OAuth Flow", () => {
 			const verifier = generateCodeVerifier();
 			const challenge = await generateCodeChallenge(verifier);
 
-			const url = new URL("https://pds.example.com/oauth/authorize");
+			const requestUri = await pushPAR(provider, {
+				client_id: testClient.clientId,
+				redirect_uri: testClient.redirectUris[0]!,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "test-state",
+			});
 
-			// Form data includes all OAuth params (like hidden form fields in the UI)
 			const formData = new FormData();
 			formData.set("client_id", testClient.clientId);
-			formData.set("redirect_uri", testClient.redirectUris[0]!);
-			formData.set("response_type", "code");
-			formData.set("code_challenge", challenge);
-			formData.set("code_challenge_method", "S256");
-			formData.set("state", "test-state");
+			formData.set("request_uri", requestUri);
 			formData.set("action", "allow");
 
-			const request = new Request(url.toString(), {
-				method: "POST",
-				body: formData,
-			});
-			const response = await provider.handleAuthorize(request);
+			const response = await provider.handleAuthorize(
+				new Request("https://pds.example.com/oauth/authorize", {
+					method: "POST",
+					body: formData,
+				}),
+			);
 
 			expect(response.status).toBe(302);
 			const location = response.headers.get("Location");
 			expect(location).toBeDefined();
 
-			// Default response_mode is query for authorization code flow
 			const redirectUrl = new URL(location!);
 			expect(redirectUrl.searchParams.has("code")).toBe(true);
 			expect(redirectUrl.searchParams.get("state")).toBe("test-state");
@@ -157,28 +181,30 @@ describe("OAuth Flow", () => {
 			const verifier = generateCodeVerifier();
 			const challenge = await generateCodeChallenge(verifier);
 
-			const url = new URL("https://pds.example.com/oauth/authorize");
+			const requestUri = await pushPAR(provider, {
+				client_id: testClient.clientId,
+				redirect_uri: testClient.redirectUris[0]!,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "test-state",
+			});
 
-			// Form data includes all OAuth params (like hidden form fields in the UI)
 			const formData = new FormData();
 			formData.set("client_id", testClient.clientId);
-			formData.set("redirect_uri", testClient.redirectUris[0]!);
-			formData.set("response_type", "code");
-			formData.set("code_challenge", challenge);
-			formData.set("code_challenge_method", "S256");
-			formData.set("state", "test-state");
+			formData.set("request_uri", requestUri);
 			formData.set("action", "deny");
 
-			const request = new Request(url.toString(), {
-				method: "POST",
-				body: formData,
-			});
-			const response = await provider.handleAuthorize(request);
+			const response = await provider.handleAuthorize(
+				new Request("https://pds.example.com/oauth/authorize", {
+					method: "POST",
+					body: formData,
+				}),
+			);
 
 			expect(response.status).toBe(302);
 			const location = response.headers.get("Location");
 			const redirectUrl = new URL(location!);
-			// Default response_mode is query for authorization code flow
 			expect(redirectUrl.searchParams.get("error")).toBe("access_denied");
 		});
 	});
@@ -189,26 +215,28 @@ describe("OAuth Flow", () => {
 		): Promise<{ code: string; challenge: string }> {
 			const challenge = await generateCodeChallenge(verifier);
 
-			const url = new URL("https://pds.example.com/oauth/authorize");
+			const requestUri = await pushPAR(provider, {
+				client_id: testClient.clientId,
+				redirect_uri: testClient.redirectUris[0]!,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "test-state",
+			});
 
-			// Form data includes all OAuth params (like hidden form fields in the UI)
 			const formData = new FormData();
 			formData.set("client_id", testClient.clientId);
-			formData.set("redirect_uri", testClient.redirectUris[0]!);
-			formData.set("response_type", "code");
-			formData.set("code_challenge", challenge);
-			formData.set("code_challenge_method", "S256");
-			formData.set("state", "test-state");
+			formData.set("request_uri", requestUri);
 			formData.set("action", "allow");
 
-			const request = new Request(url.toString(), {
-				method: "POST",
-				body: formData,
-			});
-			const response = await provider.handleAuthorize(request);
+			const response = await provider.handleAuthorize(
+				new Request("https://pds.example.com/oauth/authorize", {
+					method: "POST",
+					body: formData,
+				}),
+			);
 			const location = response.headers.get("Location")!;
 			const redirectUrl = new URL(location);
-			// Default response_mode is query for authorization code flow
 			const code = redirectUrl.searchParams.get("code")!;
 
 			return { code, challenge };
@@ -439,31 +467,32 @@ describe("OAuth Flow", () => {
 
 	describe("Token Verification", () => {
 		it("verifies valid DPoP-bound access token", async () => {
-			// Get tokens
 			const verifier = generateCodeVerifier();
 			const challenge = await generateCodeChallenge(verifier);
 			const keyPair = await generateDpopKeyPair("ES256");
 
-			const url = new URL("https://pds.example.com/oauth/authorize");
+			const requestUri = await pushPAR(provider, {
+				client_id: testClient.clientId,
+				redirect_uri: testClient.redirectUris[0]!,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "test-state",
+			});
 
-			// Form data includes all OAuth params (like hidden form fields in the UI)
 			const formData = new FormData();
 			formData.set("client_id", testClient.clientId);
-			formData.set("redirect_uri", testClient.redirectUris[0]!);
-			formData.set("response_type", "code");
-			formData.set("code_challenge", challenge);
-			formData.set("code_challenge_method", "S256");
-			formData.set("state", "test-state");
+			formData.set("request_uri", requestUri);
 			formData.set("action", "allow");
 
-			const authRequest = new Request(url.toString(), {
-				method: "POST",
-				body: formData,
-			});
-			const authResponse = await provider.handleAuthorize(authRequest);
+			const authResponse = await provider.handleAuthorize(
+				new Request("https://pds.example.com/oauth/authorize", {
+					method: "POST",
+					body: formData,
+				}),
+			);
 			const location = authResponse.headers.get("Location")!;
-			const redirectUrl = new URL(location);
-			const code = redirectUrl.searchParams.get("code")!;
+			const code = new URL(location).searchParams.get("code")!;
 
 			const dpopProof1 = await createDpopProof(
 				keyPair.privateKey,
@@ -525,31 +554,32 @@ describe("OAuth Flow", () => {
 		});
 
 		it("rejects token with wrong DPoP key", async () => {
-			// Get tokens with one key
 			const verifier = generateCodeVerifier();
 			const challenge = await generateCodeChallenge(verifier);
 			const keyPair1 = await generateDpopKeyPair("ES256");
 
-			const url = new URL("https://pds.example.com/oauth/authorize");
+			const requestUri = await pushPAR(provider, {
+				client_id: testClient.clientId,
+				redirect_uri: testClient.redirectUris[0]!,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "test-state",
+			});
 
-			// Form data includes all OAuth params (like hidden form fields in the UI)
 			const formData = new FormData();
 			formData.set("client_id", testClient.clientId);
-			formData.set("redirect_uri", testClient.redirectUris[0]!);
-			formData.set("response_type", "code");
-			formData.set("code_challenge", challenge);
-			formData.set("code_challenge_method", "S256");
-			formData.set("state", "test-state");
+			formData.set("request_uri", requestUri);
 			formData.set("action", "allow");
 
-			const authRequest = new Request(url.toString(), {
-				method: "POST",
-				body: formData,
-			});
-			const authResponse = await provider.handleAuthorize(authRequest);
+			const authResponse = await provider.handleAuthorize(
+				new Request("https://pds.example.com/oauth/authorize", {
+					method: "POST",
+					body: formData,
+				}),
+			);
 			const location = authResponse.headers.get("Location")!;
-			const redirectUrl = new URL(location);
-			const code = redirectUrl.searchParams.get("code")!;
+			const code = new URL(location).searchParams.get("code")!;
 
 			const dpopProof1 = await createDpopProof(
 				keyPair1.privateKey,
@@ -607,6 +637,331 @@ describe("OAuth Flow", () => {
 
 			const tokenData = await provider.verifyAccessToken(apiRequest);
 			expect(tokenData).toBeNull();
+		});
+	});
+
+	describe("Granular Scopes", () => {
+		async function authorizeAndToken(
+			scope: string,
+		): Promise<{ accessToken: string; keyPair: Awaited<ReturnType<typeof generateDpopKeyPair>> }> {
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+			const keyPair = await generateDpopKeyPair("ES256");
+
+			const requestUri = await pushPAR(provider, {
+				client_id: testClient.clientId,
+				redirect_uri: testClient.redirectUris[0]!,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "test-state",
+				scope,
+			});
+
+			const formData = new FormData();
+			formData.set("client_id", testClient.clientId);
+			formData.set("request_uri", requestUri);
+			formData.set("action", "allow");
+
+			const authResponse = await provider.handleAuthorize(
+				new Request("https://pds.example.com/oauth/authorize", {
+					method: "POST",
+					body: formData,
+				}),
+			);
+			const location = authResponse.headers.get("Location")!;
+			const code = new URL(location).searchParams.get("code")!;
+
+			const dpopProof = await createDpopProof(
+				keyPair.privateKey,
+				keyPair.publicJwk,
+				{ htm: "POST", htu: "https://pds.example.com/oauth/token" },
+				"ES256",
+			);
+
+			const tokenRequest = new Request("https://pds.example.com/oauth/token", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/x-www-form-urlencoded",
+					DPoP: dpopProof,
+				},
+				body: new URLSearchParams({
+					grant_type: "authorization_code",
+					code,
+					client_id: testClient.clientId,
+					redirect_uri: testClient.redirectUris[0]!,
+					code_verifier: verifier,
+				}).toString(),
+			});
+
+			const tokenResponse = await provider.handleToken(tokenRequest);
+			const tokens = (await tokenResponse.json()) as { access_token: string };
+			return { accessToken: tokens.access_token, keyPair };
+		}
+
+		async function apiRequestFor(
+			accessToken: string,
+			keyPair: Awaited<ReturnType<typeof generateDpopKeyPair>>,
+		): Promise<Request> {
+			const tokenHash = await crypto.subtle.digest(
+				"SHA-256",
+				new TextEncoder().encode(accessToken),
+			);
+			const ath = btoa(String.fromCharCode(...new Uint8Array(tokenHash)))
+				.replace(/\+/g, "-")
+				.replace(/\//g, "_")
+				.replace(/=+$/, "");
+			const proof = await createDpopProof(
+				keyPair.privateKey,
+				keyPair.publicJwk,
+				{ htm: "GET", htu: "https://pds.example.com/api/resource", ath },
+				"ES256",
+			);
+			return new Request("https://pds.example.com/api/resource", {
+				method: "GET",
+				headers: { Authorization: `DPoP ${accessToken}`, DPoP: proof },
+			});
+		}
+
+		it("issues a token carrying a granular repo scope", async () => {
+			const { accessToken, keyPair } = await authorizeAndToken(
+				"atproto repo:app.bsky.feed.post",
+			);
+			const data = await provider.verifyAccessToken(
+				await apiRequestFor(accessToken, keyPair),
+			);
+			expect(data?.scope).toBe("atproto repo:app.bsky.feed.post");
+		});
+
+		it("verifyAccessToken passes when callback is satisfied", async () => {
+			const { accessToken, keyPair } = await authorizeAndToken(
+				"atproto repo:app.bsky.feed.post",
+			);
+			const data = await provider.verifyAccessToken(
+				await apiRequestFor(accessToken, keyPair),
+				(perms) =>
+					perms.assertRepo({
+						collection: "app.bsky.feed.post",
+						action: "create",
+					}),
+			);
+			expect(data).not.toBeNull();
+		});
+
+		it("verifyAccessToken returns null when callback throws ScopeMissingError", async () => {
+			const { accessToken, keyPair } = await authorizeAndToken(
+				"atproto repo:app.bsky.feed.post",
+			);
+			const data = await provider.verifyAccessToken(
+				await apiRequestFor(accessToken, keyPair),
+				(perms) =>
+					perms.assertRepo({
+						collection: "app.bsky.feed.like",
+						action: "create",
+					}),
+			);
+			expect(data).toBeNull();
+		});
+
+		it("transition:generic still satisfies a granular check", async () => {
+			const { accessToken, keyPair } = await authorizeAndToken(
+				"atproto transition:generic",
+			);
+			const data = await provider.verifyAccessToken(
+				await apiRequestFor(accessToken, keyPair),
+				(perms) =>
+					perms.assertRepo({
+						collection: "app.bsky.feed.post",
+						action: "create",
+					}),
+			);
+			expect(data).not.toBeNull();
+		});
+
+		it("rejects a PAR with include: scope when no resolver is configured", async () => {
+			// PAR rejection happens upfront — without a resolver, the PAR
+			// handler refuses to push at all rather than letting the user
+			// dead-end at consent.
+			const challenge = await generateCodeChallenge(generateCodeVerifier());
+			const parBody = new URLSearchParams({
+				client_id: testClient.clientId,
+				redirect_uri: testClient.redirectUris[0]!,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "test-state",
+				scope:
+					"atproto include:com.example.basic?aud=did:web:foo%23svc",
+			});
+			const response = await provider.handlePAR(
+				new Request("https://pds.example.com/oauth/par", {
+					method: "POST",
+					headers: { "Content-Type": "application/x-www-form-urlencoded" },
+					body: parBody.toString(),
+				}),
+			);
+			expect(response.status).toBe(400);
+			const json = (await response.json()) as { error: string };
+			expect(json.error).toBe("invalid_scope");
+		});
+
+		it("expands include: scopes inline when a resolver is configured", async () => {
+			// Stand up a fresh provider with a mock permission-set resolver.
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+			const keyPair = await generateDpopKeyPair("ES256");
+
+			const mockSet = {
+				type: "permission-set" as const,
+				permissions: [
+					{
+						type: "permission" as const,
+						resource: "repo",
+						collection: ["com.example.post"],
+					},
+				],
+			};
+			const localStorage = new InMemoryOAuthStorage();
+			const localResolver = new MockClientResolver({});
+			localResolver.registerClient(testClient);
+			const localProvider = new ATProtoOAuthProvider({
+				storage: localStorage,
+				issuer: "https://pds.example.com",
+				dpopRequired: true,
+				enablePAR: false,
+				clientResolver: localResolver,
+				getCurrentUser: async () => testUser,
+				permissionSetResolver: {
+					resolve: async (nsid) =>
+						nsid === "com.example.basic" ? mockSet : null,
+				},
+			});
+
+			const formData = new FormData();
+			formData.set("client_id", testClient.clientId);
+			formData.set("redirect_uri", testClient.redirectUris[0]!);
+			formData.set("response_type", "code");
+			formData.set("code_challenge", challenge);
+			formData.set("code_challenge_method", "S256");
+			formData.set("state", "test-state");
+			formData.set(
+				"scope",
+				"atproto include:com.example.basic?aud=did:web:foo%23svc",
+			);
+			formData.set("action", "allow");
+
+			const authResponse = await localProvider.handleAuthorize(
+				new Request("https://pds.example.com/oauth/authorize", {
+					method: "POST",
+					body: formData,
+				}),
+			);
+			expect(authResponse.status).toBe(302);
+			const code = new URL(
+				authResponse.headers.get("Location")!,
+			).searchParams.get("code")!;
+
+			const dpopProof = await createDpopProof(
+				keyPair.privateKey,
+				keyPair.publicJwk,
+				{ htm: "POST", htu: "https://pds.example.com/oauth/token" },
+				"ES256",
+			);
+			const tokenResponse = await localProvider.handleToken(
+				new Request("https://pds.example.com/oauth/token", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/x-www-form-urlencoded",
+						DPoP: dpopProof,
+					},
+					body: new URLSearchParams({
+						grant_type: "authorization_code",
+						code,
+						client_id: testClient.clientId,
+						redirect_uri: testClient.redirectUris[0]!,
+						code_verifier: verifier,
+					}).toString(),
+				}),
+			);
+			const tokens = (await tokenResponse.json()) as { access_token: string };
+
+			const stored = await localStorage.getTokenByAccess(tokens.access_token);
+			expect(stored).not.toBeNull();
+			// Stored scope should be expanded (no include:), and contain the
+			// concrete repo permission from the bundle.
+			expect(stored!.scope).not.toMatch(/include:/);
+			expect(stored!.scope).toMatch(/repo:com\.example\.post/);
+		});
+
+		it("rejects an include: that fails to resolve", async () => {
+			const localStorage = new InMemoryOAuthStorage();
+			const localResolver = new MockClientResolver({});
+			localResolver.registerClient(testClient);
+			const localProvider = new ATProtoOAuthProvider({
+				storage: localStorage,
+				issuer: "https://pds.example.com",
+				dpopRequired: true,
+				enablePAR: false,
+				clientResolver: localResolver,
+				getCurrentUser: async () => testUser,
+				permissionSetResolver: {
+					resolve: async () => null,
+				},
+			});
+
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+			const formData = new FormData();
+			formData.set("client_id", testClient.clientId);
+			formData.set("redirect_uri", testClient.redirectUris[0]!);
+			formData.set("response_type", "code");
+			formData.set("code_challenge", challenge);
+			formData.set("code_challenge_method", "S256");
+			formData.set("state", "test-state");
+			formData.set(
+				"scope",
+				"atproto include:com.example.missing?aud=did:web:foo%23svc",
+			);
+			formData.set("action", "allow");
+
+			const response = await localProvider.handleAuthorize(
+				new Request("https://pds.example.com/oauth/authorize", {
+					method: "POST",
+					body: formData,
+				}),
+			);
+			// Expansion failure happens at code-issuance time, so it's
+			// reported via the OAuth redirect with `error=invalid_scope`.
+			expect(response.status).toBe(302);
+			const location = new URL(response.headers.get("Location")!);
+			expect(location.searchParams.get("error")).toBe("invalid_scope");
+			expect(location.searchParams.get("error_description")).toMatch(
+				/com\.example\.missing/,
+			);
+		});
+
+		it("PAR rejects malformed granular scope", async () => {
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+			const parBody = new URLSearchParams({
+				client_id: testClient.clientId,
+				redirect_uri: testClient.redirectUris[0]!,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "test-state",
+				scope: "atproto repo:not a real nsid",
+			});
+			const response = await provider.handlePAR(
+				new Request("https://pds.example.com/oauth/par", {
+					method: "POST",
+					headers: { "Content-Type": "application/x-www-form-urlencoded" },
+					body: parBody.toString(),
+				}),
+			);
+			expect(response.status).toBe(400);
+			const json = (await response.json()) as { error: string };
+			expect(json.error).toBe("invalid_scope");
 		});
 	});
 });

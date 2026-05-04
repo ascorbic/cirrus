@@ -7,14 +7,19 @@ import type { OAuthParResponse } from "@atproto/oauth-types";
 import type { OAuthStorage, PARData } from "./storage.js";
 import { randomString } from "./encoding.js";
 import { parseRequestBody } from "./provider.js";
+import { ATPROTO_SCOPE, ScopeParseError, parseScope } from "./scopes.js";
 
 export type { OAuthParResponse };
 
 /** PAR request URI prefix per RFC 9126 */
 const REQUEST_URI_PREFIX = "urn:ietf:params:oauth:request_uri:";
 
-/** Default PAR expiration in seconds (90 seconds per RFC recommendation) */
-const DEFAULT_EXPIRES_IN = 90;
+/**
+ * Default PAR expiration in seconds. Bumped to 5 minutes so the record
+ * outlives a slow human consent click — we now keep PAR alive across the
+ * consent UI render to defeat form-field tampering of the canonical scope.
+ */
+const DEFAULT_EXPIRES_IN = 5 * 60;
 
 /**
  * OAuth error response
@@ -50,21 +55,28 @@ export class PARHandler {
 	private storage: OAuthStorage;
 	private issuer: string;
 	private expiresIn: number;
+	private allowIncludes: boolean;
 
 	/**
 	 * Create a PAR handler
 	 * @param storage OAuth storage implementation
 	 * @param issuer The OAuth issuer URL
 	 * @param expiresIn PAR expiration time in seconds (default: 90)
+	 * @param allowIncludes Whether `include:` (permission set) scopes are
+	 *   accepted. Should mirror the parent provider's
+	 *   `permissionSetResolver` configuration so PAR rejects upfront rather
+	 *   than letting the request fail at consent.
 	 */
 	constructor(
 		storage: OAuthStorage,
 		issuer: string,
 		expiresIn: number = DEFAULT_EXPIRES_IN,
+		allowIncludes: boolean = false,
 	) {
 		this.storage = storage;
 		this.issuer = issuer;
 		this.expiresIn = expiresIn;
+		this.allowIncludes = allowIncludes;
 	}
 
 	/**
@@ -135,6 +147,21 @@ export class PARHandler {
 			return this.errorResponse("invalid_request", "Invalid redirect_uri", 400);
 		}
 
+		const scope = params.scope ?? ATPROTO_SCOPE;
+		params.scope = scope;
+		try {
+			// PAR is a deferred authorize: when permission sets are enabled,
+			// includes are accepted here and resolved at the authorize step.
+			// When disabled, reject upfront so the client gets a clear error
+			// rather than a dead-end at consent time.
+			parseScope(scope, { allowIncludes: this.allowIncludes });
+		} catch (e) {
+			if (e instanceof ScopeParseError) {
+				return this.errorResponse("invalid_scope", e.message, 400);
+			}
+			throw e;
+		}
+
 		const requestUri = generateRequestUri();
 		const expiresAt = Date.now() + this.expiresIn * 1000;
 
@@ -161,15 +188,20 @@ export class PARHandler {
 	}
 
 	/**
-	 * Retrieve and consume PAR parameters
-	 * Called during authorization request handling
+	 * Retrieve PAR parameters. The default consumes the PAR record
+	 * (one-time use); pass `{ consume: false }` to peek without deletion —
+	 * useful when the consent UI is rendered first and the actual grant
+	 * happens on a subsequent POST that needs the canonical scope.
+	 *
 	 * @param requestUri The request URI from the authorization request
-	 * @param clientId The client_id from the authorization request (for verification)
+	 * @param clientId The client_id (for verification)
+	 * @param options.consume Whether to delete the PAR after reading (default true)
 	 * @returns The stored parameters or null if not found/expired
 	 */
 	async retrieveParams(
 		requestUri: string,
 		clientId: string,
+		options: { consume?: boolean } = {},
 	): Promise<Record<string, string> | null> {
 		if (!requestUri.startsWith(REQUEST_URI_PREFIX)) {
 			return null;
@@ -184,8 +216,9 @@ export class PARHandler {
 			return null;
 		}
 
-		// One-time use: delete after retrieval
-		await this.storage.deletePAR(requestUri);
+		if (options.consume !== false) {
+			await this.storage.deletePAR(requestUri);
+		}
 
 		return parData.params;
 	}
