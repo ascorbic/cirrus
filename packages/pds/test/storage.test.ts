@@ -374,6 +374,107 @@ describe("Collections cache", () => {
 			expect(storage.getCollections()).toEqual([]);
 		});
 	});
+
+	it("rpcApplyWrites: removes collection when batch deletes its last record", async () => {
+		const id = env.ACCOUNT.newUniqueId();
+		const stub = env.ACCOUNT.get(id);
+
+		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+			await instance.getStorage();
+
+			await instance.rpcCreateRecord("app.bsky.feed.post", "rkey-1", {
+				text: "first",
+				createdAt: new Date().toISOString(),
+			});
+
+			const storage = await instance.getStorage();
+			expect(storage.getCollections()).toEqual(["app.bsky.feed.post"]);
+
+			await instance.rpcApplyWrites([
+				{
+					$type: "com.atproto.repo.applyWrites#delete",
+					collection: "app.bsky.feed.post",
+					rkey: "rkey-1",
+				},
+			]);
+
+			expect(storage.getCollections()).toEqual([]);
+		});
+	});
+
+	it("rpcApplyWrites: keeps collection when batch creates and deletes leave records", async () => {
+		const id = env.ACCOUNT.newUniqueId();
+		const stub = env.ACCOUNT.get(id);
+
+		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+			await instance.getStorage();
+
+			await instance.rpcCreateRecord("app.bsky.feed.post", "rkey-1", {
+				text: "first",
+				createdAt: new Date().toISOString(),
+			});
+
+			const storage = await instance.getStorage();
+			expect(storage.getCollections()).toEqual(["app.bsky.feed.post"]);
+
+			await instance.rpcApplyWrites([
+				{
+					$type: "com.atproto.repo.applyWrites#delete",
+					collection: "app.bsky.feed.post",
+					rkey: "rkey-1",
+				},
+				{
+					$type: "com.atproto.repo.applyWrites#create",
+					collection: "app.bsky.feed.post",
+					rkey: "rkey-2",
+					value: {
+						$type: "app.bsky.feed.post",
+						text: "second",
+						createdAt: new Date().toISOString(),
+					},
+				},
+			]);
+
+			expect(storage.getCollections()).toEqual(["app.bsky.feed.post"]);
+		});
+	});
+
+	it("rpcApplyWrites: empties only the collection whose records were all deleted", async () => {
+		const id = env.ACCOUNT.newUniqueId();
+		const stub = env.ACCOUNT.get(id);
+
+		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+			await instance.getStorage();
+
+			await instance.rpcCreateRecord("app.bsky.feed.post", "rkey-1", {
+				text: "first",
+				createdAt: new Date().toISOString(),
+			});
+			await instance.rpcCreateRecord("app.bsky.feed.like", "rkey-2", {
+				subject: {
+					uri: `at://${env.DID}/app.bsky.feed.post/rkey-1`,
+					cid: "bafyreigh2akiscaildc7ypw7e6tqocp3vy3uwgyq37e6kz3sm6f5l3hbjm",
+				},
+				createdAt: new Date().toISOString(),
+			});
+
+			const storage = await instance.getStorage();
+			expect(storage.getCollections().sort()).toEqual([
+				"app.bsky.feed.like",
+				"app.bsky.feed.post",
+			]);
+
+			await instance.rpcApplyWrites([
+				{
+					$type: "com.atproto.repo.applyWrites#delete",
+					collection: "app.bsky.feed.like",
+					rkey: "rkey-2",
+				},
+			]);
+
+			expect(storage.getCollections()).toEqual(["app.bsky.feed.post"]);
+		});
+	});
 });
 
 describe("AccountDurableObject", () => {

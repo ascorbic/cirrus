@@ -663,6 +663,27 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			}
 		}
 
+		// For any collection touched by a delete, drop the cache entry if it's
+		// now empty. Runs after addCollection so a batch that creates + deletes
+		// in the same collection still walks the MST as the source of truth.
+		const deletedCollections = new Set<string>();
+		for (const op of ops) {
+			if (op.action === WriteOpAction.Delete) {
+				deletedCollections.add(op.collection);
+			}
+		}
+		for (const collection of deletedCollections) {
+			let collectionStillHasRecords = false;
+			for await (const remaining of this.repo.walkRecords(`${collection}/`)) {
+				if (remaining.collection !== collection) break;
+				collectionStillHasRecords = true;
+				break;
+			}
+			if (!collectionStillHasRecords) {
+				this.storage!.removeCollection(collection);
+			}
+		}
+
 		// Build final results with CIDs and prepare ops with CIDs for firehose
 		const finalResults: Array<{
 			$type: string;
