@@ -355,7 +355,7 @@ export async function checkAccountStatus(
 			repoRev: status.rev,
 			repoBlocks,
 			indexedRecords,
-			privateStateValues: null,
+			privateStateValues: 0,
 			expectedBlobs,
 			importedBlobs,
 		});
@@ -369,7 +369,7 @@ export async function checkAccountStatus(
 			repoRev: null,
 			repoBlocks: 0,
 			indexedRecords: 0,
-			privateStateValues: null,
+			privateStateValues: 0,
 			expectedBlobs: 0,
 			importedBlobs: 0,
 		});

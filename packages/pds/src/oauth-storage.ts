@@ -1,10 +1,11 @@
-import type {
-	AuthCodeData,
-	ClientMetadata,
-	LexiconPermissionSet,
-	OAuthStorage,
-	PARData,
-	TokenData,
+import {
+	type AuthCodeData,
+	type ClientMetadata,
+	type OAuthStorage,
+  type LexiconPermissionSet,
+	type PARData,
+	type TokenData,
+	REFRESH_TOKEN_TTL,
 } from "@getcirrus/oauth-provider";
 
 /**
@@ -53,13 +54,11 @@ export class SqliteOAuthStorage implements OAuthStorage {
 				scope TEXT NOT NULL,
 				dpop_jkt TEXT,
 				issued_at INTEGER NOT NULL,
-				expires_at INTEGER NOT NULL,
+				access_expires_at INTEGER NOT NULL,
+				refresh_expires_at INTEGER NOT NULL,
 				revoked INTEGER NOT NULL DEFAULT 0
 			);
 
-			CREATE INDEX IF NOT EXISTS idx_tokens_refresh ON oauth_tokens(refresh_token);
-			CREATE INDEX IF NOT EXISTS idx_tokens_sub ON oauth_tokens(sub);
-			CREATE INDEX IF NOT EXISTS idx_tokens_expires ON oauth_tokens(expires_at);
 
 			-- Cached client metadata
 			CREATE TABLE IF NOT EXISTS oauth_clients (
@@ -112,8 +111,10 @@ export class SqliteOAuthStorage implements OAuthStorage {
 			CREATE INDEX IF NOT EXISTS idx_permission_sets_expires ON oauth_permission_sets(expires_at);
 		`);
 
-		// Migration: add columns for client auth metadata if missing
+		// Migrations for older OAuth schema versions
 		this.migrateClientTable();
+		this.migrateTokensTable();
+		this.ensureTokenIndexes();
 	}
 
 	private migrateClientTable(): void {
@@ -132,6 +133,67 @@ export class SqliteOAuthStorage implements OAuthStorage {
 		}
 	}
 
+	private migrateTokensTable(): void {
+		const columns = this.sql
+			.exec("PRAGMA table_info(oauth_tokens)")
+			.toArray()
+			.map((r) => r.name as string);
+
+		if (columns.length === 0) return;
+		if (
+			columns.includes("access_expires_at") &&
+			columns.includes("refresh_expires_at")
+		) {
+			return;
+		}
+
+		this.sql.exec(`
+			CREATE TABLE oauth_tokens_new (
+				access_token TEXT PRIMARY KEY,
+				refresh_token TEXT NOT NULL UNIQUE,
+				client_id TEXT NOT NULL,
+				sub TEXT NOT NULL,
+				scope TEXT NOT NULL,
+				dpop_jkt TEXT,
+				issued_at INTEGER NOT NULL,
+				access_expires_at INTEGER NOT NULL,
+				refresh_expires_at INTEGER NOT NULL,
+				revoked INTEGER NOT NULL DEFAULT 0
+			);
+		`);
+
+		this.sql.exec(
+			`INSERT INTO oauth_tokens_new (
+				access_token, refresh_token, client_id, sub, scope, dpop_jkt, issued_at, access_expires_at, refresh_expires_at, revoked
+			)
+			SELECT
+				access_token, refresh_token, client_id, sub, scope, dpop_jkt, issued_at,
+				expires_at AS access_expires_at,
+				MAX(expires_at, issued_at + ?) AS refresh_expires_at,
+				revoked
+			FROM oauth_tokens`,
+			REFRESH_TOKEN_TTL,
+		);
+
+		this.sql.exec("DROP TABLE oauth_tokens");
+		this.sql.exec("ALTER TABLE oauth_tokens_new RENAME TO oauth_tokens");
+	}
+
+	private ensureTokenIndexes(): void {
+		this.sql.exec(
+			"CREATE INDEX IF NOT EXISTS idx_tokens_refresh ON oauth_tokens(refresh_token)",
+		);
+		this.sql.exec(
+			"CREATE INDEX IF NOT EXISTS idx_tokens_sub ON oauth_tokens(sub)",
+		);
+		this.sql.exec(
+			"CREATE INDEX IF NOT EXISTS idx_tokens_access_expires ON oauth_tokens(access_expires_at)",
+		);
+		this.sql.exec(
+			"CREATE INDEX IF NOT EXISTS idx_tokens_refresh_expires ON oauth_tokens(refresh_expires_at)",
+		);
+	}
+
 	/**
 	 * Clean up expired entries. Should be called periodically.
 	 */
@@ -139,7 +201,7 @@ export class SqliteOAuthStorage implements OAuthStorage {
 		const now = Date.now();
 		this.sql.exec("DELETE FROM oauth_auth_codes WHERE expires_at < ?", now);
 		this.sql.exec(
-			"DELETE FROM oauth_tokens WHERE expires_at < ? AND revoked = 0",
+			"DELETE FROM oauth_tokens WHERE refresh_expires_at < ?",
 			now,
 		);
 		this.sql.exec("DELETE FROM oauth_par_requests WHERE expires_at < ?", now);
@@ -219,8 +281,8 @@ export class SqliteOAuthStorage implements OAuthStorage {
 	async saveTokens(data: TokenData): Promise<void> {
 		this.sql.exec(
 			`INSERT INTO oauth_tokens
-			(access_token, refresh_token, client_id, sub, scope, dpop_jkt, issued_at, expires_at, revoked)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(access_token, refresh_token, client_id, sub, scope, dpop_jkt, issued_at, access_expires_at, refresh_expires_at, revoked)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			data.accessToken,
 			data.refreshToken,
 			data.clientId,
@@ -228,7 +290,8 @@ export class SqliteOAuthStorage implements OAuthStorage {
 			data.scope,
 			data.dpopJkt ?? null,
 			data.issuedAt,
-			data.expiresAt,
+			data.accessExpiresAt,
+			data.refreshExpiresAt,
 			data.revoked ? 1 : 0,
 		);
 	}
@@ -236,7 +299,7 @@ export class SqliteOAuthStorage implements OAuthStorage {
 	async getTokenByAccess(accessToken: string): Promise<TokenData | null> {
 		const rows = this.sql
 			.exec(
-				`SELECT access_token, refresh_token, client_id, sub, scope, dpop_jkt, issued_at, expires_at, revoked
+				`SELECT access_token, refresh_token, client_id, sub, scope, dpop_jkt, issued_at, access_expires_at, refresh_expires_at, revoked
 				FROM oauth_tokens WHERE access_token = ?`,
 				accessToken,
 			)
@@ -246,9 +309,9 @@ export class SqliteOAuthStorage implements OAuthStorage {
 
 		const row = rows[0]!;
 		const revoked = Boolean(row.revoked);
-		const expiresAt = row.expires_at as number;
+		const accessExpiresAt = row.access_expires_at as number;
 
-		if (revoked || Date.now() > expiresAt) {
+		if (revoked || Date.now() > accessExpiresAt) {
 			return null;
 		}
 
@@ -260,7 +323,8 @@ export class SqliteOAuthStorage implements OAuthStorage {
 			scope: row.scope as string,
 			dpopJkt: (row.dpop_jkt as string) ?? undefined,
 			issuedAt: row.issued_at as number,
-			expiresAt,
+			accessExpiresAt,
+			refreshExpiresAt: row.refresh_expires_at as number,
 			revoked,
 		};
 	}
@@ -268,7 +332,7 @@ export class SqliteOAuthStorage implements OAuthStorage {
 	async getTokenByRefresh(refreshToken: string): Promise<TokenData | null> {
 		const rows = this.sql
 			.exec(
-				`SELECT access_token, refresh_token, client_id, sub, scope, dpop_jkt, issued_at, expires_at, revoked
+				`SELECT access_token, refresh_token, client_id, sub, scope, dpop_jkt, issued_at, access_expires_at, refresh_expires_at, revoked
 				FROM oauth_tokens WHERE refresh_token = ?`,
 				refreshToken,
 			)
@@ -279,7 +343,9 @@ export class SqliteOAuthStorage implements OAuthStorage {
 		const row = rows[0]!;
 		const revoked = Boolean(row.revoked);
 
-		if (revoked) return null;
+		const refreshExpiresAt = row.refresh_expires_at as number;
+
+		if (revoked || Date.now() > refreshExpiresAt) return null;
 
 		return {
 			accessToken: row.access_token as string,
@@ -289,7 +355,8 @@ export class SqliteOAuthStorage implements OAuthStorage {
 			scope: row.scope as string,
 			dpopJkt: (row.dpop_jkt as string) ?? undefined,
 			issuedAt: row.issued_at as number,
-			expiresAt: row.expires_at as number,
+			accessExpiresAt: row.access_expires_at as number,
+			refreshExpiresAt,
 			revoked,
 		};
 	}

@@ -1,6 +1,43 @@
 import { describe, it, expect } from "vitest";
 import { env, worker } from "./helpers";
+import {
+	SignJWT,
+	base64url,
+	calculateJwkThumbprint,
+	exportJWK,
+	generateKeyPair,
+} from "jose";
 
+
+async function createValidDpopProof(options: {
+	accessToken: string;
+	method: string;
+	url: string;
+}): Promise<{ dpopProof: string; dpopJkt: string }> {
+	const { accessToken, method, url } = options;
+	const { privateKey, publicKey } = await generateKeyPair("ES256");
+	const publicJwk = await exportJWK(publicKey);
+	delete publicJwk.key_ops;
+	delete publicJwk.ext;
+
+	const tokenHash = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(accessToken),
+	);
+	const ath = base64url.encode(new Uint8Array(tokenHash));
+	const dpopProof = await new SignJWT({
+		jti: crypto.randomUUID(),
+		htm: method,
+		htu: url,
+		iat: Math.floor(Date.now() / 1000),
+		ath,
+	})
+		.setProtectedHeader({ typ: "dpop+jwt", alg: "ES256", jwk: publicJwk })
+		.sign(privateKey);
+	const dpopJkt = await calculateJwkThumbprint(publicJwk, "sha256");
+
+	return { dpopProof, dpopJkt };
+}
 describe("XRPC Endpoints", () => {
 	describe("Health Check", () => {
 		it("should return status and version", async () => {
@@ -105,6 +142,59 @@ describe("XRPC Endpoints", () => {
 			});
 		});
 
+
+		it("returns DPoP invalid_token challenge for expired OAuth access tokens", async () => {
+			const now = Date.now();
+			const id = env.ACCOUNT.idFromName("account");
+			const stub = env.ACCOUNT.get(id);
+			const accessToken = "expired-dpop-access-token";
+			const requestUrl = "http://pds.test/xrpc/com.atproto.repo.createRecord";
+			const { dpopProof, dpopJkt } = await createValidDpopProof({
+				accessToken,
+				method: "POST",
+				url: requestUrl,
+			});
+
+			await stub.rpcSaveTokens({
+				accessToken,
+				refreshToken: "expired-dpop-refresh-token",
+				clientId: "did:web:app.example",
+				sub: env.DID,
+				scope: "atproto",
+				dpopJkt,
+				issuedAt: now - 2 * 60 * 60 * 1000,
+				accessExpiresAt: now - 60 * 1000,
+				refreshExpiresAt: now + 30 * 24 * 60 * 60 * 1000,
+				revoked: false,
+			});
+
+			const response = await worker.fetch(
+				new Request(requestUrl, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `DPoP ${accessToken}`,
+						DPoP: dpopProof,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Should fail with OAuth challenge",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
+				env,
+			);
+
+			expect(response.status).toBe(401);
+			expect(response.headers.get("WWW-Authenticate")).toContain(
+				'error="invalid_token"',
+			);
+			expect(response.headers.get("WWW-Authenticate")).toContain("DPoP");
+		});
 		it("should accept request with valid token", async () => {
 			const response = await worker.fetch(
 				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {

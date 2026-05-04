@@ -115,6 +115,10 @@ export async function requireAuth(
 					message: "Invalid OAuth access token",
 				},
 				401,
+				{
+					"WWW-Authenticate":
+						'DPoP error="invalid_token", error_description="Invalid access token"',
+				},
 			);
 		}
 
