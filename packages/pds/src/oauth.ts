@@ -132,6 +132,13 @@ function getNetworkPermissionSetResolver(): PermissionSetResolver {
  * `waitUntil` so they outlive the request that triggered them, and an
  * in-memory in-flight map ensures concurrent stale hits coalesce into a
  * single network fetch.
+ *
+ * Note: cirrus PDS is single-tenant per Worker isolate (one account DID
+ * per deployment), so an NSID-keyed inflight map is correct — every
+ * resolver call within an isolate targets the same `accountDO` and the
+ * subsequent `rpcSavePermissionSet` writes to the right cache. If cirrus
+ * ever becomes multi-tenant, this map needs to be keyed by `${did}:${nsid}`
+ * or each observer needs to fan out their own save.
  */
 const inflightRefresh = new Map<string, Promise<LexiconPermissionSet | null>>();
 

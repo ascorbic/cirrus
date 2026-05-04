@@ -469,10 +469,11 @@ export async function uploadBlob(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	let contentType = c.req.header("Content-Type");
-	// Strip any MIME parameters (e.g. "image/png; charset=utf-8") before
-	// scope-checking — `@atproto/oauth-scopes`' BlobPermission.matches uses
-	// strict MIME validation that rejects parameterised values.
-	const mimeOf = (ct: string) => ct.split(";")[0]!.trim();
+	// Normalise MIME for scope matching: strip parameters (e.g.
+	// `image/png; charset=utf-8`) and lowercase. `@atproto/oauth-scopes`
+	// validates parameterised values and matches case-sensitively, but MIME
+	// types are case-insensitive per RFC 9110 §8.3.1.
+	const mimeOf = (ct: string) => ct.split(";")[0]!.trim().toLowerCase();
 
 	// Pre-buffer scope gate: if the caller declared a Content-Type, check it
 	// before reading the (up to 60 MB) body. Streaming up megabytes only to
