@@ -135,11 +135,11 @@ importers:
         specifier: ^4.2.0
         version: 4.2.1
       '@atcute/identity':
-        specifier: ^1.1.3
-        version: 1.1.3
+        specifier: ^1.1.4
+        version: 1.1.4
       '@atcute/identity-resolver':
         specifier: ^1.2.2
-        version: 1.2.2(@atcute/identity@1.1.3)
+        version: 1.2.2(@atcute/identity@1.1.4)
       '@atcute/lexicons':
         specifier: ^1.2.6
         version: 1.2.7
@@ -283,9 +283,6 @@ packages:
     resolution: {integrity: sha512-eUh/UH4bFvuXS0X7epYCeJC/kj4rbBXfSRumLEH4smMVwNOgTo7cL/0Srty+P/qVPoZEyXdfEbS0PHJyzoXmHw==}
     peerDependencies:
       '@atcute/identity': ^1.0.0
-
-  '@atcute/identity@1.1.3':
-    resolution: {integrity: sha512-oIqPoI8TwWeQxvcLmFEZLdN2XdWcaLVtlm8pNk0E72As9HNzzD9pwKPrLr3rmTLRIoULPPFmq9iFNsTeCIU9ng==}
 
   '@atcute/identity@1.1.4':
     resolution: {integrity: sha512-RCw1IqflfuSYCxK5m0lZCm0UnvIzcUnuhngiBhJEJb9a9Mc2SEf1xP3H8N5r8pvEH1LoAYd6/zrvCNU+uy9esw==}
@@ -3018,23 +3015,11 @@ snapshots:
       '@atcute/uint8array': 1.1.1
       '@noble/secp256k1': 3.1.0
 
-  '@atcute/identity-resolver@1.2.2(@atcute/identity@1.1.3)':
-    dependencies:
-      '@atcute/identity': 1.1.3
-      '@atcute/lexicons': 1.3.0
-      '@atcute/util-fetch': 1.0.5
-      '@badrap/valita': 0.4.6
-
   '@atcute/identity-resolver@1.2.2(@atcute/identity@1.1.4)':
     dependencies:
       '@atcute/identity': 1.1.4
       '@atcute/lexicons': 1.3.0
       '@atcute/util-fetch': 1.0.5
-      '@badrap/valita': 0.4.6
-
-  '@atcute/identity@1.1.3':
-    dependencies:
-      '@atcute/lexicons': 1.3.0
       '@badrap/valita': 0.4.6
 
   '@atcute/identity@1.1.4':
