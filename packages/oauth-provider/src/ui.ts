@@ -336,7 +336,7 @@ function getScopeDescriptions(
 		out.push("Write any record in your repository");
 	} else if (repoFullNsids.length >= COLLAPSE_THRESHOLD) {
 		const prefix = commonNsidPrefix(repoFullNsids);
-		const items = repoFullNsids.map((n) => `${n} — create, update, delete`);
+		const items = repoFullNsids.slice().sort();
 		if (prefix) {
 			out.push({
 				summary: `Write records under ${prefix}.* in your repository (${repoFullNsids.length} record types)`,
@@ -658,7 +658,6 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 			padding: 4px 0 4px 12px;
 			font-size: 13px;
 			color: #9ca3af;
-			font-family: ui-monospace, "SF Mono", Menlo, monospace;
 		}
 
 		.permissions-list li.has-details ul li::before {
