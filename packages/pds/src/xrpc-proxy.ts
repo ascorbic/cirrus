@@ -7,6 +7,10 @@ import type { Context } from "hono";
 import { DidResolver } from "./did-resolver";
 import { getAtprotoServiceEndpoint } from "@atcute/identity";
 import { createServiceJwt } from "./service-auth";
+import {
+	ScopeMissingError,
+	permissionsFor,
+} from "@getcirrus/oauth-provider";
 import { verifyAccessToken, TokenExpiredError } from "./session";
 import { getProvider } from "./oauth";
 import type { PDSEnv } from "./types";
@@ -146,12 +150,29 @@ export async function handleXrpcProxy(
 	let userDid: string | undefined;
 
 	if (auth?.startsWith("DPoP ")) {
-		// Verify DPoP-bound OAuth access token
+		// Verify DPoP-bound OAuth access token. If the token is structurally
+		// valid we then assert it carries an `rpc:` scope matching the lxm and
+		// audience we're about to vouch for — otherwise a token granted for
+		// one method could be replayed against another via the proxy.
 		try {
 			const provider = getProvider(c.env);
 			const tokenData = await provider.verifyAccessToken(c.req.raw);
 			if (tokenData) {
-				userDid = tokenData.sub;
+				try {
+					permissionsFor(tokenData.scope).assertRpc({ lxm, aud: audienceDid });
+					userDid = tokenData.sub;
+				} catch (err) {
+					if (err instanceof ScopeMissingError) {
+						return c.json(
+							{
+								error: "InsufficientScope",
+								message: `Token does not grant rpc:${lxm}?aud=${audienceDid}`,
+							},
+							403,
+						);
+					}
+					throw err;
+				}
 			}
 		} catch {
 			// DPoP verification failed - continue without auth

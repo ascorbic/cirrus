@@ -95,7 +95,7 @@ export async function verifyClientAssertion(
 	// Resolve JWKS from inline keys or remote URI
 	let jwks: { keys: Record<string, unknown>[] } | undefined;
 	if (client.jwks && client.jwks.keys.length > 0) {
-		jwks = client.jwks;
+		jwks = client.jwks as unknown as { keys: Record<string, unknown>[] };
 	} else if (client.jwksUri) {
 		const res = await fetchFn(client.jwksUri, {
 			headers: { Accept: "application/json" },
