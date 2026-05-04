@@ -7,6 +7,7 @@
  */
 
 import { Hono } from "hono";
+import { waitUntil } from "cloudflare:workers";
 import {
 	ATProtoOAuthProvider,
 	createAtcutePermissionSetResolver,
@@ -127,15 +128,11 @@ function getNetworkPermissionSetResolver(): PermissionSetResolver {
 /**
  * Wrap the network-backed resolver in a DO-SQLite cache implementing
  * stale-while-revalidate semantics from the atproto permission spec
- * (24h soft / 90d hard).
- *
- * Refreshes for stale entries are best-effort: if the resolver's caller
- * supplies an `ExecutionContext.waitUntil`, we use it; otherwise we just
- * return the stale value and let the next request trigger a refresh.
+ * (24h soft / 90d hard). Stale-entry refreshes use the Workers global
+ * `waitUntil` so they outlive the request that triggered them.
  */
 function createCachedPermissionSetResolver(
 	accountDO: DurableObjectStub<AccountDurableObject>,
-	waitUntil?: (p: Promise<unknown>) => void,
 ): PermissionSetResolver {
 	const network = getNetworkPermissionSetResolver();
 	return {
@@ -143,20 +140,21 @@ function createCachedPermissionSetResolver(
 			const cached = await accountDO.rpcGetPermissionSet(nsid);
 			if (cached && !cached.stale) return cached.set;
 			if (cached?.stale) {
-				const refresh = (async () => {
-					try {
-						const fresh = await network.resolve(nsid);
-						if (fresh)
-							await accountDO.rpcSavePermissionSet(
-								nsid,
-								fresh as LexiconPermissionSet,
-							);
-					} catch {
-						// stale-while-revalidate: drop refresh errors silently;
-						// next request will retry.
-					}
-				})();
-				if (waitUntil) waitUntil(refresh);
+				waitUntil(
+					(async () => {
+						try {
+							const fresh = await network.resolve(nsid);
+							if (fresh)
+								await accountDO.rpcSavePermissionSet(
+									nsid,
+									fresh as LexiconPermissionSet,
+								);
+						} catch {
+							// stale-while-revalidate: drop refresh errors silently;
+							// next request will retry.
+						}
+					})(),
+				);
 				return cached.set;
 			}
 			const fresh = await network.resolve(nsid);

@@ -98,8 +98,9 @@ export class SqliteOAuthStorage implements OAuthStorage {
 			CREATE INDEX IF NOT EXISTS idx_challenges_created ON oauth_webauthn_challenges(created_at);
 
 			-- Cached permission-set lexicons resolved via @atcute/lexicon-resolver.
-			-- Per the atproto permission spec the cache is shared across all
-			-- accounts/sessions and uses stale-while-revalidate semantics.
+			-- Cache is per-account (lives inside this AccountDurableObject) and
+			-- uses the stale-while-revalidate semantics from the atproto
+			-- permission spec.
 			CREATE TABLE IF NOT EXISTS oauth_permission_sets (
 				nsid TEXT PRIMARY KEY,
 				lexicon TEXT NOT NULL,
@@ -438,6 +439,7 @@ export class SqliteOAuthStorage implements OAuthStorage {
 		this.sql.exec("DELETE FROM oauth_par_requests");
 		this.sql.exec("DELETE FROM oauth_nonces");
 		this.sql.exec("DELETE FROM oauth_webauthn_challenges");
+		this.sql.exec("DELETE FROM oauth_permission_sets");
 	}
 
 	// ============================================

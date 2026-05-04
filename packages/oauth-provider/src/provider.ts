@@ -171,9 +171,11 @@ export class ATProtoOAuthProvider {
 	/**
 	 * Resolve metadata for any `include:` scopes in the given scope string so
 	 * the consent UI can render bundle titles. Returns an empty array when
-	 * there is no resolver configured. Resolution failures are silently
-	 * dropped (the UI falls back to the bare NSID); the actual scope-grant
-	 * decision still happens at code-issuance time, where failures are fatal.
+	 * there is no resolver configured.
+	 *
+	 * Resolution failures are recorded on the bundle's `error` field so the
+	 * UI can surface a warning and disable the Allow button — letting users
+	 * blindly grant permissions they couldn't see is a security footgun.
 	 */
 	private async resolveBundleMetadata(
 		scope: string,
@@ -193,10 +195,16 @@ export class ATProtoOAuthProvider {
 						detail: set.detail,
 					});
 				} else {
-					bundles.push({ nsid: include.nsid });
+					bundles.push({
+						nsid: include.nsid,
+						error: "Permission set lexicon was not found",
+					});
 				}
-			} catch {
-				bundles.push({ nsid: include.nsid });
+			} catch (e) {
+				bundles.push({
+					nsid: include.nsid,
+					error: e instanceof Error ? e.message : "Resolution failed",
+				});
 			}
 		}
 		return bundles;
@@ -207,7 +215,12 @@ export class ATProtoOAuthProvider {
 		this.issuer = config.issuer;
 		this.dpopRequired = config.dpopRequired ?? true;
 		this.enablePAR = config.enablePAR ?? true;
-		this.parHandler = new PARHandler(config.storage, config.issuer);
+		this.parHandler = new PARHandler(
+			config.storage,
+			config.issuer,
+			undefined,
+			!!config.permissionSetResolver,
+		);
 		this.clientResolver =
 			config.clientResolver ?? new ClientResolver({ storage: config.storage });
 		this.verifyUser = config.verifyUser;
@@ -227,13 +240,36 @@ export class ATProtoOAuthProvider {
 		let params: Record<string, string>;
 
 		if (request.method === "POST") {
-			// POST: parse from form data (includes hidden fields with OAuth params)
+			// POST: parse from form data (includes hidden fields with OAuth params).
+			// The form fields are untrusted (the user could tamper with the
+			// hidden inputs), so when the request was originally pushed via
+			// PAR we treat the PAR record as the source of truth for everything
+			// except a small whitelist of submission-only fields.
 			const formData = await request.formData();
 			params = {};
 			for (const [key, value] of formData.entries()) {
 				if (typeof value === "string") {
 					params[key] = value;
 				}
+			}
+			const requestUri = params.request_uri;
+			if (requestUri && this.enablePAR && params.client_id) {
+				const parParams = await this.parHandler.retrieveParams(
+					requestUri,
+					params.client_id,
+					{ consume: false },
+				);
+				if (!parParams) {
+					return await this.renderError(
+						"invalid_request",
+						"Invalid or expired request_uri",
+					);
+				}
+				const formOnly: Record<string, string> = {};
+				for (const k of ["action", "password", "response_mode"]) {
+					if (params[k] !== undefined) formOnly[k] = params[k];
+				}
+				params = { ...parParams, ...formOnly, request_uri: requestUri };
 			}
 		} else {
 			// GET: check for PAR or query params
@@ -247,9 +283,14 @@ export class ATProtoOAuthProvider {
 						"client_id required with request_uri",
 					);
 				}
+				// Peek (don't consume) so the canonical params survive into the
+				// consent POST, where we re-fetch them to defeat form-field
+				// tampering. The PAR is consumed in handleAuthorizePost on the
+				// `allow` action.
 				const parParams = await this.parHandler.retrieveParams(
 					requestUri,
 					clientId,
+					{ consume: false },
 				);
 				if (!parParams) {
 					return await this.renderError(
@@ -257,7 +298,7 @@ export class ATProtoOAuthProvider {
 						"Invalid or expired request_uri",
 					);
 				}
-				params = parParams;
+				params = { ...parParams, request_uri: requestUri };
 			} else if (this.enablePAR) {
 				// PAR is required when enabled - reject direct authorization requests
 				return await this.renderError(
@@ -404,6 +445,14 @@ export class ATProtoOAuthProvider {
 
 		// Handle deny
 		if (action === "deny") {
+			// Consume the PAR record on deny too — the user has made a decision
+			// and the request_uri shouldn't be reusable.
+			if (params.request_uri && params.client_id) {
+				await this.parHandler.retrieveParams(
+					params.request_uri,
+					params.client_id,
+				);
+			}
 			const errorUrl = new URL(redirectUri);
 
 			if (responseMode === "fragment") {
@@ -506,6 +555,16 @@ export class ATProtoOAuthProvider {
 		};
 
 		await this.storage.saveAuthCode(code, authCodeData);
+
+		// Consume the PAR record now that the auth code has been issued. We
+		// deferred this from the GET path so the canonical params survived
+		// across the consent UI render.
+		if (params.request_uri && params.client_id) {
+			await this.parHandler.retrieveParams(
+				params.request_uri,
+				params.client_id,
+			);
+		}
 
 		// Redirect with code (using fragment mode if requested)
 		const successUrl = new URL(redirectUri);

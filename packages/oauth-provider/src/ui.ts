@@ -213,6 +213,12 @@ export interface PermissionSetBundle {
 	title?: string;
 	/** Longer human-readable detail from the lexicon document, if any. */
 	detail?: string;
+	/**
+	 * Set when resolution failed. The consent UI surfaces this as a warning
+	 * and disables the Allow button — granting permissions you couldn't see
+	 * is a security footgun.
+	 */
+	error?: string;
 }
 
 /**
@@ -405,7 +411,11 @@ function getScopeDescriptions(
 	}
 	for (const inc of includes) {
 		const bundle = bundles?.find((b) => b.nsid === inc.nsid);
-		if (bundle?.title) {
+		if (bundle?.error) {
+			out.push(
+				`⚠️ ${inc.nsid} — could not resolve permission set: ${bundle.error}`,
+			);
+		} else if (bundle?.title) {
 			out.push(
 				bundle.detail ? `${bundle.title} — ${bundle.detail}` : bundle.title,
 			);
@@ -473,6 +483,7 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 
 	const clientName = escapeHtml(client.clientName);
 	const scopeDescriptions = getScopeDescriptions(scope, options.bundles);
+	const hasResolutionFailure = !!options.bundles?.some((b) => b.error);
 	const logoHtml = client.logoUri
 		? `<img src="${escapeHtml(client.logoUri)}" alt="${clientName} logo" class="app-logo" />`
 		: `<div class="app-logo-placeholder">${clientName.charAt(0).toUpperCase()}</div>`;
@@ -698,6 +709,22 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 			background: linear-gradient(135deg, #2563eb, #1d4ed8);
 		}
 
+		.btn-allow:disabled {
+			background: rgba(255, 255, 255, 0.08);
+			color: #6b7280;
+			cursor: not-allowed;
+		}
+
+		.permissions-warning {
+			margin: 12px 0 0;
+			padding: 10px 12px;
+			border-radius: 8px;
+			background: rgba(239, 68, 68, 0.12);
+			border: 1px solid rgba(239, 68, 68, 0.3);
+			color: #fca5a5;
+			font-size: 13px;
+		}
+
 		.info {
 			margin-top: 16px;
 			font-size: 12px;
@@ -852,11 +879,16 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 						)
 						.join("")}
 				</ul>
+				${
+					hasResolutionFailure
+						? `<p class="permissions-warning">One or more permission sets could not be resolved. You can't safely grant permissions you can't see.</p>`
+						: ""
+				}
 			</div>
 
 			<div class="buttons">
 				<button type="submit" name="action" value="deny" class="btn-deny">Deny</button>
-				<button type="submit" name="action" value="allow" class="btn-allow">Allow</button>
+				<button type="submit" name="action" value="allow" class="btn-allow"${hasResolutionFailure ? " disabled" : ""}>Allow</button>
 			</div>
 		</form>
 

@@ -4,7 +4,7 @@ import { AccountDurableObject } from "../account-do.js";
 import type { AppEnv, AuthedAppEnv } from "../types.js";
 import { validator } from "../validation.js";
 import { detectContentType } from "../format.js";
-import { requireScope } from "../middleware/auth.js";
+import { buildScopeChecker, requireScope } from "../middleware/auth.js";
 
 function invalidRecordError(
 	c: Context<AuthedAppEnv>,
@@ -338,14 +338,12 @@ export async function putRecord(
 		);
 	}
 
-	// putRecord may create or update, so require both actions for the collection.
-	const scopeError =
-		requireScope(c, (perms) =>
-			perms.assertRepo({ collection, action: "create" }),
-		) ??
-		requireScope(c, (perms) =>
-			perms.assertRepo({ collection, action: "update" }),
-		);
+	// putRecord is upsert in atproto — match the upstream PDS convention of
+	// requiring just the `update` action; tokens scoped to update can putRecord
+	// regardless of whether the rkey already exists.
+	const scopeError = requireScope(c, (perms) =>
+		perms.assertRepo({ collection, action: "update" }),
+	);
 	if (scopeError) return scopeError;
 
 	// Validate record against lexicon schema
@@ -409,8 +407,10 @@ export async function applyWrites(
 		);
 	}
 
-	// Validate all records in create and update operations and assert the
-	// caller has the right repo scope for each write.
+	// Build the scope checker once outside the loop — for a 200-write batch
+	// this avoids re-parsing the token's scope string on every iteration.
+	const checkScope = buildScopeChecker(c);
+
 	for (let i = 0; i < writes.length; i++) {
 		const write = writes[i];
 		const action: "create" | "update" | "delete" | null =
@@ -431,10 +431,12 @@ export async function applyWrites(
 			);
 		}
 
-		const scopeError = requireScope(c, (perms) =>
-			perms.assertRepo({ collection: write.collection, action }),
-		);
-		if (scopeError) return scopeError;
+		if (checkScope) {
+			const scopeError = checkScope((perms) =>
+				perms.assertRepo({ collection: write.collection, action }),
+			);
+			if (scopeError) return scopeError;
+		}
 
 		if (action !== "delete") {
 			try {
@@ -468,15 +470,25 @@ export async function uploadBlob(
 ): Promise<Response> {
 	let contentType = c.req.header("Content-Type");
 
+	// Pre-buffer scope gate: if the caller declared a Content-Type, check it
+	// before reading the (up to 60 MB) body. Streaming up megabytes only to
+	// reject on scope is wasteful. If no Content-Type is declared, fall
+	// through and re-check after sniffing.
+	if (contentType && contentType !== "*/*") {
+		const preCheck = requireScope(c, (perms) =>
+			perms.assertBlob({ mime: contentType! }),
+		);
+		if (preCheck) return preCheck;
+	}
+
 	const bytes = new Uint8Array(await c.req.arrayBuffer());
 	if (!contentType || contentType === "*/*") {
 		contentType = detectContentType(bytes) || "application/octet-stream";
+		const postCheck = requireScope(c, (perms) =>
+			perms.assertBlob({ mime: contentType! }),
+		);
+		if (postCheck) return postCheck;
 	}
-
-	const scopeError = requireScope(c, (perms) =>
-		perms.assertBlob({ mime: contentType }),
-	);
-	if (scopeError) return scopeError;
 
 	// Size limit check (60MB)
 	const MAX_BLOB_SIZE = 60 * 1024 * 1024;
