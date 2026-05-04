@@ -23,8 +23,24 @@ import {
 	isTokenValid,
 	AUTH_CODE_TTL,
 } from "./tokens.js";
-import { renderConsentUI, renderErrorPage, getConsentUiCsp } from "./ui.js";
+import {
+	renderConsentUI,
+	renderErrorPage,
+	getConsentUiCsp,
+} from "./ui.js";
+import type { PermissionSetBundle } from "./ui.js";
+import { IncludeScope } from "@atproto/oauth-scopes";
 import { authenticateClient, ClientAuthError } from "./client-auth.js";
+import {
+	ATPROTO_SCOPE,
+	ScopeMissingError,
+	ScopeParseError,
+	expandScope,
+	parseScope,
+	permissionsFor,
+} from "./scopes.js";
+import type { ScopePermissionsTransition } from "./scopes.js";
+import type { PermissionSetResolver } from "./permission-sets.js";
 
 /**
  * OAuth provider configuration
@@ -53,6 +69,12 @@ export interface OAuthProviderConfig {
 		response: unknown,
 		challenge: string,
 	) => Promise<{ sub: string; handle: string } | null>;
+	/**
+	 * Permission set resolver. When provided, `include:NSID?aud=...` scopes
+	 * are expanded inline at authorize-time. When omitted, `include:` scopes
+	 * are rejected with `invalid_scope`.
+	 */
+	permissionSetResolver?: PermissionSetResolver;
 }
 
 /**
@@ -144,19 +166,68 @@ export class ATProtoOAuthProvider {
 		response: unknown,
 		challenge: string,
 	) => Promise<{ sub: string; handle: string } | null>;
+	private permissionSetResolver?: PermissionSetResolver;
+
+	/**
+	 * Resolve metadata for any `include:` scopes in the given scope string so
+	 * the consent UI can render bundle titles. Returns an empty array when
+	 * there is no resolver configured.
+	 *
+	 * Resolution failures are recorded on the bundle's `error` field so the
+	 * UI can surface a warning and disable the Allow button — letting users
+	 * blindly grant permissions they couldn't see is a security footgun.
+	 */
+	private async resolveBundleMetadata(
+		scope: string,
+	): Promise<PermissionSetBundle[]> {
+		if (!this.permissionSetResolver) return [];
+		const bundles: PermissionSetBundle[] = [];
+		for (const token of scope.split(" ")) {
+			if (!token.startsWith("include:")) continue;
+			const include = IncludeScope.fromString(token);
+			if (!include) continue;
+			try {
+				const set = await this.permissionSetResolver.resolve(include.nsid);
+				if (set) {
+					bundles.push({
+						nsid: include.nsid,
+						title: set.title,
+						detail: set.detail,
+					});
+				} else {
+					bundles.push({
+						nsid: include.nsid,
+						error: "Permission set lexicon was not found",
+					});
+				}
+			} catch (e) {
+				bundles.push({
+					nsid: include.nsid,
+					error: e instanceof Error ? e.message : "Resolution failed",
+				});
+			}
+		}
+		return bundles;
+	}
 
 	constructor(config: OAuthProviderConfig) {
 		this.storage = config.storage;
 		this.issuer = config.issuer;
 		this.dpopRequired = config.dpopRequired ?? true;
 		this.enablePAR = config.enablePAR ?? true;
-		this.parHandler = new PARHandler(config.storage, config.issuer);
+		this.parHandler = new PARHandler(
+			config.storage,
+			config.issuer,
+			undefined,
+			!!config.permissionSetResolver,
+		);
 		this.clientResolver =
 			config.clientResolver ?? new ClientResolver({ storage: config.storage });
 		this.verifyUser = config.verifyUser;
 		this.getCurrentUser = config.getCurrentUser;
 		this.getPasskeyOptions = config.getPasskeyOptions;
 		this.verifyPasskey = config.verifyPasskey;
+		this.permissionSetResolver = config.permissionSetResolver;
 	}
 
 	/**
@@ -169,13 +240,44 @@ export class ATProtoOAuthProvider {
 		let params: Record<string, string>;
 
 		if (request.method === "POST") {
-			// POST: parse from form data (includes hidden fields with OAuth params)
+			// POST: parse from form data (includes hidden fields with OAuth params).
+			// Form fields are untrusted — a malicious page can submit arbitrary
+			// values cross-origin if SameSite policy permits, so when PAR is
+			// enabled we *require* request_uri and treat the stored PAR record
+			// as the source of truth for every security-relevant field. Only
+			// a small whitelist of submission fields (action, password, response
+			// _mode) is taken from the form.
 			const formData = await request.formData();
 			params = {};
 			for (const [key, value] of formData.entries()) {
 				if (typeof value === "string") {
 					params[key] = value;
 				}
+			}
+			if (this.enablePAR) {
+				const requestUri = params.request_uri;
+				if (!requestUri || !params.client_id) {
+					return await this.renderError(
+						"invalid_request",
+						"Pushed Authorization Request required. Use the PAR endpoint first.",
+					);
+				}
+				const parParams = await this.parHandler.retrieveParams(
+					requestUri,
+					params.client_id,
+					{ consume: false },
+				);
+				if (!parParams) {
+					return await this.renderError(
+						"invalid_request",
+						"Invalid or expired request_uri",
+					);
+				}
+				const formOnly: Record<string, string> = {};
+				for (const k of ["action", "password", "response_mode"]) {
+					if (params[k] !== undefined) formOnly[k] = params[k];
+				}
+				params = { ...parParams, ...formOnly, request_uri: requestUri };
 			}
 		} else {
 			// GET: check for PAR or query params
@@ -189,9 +291,14 @@ export class ATProtoOAuthProvider {
 						"client_id required with request_uri",
 					);
 				}
+				// Peek (don't consume) so the canonical params survive into the
+				// consent POST, where we re-fetch them to defeat form-field
+				// tampering. The PAR is consumed in handleAuthorizePost on the
+				// `allow` action.
 				const parParams = await this.parHandler.retrieveParams(
 					requestUri,
 					clientId,
+					{ consume: false },
 				);
 				if (!parParams) {
 					return await this.renderError(
@@ -199,7 +306,7 @@ export class ATProtoOAuthProvider {
 						"Invalid or expired request_uri",
 					);
 				}
-				params = parParams;
+				params = { ...parParams, request_uri: requestUri };
 			} else if (this.enablePAR) {
 				// PAR is required when enabled - reject direct authorization requests
 				return await this.renderError(
@@ -267,6 +374,22 @@ export class ATProtoOAuthProvider {
 			);
 		}
 
+		// Structurally validate the requested scope. `include:` scopes are
+		// accepted here when a permission-set resolver is configured; they're
+		// expanded later, at code-issuance time, so the consent UI can show
+		// bundle titles in their original include form.
+		const scope = params.scope ?? ATPROTO_SCOPE;
+		params.scope = scope;
+		const allowIncludes = !!this.permissionSetResolver;
+		try {
+			parseScope(scope, { allowIncludes });
+		} catch (e) {
+			if (e instanceof ScopeParseError) {
+				return await this.renderError("invalid_scope", e.message);
+			}
+			throw e;
+		}
+
 		// Handle POST (form submission)
 		if (request.method === "POST") {
 			return this.handleAuthorizePost(request, params, client);
@@ -285,9 +408,7 @@ export class ATProtoOAuthProvider {
 		}
 
 		const passkeyAvailable = !user && !!passkeyOptions;
-
-		// Show consent UI
-		const scope = params.scope ?? "atproto";
+		const bundles = await this.resolveBundleMetadata(scope);
 		const html = renderConsentUI({
 			client,
 			scope,
@@ -298,6 +419,7 @@ export class ATProtoOAuthProvider {
 			showLogin: !user && !!this.verifyUser,
 			passkeyAvailable,
 			passkeyOptions: passkeyOptions ?? undefined,
+			bundles,
 		});
 
 		const csp = await getConsentUiCsp(passkeyAvailable);
@@ -331,6 +453,14 @@ export class ATProtoOAuthProvider {
 
 		// Handle deny
 		if (action === "deny") {
+			// Consume the PAR record on deny too — the user has made a decision
+			// and the request_uri shouldn't be reusable.
+			if (params.request_uri && params.client_id) {
+				await this.parHandler.retrieveParams(
+					params.request_uri,
+					params.client_id,
+				);
+			}
 			const errorUrl = new URL(redirectUri);
 
 			if (responseMode === "fragment") {
@@ -367,7 +497,7 @@ export class ATProtoOAuthProvider {
 		if (!user) {
 			// Show login form with error
 			const url = new URL(request.url);
-			const scope = params.scope ?? "atproto";
+			const scope = params.scope ?? ATPROTO_SCOPE;
 			const html = renderConsentUI({
 				client,
 				scope,
@@ -388,9 +518,39 @@ export class ATProtoOAuthProvider {
 			});
 		}
 
-		// Generate authorization code
+		// Generate authorization code. Expand any include: scopes now so the
+		// stored scope contains only concrete granular permissions.
+		const requestedScope = params.scope ?? ATPROTO_SCOPE;
+		let scope = requestedScope;
+		if (
+			this.permissionSetResolver &&
+			requestedScope.includes("include:")
+		) {
+			try {
+				scope = await expandScope(requestedScope, this.permissionSetResolver);
+				parseScope(scope);
+			} catch (e) {
+				if (e instanceof ScopeParseError) {
+					const errorUrl = new URL(redirectUri);
+					if (responseMode === "fragment") {
+						const hashParams = new URLSearchParams();
+						hashParams.set("error", "invalid_scope");
+						hashParams.set("error_description", e.message);
+						hashParams.set("state", state);
+						hashParams.set("iss", this.issuer);
+						errorUrl.hash = hashParams.toString();
+					} else {
+						errorUrl.searchParams.set("error", "invalid_scope");
+						errorUrl.searchParams.set("error_description", e.message);
+						errorUrl.searchParams.set("state", state);
+						errorUrl.searchParams.set("iss", this.issuer);
+					}
+					return Response.redirect(errorUrl.toString(), 302);
+				}
+				throw e;
+			}
+		}
 		const code = generateAuthCode();
-		const scope = params.scope ?? "atproto";
 
 		const authCodeData: AuthCodeData = {
 			clientId: params.client_id!,
@@ -403,6 +563,16 @@ export class ATProtoOAuthProvider {
 		};
 
 		await this.storage.saveAuthCode(code, authCodeData);
+
+		// Consume the PAR record now that the auth code has been issued. We
+		// deferred this from the GET path so the canonical params survived
+		// across the consent UI render.
+		if (params.request_uri && params.client_id) {
+			await this.parHandler.retrieveParams(
+				params.request_uri,
+				params.client_id,
+			);
+		}
 
 		// Redirect with code (using fragment mode if requested)
 		const successUrl = new URL(redirectUri);
@@ -739,7 +909,14 @@ export class ATProtoOAuthProvider {
 			scopes_supported: [
 				"atproto",
 				"transition:generic",
+				"transition:email",
 				"transition:chat.bsky",
+				"repo",
+				"rpc",
+				"blob",
+				"account",
+				"identity",
+				...(this.permissionSetResolver ? ["include"] : []),
 			],
 			subject_types_supported: ["public"],
 			authorization_response_iss_parameter_supported: true,
@@ -764,14 +941,20 @@ export class ATProtoOAuthProvider {
 	}
 
 	/**
-	 * Verify an access token from a request
+	 * Verify an access token from a request.
+	 *
 	 * @param request The HTTP request
-	 * @param requiredScope Optional scope to require
-	 * @returns Token data if valid
+	 * @param check Optional scope check. Pass a string to require an exact
+	 *   space-separated scope (legacy `transition:generic` style) or a callback
+	 *   that receives a {@link ScopePermissionsTransition} and throws on
+	 *   insufficient permissions (e.g. `(p) => p.assertRepo({ collection, action })`).
+	 * @returns Token data if the token is valid and the check passes, else null.
 	 */
 	async verifyAccessToken(
 		request: Request,
-		requiredScope?: string,
+		check?:
+			| string
+			| ((perms: ScopePermissionsTransition) => void),
 	): Promise<TokenData | null> {
 		// Extract token from Authorization header
 		const tokenInfo = extractAccessToken(request);
@@ -817,11 +1000,21 @@ export class ATProtoOAuthProvider {
 			}
 		}
 
-		// Check scope if required
-		if (requiredScope) {
-			const scopes = tokenData.scope.split(" ");
-			if (!scopes.includes(requiredScope)) {
-				return null;
+		if (check) {
+			if (typeof check === "string") {
+				const scopes = tokenData.scope.split(" ");
+				if (!scopes.includes(check)) {
+					return null;
+				}
+			} else {
+				try {
+					check(permissionsFor(tokenData.scope));
+				} catch (e) {
+					if (e instanceof ScopeMissingError) {
+						return null;
+					}
+					throw e;
+				}
 			}
 		}
 
@@ -906,9 +1099,26 @@ export class ATProtoOAuthProvider {
 			);
 		}
 
-		// Generate authorization code
+		// Generate authorization code, expanding any include: scopes inline.
 		const code = generateAuthCode();
-		const scope = oauthParams.scope ?? "atproto";
+		const requestedScope = oauthParams.scope ?? ATPROTO_SCOPE;
+		const allowIncludes = !!this.permissionSetResolver;
+		let scope = requestedScope;
+		try {
+			parseScope(requestedScope, { allowIncludes });
+			if (allowIncludes && requestedScope.includes("include:")) {
+				scope = await expandScope(requestedScope, this.permissionSetResolver);
+				parseScope(scope);
+			}
+		} catch (e) {
+			if (e instanceof ScopeParseError) {
+				return new Response(JSON.stringify({ error: e.message }), {
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+			throw e;
+		}
 
 		const authCodeData: AuthCodeData = {
 			clientId: oauthParams.client_id!,

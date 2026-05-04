@@ -1481,6 +1481,27 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		return storage.checkAndSaveNonce(nonce);
 	}
 
+	/**
+	 * Look up a cached permission-set lexicon by NSID. Returns the cached
+	 * value (with `stale: true` when past its 24h soft-expiry) or null when
+	 * not cached or hard-expired.
+	 */
+	async rpcGetPermissionSet(
+		nsid: string,
+	): Promise<import("./oauth-storage.js").CachedPermissionSet | null> {
+		const storage = await this.getOAuthStorage();
+		return storage.getPermissionSet(nsid);
+	}
+
+	/** Cache a fetched permission-set lexicon. */
+	async rpcSavePermissionSet(
+		nsid: string,
+		set: import("@getcirrus/oauth-provider").LexiconPermissionSet,
+	): Promise<void> {
+		const storage = await this.getOAuthStorage();
+		storage.savePermissionSet(nsid, set);
+	}
+
 	// ============================================
 	// Passkey RPC Methods
 	// ============================================

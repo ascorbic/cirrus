@@ -1145,13 +1145,58 @@ describe("XRPC Endpoints", () => {
 			);
 			expect(response.status).toBe(200);
 
-			const data = await response.json();
+			const data = (await response.json()) as Record<string, unknown>;
 			expect(data).toMatchObject({
 				did: env.DID,
 				active: true,
-				status: "active",
 				rev: expect.any(String),
 			});
+			expect(data.status).toBeUndefined();
+		});
+
+		it("should return deactivated status when account is inactive", async () => {
+			const deactivateResponse = await worker.fetch(
+				new Request(
+					"http://pds.test/xrpc/com.atproto.server.deactivateAccount",
+					{
+						method: "POST",
+						headers: {
+							Authorization: `Bearer ${env.AUTH_TOKEN}`,
+						},
+					},
+				),
+				env,
+			);
+			expect(deactivateResponse.status).toBe(200);
+
+			const response = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getRepoStatus?did=${env.DID}`,
+				),
+				env,
+			);
+			expect(response.status).toBe(200);
+
+			const data = (await response.json()) as Record<string, unknown>;
+			expect(data).toMatchObject({
+				did: env.DID,
+				active: false,
+				status: "deactivated",
+			});
+			expect(data.rev).toBeUndefined();
+
+			await worker.fetch(
+				new Request(
+					"http://pds.test/xrpc/com.atproto.server.activateAccount",
+					{
+						method: "POST",
+						headers: {
+							Authorization: `Bearer ${env.AUTH_TOKEN}`,
+						},
+					},
+				),
+				env,
+			);
 		});
 
 		it("should export repo as CAR file", async () => {
