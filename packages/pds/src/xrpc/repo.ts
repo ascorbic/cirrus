@@ -4,6 +4,7 @@ import { AccountDurableObject } from "../account-do.js";
 import type { AppEnv, AuthedAppEnv } from "../types.js";
 import { validator } from "../validation.js";
 import { detectContentType } from "../format.js";
+import { buildScopeChecker, requireScope } from "../middleware/auth.js";
 
 function invalidRecordError(
 	c: Context<AuthedAppEnv>,
@@ -233,6 +234,11 @@ export async function createRecord(
 		);
 	}
 
+	const scopeError = requireScope(c, (perms) =>
+		perms.assertRepo({ collection, action: "create" }),
+	);
+	if (scopeError) return scopeError;
+
 	// Validate record against lexicon schema
 	try {
 		validator.validateRecord(collection, record);
@@ -277,6 +283,11 @@ export async function deleteRecord(
 			400,
 		);
 	}
+
+	const scopeError = requireScope(c, (perms) =>
+		perms.assertRepo({ collection, action: "delete" }),
+	);
+	if (scopeError) return scopeError;
 
 	try {
 		const result = await accountDO.rpcDeleteRecord(collection, rkey);
@@ -326,6 +337,14 @@ export async function putRecord(
 			400,
 		);
 	}
+
+	// putRecord is upsert in atproto — match the upstream PDS convention of
+	// requiring just the `update` action; tokens scoped to update can putRecord
+	// regardless of whether the rkey already exists.
+	const scopeError = requireScope(c, (perms) =>
+		perms.assertRepo({ collection, action: "update" }),
+	);
+	if (scopeError) return scopeError;
 
 	// Validate record against lexicon schema
 	try {
@@ -388,13 +407,38 @@ export async function applyWrites(
 		);
 	}
 
-	// Validate all records in create and update operations
+	// Build the scope checker once outside the loop — for a 200-write batch
+	// this avoids re-parsing the token's scope string on every iteration.
+	const checkScope = buildScopeChecker(c);
+
 	for (let i = 0; i < writes.length; i++) {
 		const write = writes[i];
-		if (
-			write.$type === "com.atproto.repo.applyWrites#create" ||
-			write.$type === "com.atproto.repo.applyWrites#update"
-		) {
+		const action: "create" | "update" | "delete" | null =
+			write.$type === "com.atproto.repo.applyWrites#create"
+				? "create"
+				: write.$type === "com.atproto.repo.applyWrites#update"
+					? "update"
+					: write.$type === "com.atproto.repo.applyWrites#delete"
+						? "delete"
+						: null;
+		if (!action || !write.collection) {
+			return c.json(
+				{
+					error: "InvalidRequest",
+					message: `Write ${i}: unknown $type or missing collection`,
+				},
+				400,
+			);
+		}
+
+		if (checkScope) {
+			const scopeError = checkScope((perms) =>
+				perms.assertRepo({ collection: write.collection, action }),
+			);
+			if (scopeError) return scopeError;
+		}
+
+		if (action !== "delete") {
 			try {
 				validator.validateRecord(write.collection, write.value);
 			} catch (err) {
@@ -425,11 +469,40 @@ export async function uploadBlob(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	let contentType = c.req.header("Content-Type");
+	// Normalise MIME for scope matching: strip parameters (e.g.
+	// `image/png; charset=utf-8`) and lowercase. `@atproto/oauth-scopes`
+	// validates parameterised values and matches case-sensitively, but MIME
+	// types are case-insensitive per RFC 9110 §8.3.1.
+	const mimeOf = (ct: string) => ct.split(";")[0]!.trim().toLowerCase();
+
+	// Optimistic pre-buffer gate: if the caller declared a Content-Type,
+	// reject obviously-mismatched scopes before reading the (up to 60 MB)
+	// body. This is bandwidth-saving only — a lying client can still trick
+	// it by declaring a permitted type, so the authoritative scope check
+	// runs post-buffer against the detected MIME below.
+	if (contentType && contentType !== "*/*") {
+		const declared = mimeOf(contentType);
+		const preCheck = requireScope(c, (perms) =>
+			perms.assertBlob({ mime: declared }),
+		);
+		if (preCheck) return preCheck;
+	}
 
 	const bytes = new Uint8Array(await c.req.arrayBuffer());
-	if (!contentType || contentType === "*/*") {
-		contentType = detectContentType(bytes) || "application/octet-stream";
-	}
+	const detected = detectContentType(bytes);
+	// Authoritative scope check uses the sniffed MIME when available so a
+	// client can't bypass `blob:image/*` by labelling JS bytes as image/png.
+	// If detection fails, fall back to the declared header (or octet-stream).
+	const effective =
+		detected ??
+		(contentType && contentType !== "*/*"
+			? mimeOf(contentType)
+			: "application/octet-stream");
+	const postCheck = requireScope(c, (perms) =>
+		perms.assertBlob({ mime: effective }),
+	);
+	if (postCheck) return postCheck;
+	contentType = effective;
 
 	// Size limit check (60MB)
 	const MAX_BLOB_SIZE = 60 * 1024 * 1024;
