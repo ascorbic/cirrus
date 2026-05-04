@@ -1,5 +1,29 @@
 # @getcirrus/pds
 
+## 0.14.0
+
+### Minor Changes
+
+- [#158](https://github.com/ascorbic/cirrus/pull/158) [`ec935b1`](https://github.com/ascorbic/cirrus/commit/ec935b16b7f44b22ff325781e0c88ccc3d07e599) Thanks [@ascorbic](https://github.com/ascorbic)! - Support granular OAuth permissions and permission sets per the atproto permission spec.
+  - `repo:`, `rpc:`, `blob:`, `account:`, `identity:` scopes are parsed and enforced (via `@atproto/oauth-scopes`); `transition:generic` / `transition:email` / `transition:chat.bsky` keep working through the transitional shim.
+  - `verifyAccessToken` now accepts a `(perms) => p.assertRepo({ collection, action })`-style check callback in addition to the legacy required-scope string.
+  - PDS write endpoints (`createRecord`, `putRecord`, `deleteRecord`, `applyWrites`, `uploadBlob`) assert the matching scope before dispatching.
+  - `include:NSID?aud=...` permission-set scopes are resolved via `@atcute/lexicon-resolver` and expanded inline at code-issuance time, so resource-server checks never need network access. The PDS caches resolved permission sets in DO SQLite with the spec's stale-while-revalidate semantics (24h soft / 90d hard).
+  - The consent UI groups long granular-scope lists by NSID authority and collapses them behind a `<details>` disclosure, so a 30-scope client like tangled.org renders as a few audit-friendly lines instead of a wall of text. `include:` scopes render the resolved bundle's title/detail.
+
+  **Note on legacy auth:** session JWTs (from `createSession` / app-password flow), service JWTs, and the static `AUTH_TOKEN` continue to bypass scope checks at resource handlers — they're treated as fully-trusted callers per their original semantics (app-password equivalents). The new `rpc:` proxy enforcement only applies to OAuth (`DPoP`) tokens; legacy clients can still call any AppView method via the proxy regardless of granular scopes.
+
+### Patch Changes
+
+- [#153](https://github.com/ascorbic/cirrus/pull/153) [`6e4d81d`](https://github.com/ascorbic/cirrus/commit/6e4d81dbf065568a273739ee59e97870381d5e68) Thanks [@georgemblack](https://github.com/georgemblack)! - Fix `com.atproto.server.checkAccountStatus` response to be lexicon-compliant: `privateStateValues` is a required `integer` (not nullable), so return `0` instead of `null` in both the activated and not-activated branches.
+
+- [#155](https://github.com/ascorbic/cirrus/pull/155) [`d1a7074`](https://github.com/ascorbic/cirrus/commit/d1a70748126870274980d76e230719e29f408290) Thanks [@a-lavis](https://github.com/a-lavis)! - Fix two OAuth token refresh bugs that prevented spec-compliant clients (e.g. tangled.org via indigo) from refreshing their session after the access token expired.
+  - Track access and refresh expiry separately on `TokenData` (`accessExpiresAt` / `refreshExpiresAt`) instead of a single `expiresAt`. `cleanup()` now prunes by `refreshExpiresAt`, so a row isn't deleted while its refresh token is still valid. The PDS SQLite store migrates legacy `oauth_tokens` rows in place, deriving `refresh_expires_at` as `MAX(expires_at, issued_at + REFRESH_TOKEN_TTL)`.
+  - The PDS auth middleware now sends `WWW-Authenticate: DPoP error="invalid_token"` on 401 responses for invalid/expired OAuth access tokens, as required by the atproto XRPC spec. Clients that gate refresh on this header (indigo, and others) will now refresh automatically instead of staying logged-in-but-broken until the user signs out.
+
+- Updated dependencies [[`ec935b1`](https://github.com/ascorbic/cirrus/commit/ec935b16b7f44b22ff325781e0c88ccc3d07e599), [`d1a7074`](https://github.com/ascorbic/cirrus/commit/d1a70748126870274980d76e230719e29f408290)]:
+  - @getcirrus/oauth-provider@0.4.0
+
 ## 0.13.0
 
 ### Minor Changes
