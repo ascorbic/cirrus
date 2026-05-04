@@ -7,14 +7,24 @@
  */
 
 import { Hono } from "hono";
-import { ATProtoOAuthProvider } from "@getcirrus/oauth-provider";
+import {
+	ATProtoOAuthProvider,
+	createAtcutePermissionSetResolver,
+} from "@getcirrus/oauth-provider";
 import type {
 	OAuthStorage,
 	AuthCodeData,
+	LexiconPermissionSet,
+	PermissionSetResolver,
 	TokenData,
 	ClientMetadata,
 	PARData,
 } from "@getcirrus/oauth-provider";
+import {
+	CompositeDidDocumentResolver,
+	PlcDidDocumentResolver,
+	WebDidDocumentResolver,
+} from "@atcute/identity-resolver";
 import { compare } from "bcryptjs";
 import type { PDSEnv } from "./types";
 import type { AccountDurableObject } from "./account-do";
@@ -92,6 +102,75 @@ class DOProxyOAuthStorage implements OAuthStorage {
 }
 
 /**
+ * Build a network-backed permission-set resolver. Constructed once per
+ * isolate; `@atcute/lexicon-resolver` is stateless beyond the cache it
+ * doesn't have, so it's safe to share.
+ */
+let networkPermissionSetResolver: PermissionSetResolver | undefined;
+function getNetworkPermissionSetResolver(): PermissionSetResolver {
+	if (!networkPermissionSetResolver) {
+		networkPermissionSetResolver = createAtcutePermissionSetResolver({
+			dohUrl: "https://mozilla.cloudflare-dns.com/dns-query",
+			didDocumentResolver: new CompositeDidDocumentResolver({
+				methods: {
+					plc: new PlcDidDocumentResolver({
+						apiUrl: "https://plc.directory",
+					}),
+					web: new WebDidDocumentResolver({}),
+				},
+			}),
+		});
+	}
+	return networkPermissionSetResolver;
+}
+
+/**
+ * Wrap the network-backed resolver in a DO-SQLite cache implementing
+ * stale-while-revalidate semantics from the atproto permission spec
+ * (24h soft / 90d hard).
+ *
+ * Refreshes for stale entries are best-effort: if the resolver's caller
+ * supplies an `ExecutionContext.waitUntil`, we use it; otherwise we just
+ * return the stale value and let the next request trigger a refresh.
+ */
+function createCachedPermissionSetResolver(
+	accountDO: DurableObjectStub<AccountDurableObject>,
+	waitUntil?: (p: Promise<unknown>) => void,
+): PermissionSetResolver {
+	const network = getNetworkPermissionSetResolver();
+	return {
+		async resolve(nsid) {
+			const cached = await accountDO.rpcGetPermissionSet(nsid);
+			if (cached && !cached.stale) return cached.set;
+			if (cached?.stale) {
+				const refresh = (async () => {
+					try {
+						const fresh = await network.resolve(nsid);
+						if (fresh)
+							await accountDO.rpcSavePermissionSet(
+								nsid,
+								fresh as LexiconPermissionSet,
+							);
+					} catch {
+						// stale-while-revalidate: drop refresh errors silently;
+						// next request will retry.
+					}
+				})();
+				if (waitUntil) waitUntil(refresh);
+				return cached.set;
+			}
+			const fresh = await network.resolve(nsid);
+			if (fresh)
+				await accountDO.rpcSavePermissionSet(
+					nsid,
+					fresh as LexiconPermissionSet,
+				);
+			return fresh;
+		},
+	};
+}
+
+/**
  * Get the OAuth provider for the given environment
  * Exported for use in auth middleware for token verification
  */
@@ -136,6 +215,8 @@ export function getProvider(env: PDSEnv): ATProtoOAuthProvider {
 				handle: env.HANDLE,
 			};
 		},
+		// DO-SQLite-cached permission-set resolver for `include:` scopes.
+		permissionSetResolver: createCachedPermissionSetResolver(accountDO),
 	});
 }
 

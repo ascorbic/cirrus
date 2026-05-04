@@ -83,10 +83,21 @@ export {
 	ATPROTO_SCOPE,
 	GRANULAR_RESOURCES,
 	TRANSITION_SCOPES,
+	IncludeScope,
 	ScopeMissingError,
 	ScopeParseError,
 	ScopePermissionsTransition,
 	ScopesSet,
+	expandScope,
 	parseScope,
 	permissionsFor,
 } from "./scopes.js";
+export type { ParseScopeOptions } from "./scopes.js";
+
+// Permission sets
+export { createAtcutePermissionSetResolver } from "./permission-sets.js";
+export type {
+	CreateAtcutePermissionSetResolverOptions,
+	LexiconPermissionSet,
+	PermissionSetResolver,
+} from "./permission-sets.js";

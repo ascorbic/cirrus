@@ -1,6 +1,6 @@
 # Granular OAuth Permissions
 
-**Status:** 📋 Todo
+**Status:** ✅ Complete (Phase 1 + Phase 2)
 **Packages:** `@getcirrus/oauth-provider`, `@getcirrus/pds`
 
 ## Goal

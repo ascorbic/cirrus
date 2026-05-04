@@ -742,7 +742,7 @@ describe("OAuth Flow", () => {
 			expect(data).not.toBeNull();
 		});
 
-		it("rejects an authorize request with include: scope", async () => {
+		it("rejects an authorize request with include: scope when no resolver is configured", async () => {
 			const verifier = generateCodeVerifier();
 			const challenge = await generateCodeChallenge(verifier);
 			const formData = new FormData();
@@ -766,7 +766,142 @@ describe("OAuth Flow", () => {
 			);
 			expect(response.status).toBe(400);
 			const html = await response.text();
-			expect(html).toMatch(/Permission sets are not yet supported/);
+			expect(html).toMatch(/Permission sets cannot be requested/);
+		});
+
+		it("expands include: scopes inline when a resolver is configured", async () => {
+			// Stand up a fresh provider with a mock permission-set resolver.
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+			const keyPair = await generateDpopKeyPair("ES256");
+
+			const mockSet = {
+				type: "permission-set" as const,
+				permissions: [
+					{
+						type: "permission" as const,
+						resource: "repo",
+						collection: ["com.example.post"],
+					},
+				],
+			};
+			const localStorage = new InMemoryOAuthStorage();
+			const localResolver = new MockClientResolver({});
+			localResolver.registerClient(testClient);
+			const localProvider = new ATProtoOAuthProvider({
+				storage: localStorage,
+				issuer: "https://pds.example.com",
+				dpopRequired: true,
+				enablePAR: false,
+				clientResolver: localResolver,
+				getCurrentUser: async () => testUser,
+				permissionSetResolver: {
+					resolve: async (nsid) =>
+						nsid === "com.example.basic" ? mockSet : null,
+				},
+			});
+
+			const formData = new FormData();
+			formData.set("client_id", testClient.clientId);
+			formData.set("redirect_uri", testClient.redirectUris[0]!);
+			formData.set("response_type", "code");
+			formData.set("code_challenge", challenge);
+			formData.set("code_challenge_method", "S256");
+			formData.set("state", "test-state");
+			formData.set(
+				"scope",
+				"atproto include:com.example.basic?aud=did:web:foo%23svc",
+			);
+			formData.set("action", "allow");
+
+			const authResponse = await localProvider.handleAuthorize(
+				new Request("https://pds.example.com/oauth/authorize", {
+					method: "POST",
+					body: formData,
+				}),
+			);
+			expect(authResponse.status).toBe(302);
+			const code = new URL(
+				authResponse.headers.get("Location")!,
+			).searchParams.get("code")!;
+
+			const dpopProof = await createDpopProof(
+				keyPair.privateKey,
+				keyPair.publicJwk,
+				{ htm: "POST", htu: "https://pds.example.com/oauth/token" },
+				"ES256",
+			);
+			const tokenResponse = await localProvider.handleToken(
+				new Request("https://pds.example.com/oauth/token", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/x-www-form-urlencoded",
+						DPoP: dpopProof,
+					},
+					body: new URLSearchParams({
+						grant_type: "authorization_code",
+						code,
+						client_id: testClient.clientId,
+						redirect_uri: testClient.redirectUris[0]!,
+						code_verifier: verifier,
+					}).toString(),
+				}),
+			);
+			const tokens = (await tokenResponse.json()) as { access_token: string };
+
+			const stored = await localStorage.getTokenByAccess(tokens.access_token);
+			expect(stored).not.toBeNull();
+			// Stored scope should be expanded (no include:), and contain the
+			// concrete repo permission from the bundle.
+			expect(stored!.scope).not.toMatch(/include:/);
+			expect(stored!.scope).toMatch(/repo:com\.example\.post/);
+		});
+
+		it("rejects an include: that fails to resolve", async () => {
+			const localStorage = new InMemoryOAuthStorage();
+			const localResolver = new MockClientResolver({});
+			localResolver.registerClient(testClient);
+			const localProvider = new ATProtoOAuthProvider({
+				storage: localStorage,
+				issuer: "https://pds.example.com",
+				dpopRequired: true,
+				enablePAR: false,
+				clientResolver: localResolver,
+				getCurrentUser: async () => testUser,
+				permissionSetResolver: {
+					resolve: async () => null,
+				},
+			});
+
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+			const formData = new FormData();
+			formData.set("client_id", testClient.clientId);
+			formData.set("redirect_uri", testClient.redirectUris[0]!);
+			formData.set("response_type", "code");
+			formData.set("code_challenge", challenge);
+			formData.set("code_challenge_method", "S256");
+			formData.set("state", "test-state");
+			formData.set(
+				"scope",
+				"atproto include:com.example.missing?aud=did:web:foo%23svc",
+			);
+			formData.set("action", "allow");
+
+			const response = await localProvider.handleAuthorize(
+				new Request("https://pds.example.com/oauth/authorize", {
+					method: "POST",
+					body: formData,
+				}),
+			);
+			// Expansion failure happens at code-issuance time, so it's
+			// reported via the OAuth redirect with `error=invalid_scope`.
+			expect(response.status).toBe(302);
+			const location = new URL(response.headers.get("Location")!);
+			expect(location.searchParams.get("error")).toBe("invalid_scope");
+			expect(location.searchParams.get("error_description")).toMatch(
+				/com\.example\.missing/,
+			);
 		});
 
 		it("PAR rejects malformed granular scope", async () => {

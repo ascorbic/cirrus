@@ -202,13 +202,33 @@ function escapeHtml(text: string): string {
 }
 
 /**
+ * Metadata about a permission-set bundle the client requested via an
+ * `include:` scope. Used to render a friendly bundle title in the consent UI
+ * instead of the bare NSID.
+ */
+export interface PermissionSetBundle {
+	/** The bundle's NSID (matches an `include:NSID?aud=...` scope token). */
+	nsid: string;
+	/** Human-readable title from the lexicon document, if any. */
+	title?: string;
+	/** Longer human-readable detail from the lexicon document, if any. */
+	detail?: string;
+}
+
+/**
  * Parse scope string into human-readable descriptions.
  *
  * Recognizes the legacy `atproto` / `transition:*` scopes and the granular
  * resource scopes from the atproto permissions spec (`repo:`, `rpc:`, `blob:`,
  * `account:`, `identity:`, `include:`).
+ *
+ * `bundles`, when supplied, lets us render `include:` scopes as the bundle's
+ * human title rather than just its NSID.
  */
-function getScopeDescriptions(scope: string): string[] {
+function getScopeDescriptions(
+	scope: string,
+	bundles?: readonly PermissionSetBundle[],
+): string[] {
 	const set = ScopesSet.fromString(scope);
 	const descriptions: string[] = [];
 
@@ -266,7 +286,14 @@ function getScopeDescriptions(scope: string): string[] {
 		} else if (resource === "include") {
 			const inc = IncludeScope.fromString(s);
 			if (!inc) continue;
-			descriptions.push(`Permissions from ${inc.nsid}`);
+			const bundle = bundles?.find((b) => b.nsid === inc.nsid);
+			if (bundle?.title) {
+				descriptions.push(
+					bundle.detail ? `${bundle.title} — ${bundle.detail}` : bundle.title,
+				);
+			} else {
+				descriptions.push(`Permissions from ${inc.nsid}`);
+			}
 		}
 	}
 
@@ -301,6 +328,12 @@ export interface ConsentUIOptions {
 	passkeyAvailable?: boolean;
 	/** WebAuthn authentication options for passkey login */
 	passkeyOptions?: Record<string, unknown>;
+	/**
+	 * Resolved metadata for any permission-set `include:` scopes in the
+	 * request. The consent UI uses this to show the bundle's title/detail
+	 * instead of the bare NSID.
+	 */
+	bundles?: readonly PermissionSetBundle[];
 }
 
 /**
@@ -322,7 +355,7 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 	} = options;
 
 	const clientName = escapeHtml(client.clientName);
-	const scopeDescriptions = getScopeDescriptions(scope);
+	const scopeDescriptions = getScopeDescriptions(scope, options.bundles);
 	const logoHtml = client.logoUri
 		? `<img src="${escapeHtml(client.logoUri)}" alt="${clientName} logo" class="app-logo" />`
 		: `<div class="app-logo-placeholder">${clientName.charAt(0).toUpperCase()}</div>`;

@@ -1,11 +1,14 @@
 /**
  * Scope parsing and matching, built on @atproto/oauth-scopes.
  *
- * Phase 1: granular scopes are parsed and enforced; `include:` (permission
- * sets) is rejected with invalid_scope. Phase 2 will resolve includes against
- * a lexicon-permission-set resolver and expand them inline at authorize-time.
+ * Granular scopes (`repo:`, `rpc:`, `blob:`, `account:`, `identity:`) are
+ * parsed structurally. Permission-set includes (`include:NSID?aud=...`) are
+ * resolved at authorize-time via an injected {@link PermissionSetResolver}
+ * and expanded into concrete granular scopes inline before the auth code is
+ * stored — so resource-server checks never need network access.
  */
 
+import type { Nsid as AtcuteNsid } from "@atcute/lexicons/syntax";
 import {
 	AccountPermission,
 	BlobPermission,
@@ -17,8 +20,9 @@ import {
 	ScopePermissionsTransition,
 	ScopesSet,
 } from "@atproto/oauth-scopes";
+import type { PermissionSetResolver } from "./permission-sets.js";
 
-export { ScopeMissingError, ScopePermissionsTransition, ScopesSet };
+export { IncludeScope, ScopeMissingError, ScopePermissionsTransition, ScopesSet };
 
 /**
  * Resources known to the spec. Used in OAuth metadata advertisement and to
@@ -71,14 +75,28 @@ const STRUCTURAL_PARSERS: Record<
 	identity: (s) => IdentityPermission.fromString(s),
 };
 
+export interface ParseScopeOptions {
+	/**
+	 * When true, `include:` scopes are accepted (and structurally validated)
+	 * but not expanded — the returned ScopesSet may still contain them.
+	 * Use this at authorize-time, then call {@link expandScope} to resolve
+	 * the includes before storing.
+	 *
+	 * When false (default), `include:` scopes throw a ScopeParseError. Use
+	 * this on already-expanded scope strings (e.g. when re-validating a
+	 * stored token's scope).
+	 */
+	allowIncludes?: boolean;
+}
+
 /**
  * Validate a space-separated scope string. Returns the parsed ScopesSet on
  * success.
- *
- * In Phase 1 we reject `include:` here because we don't yet resolve permission
- * sets. The caller should turn this into an `invalid_scope` OAuth error.
  */
-export function parseScope(input: string | undefined | null): ScopesSet {
+export function parseScope(
+	input: string | undefined | null,
+	{ allowIncludes = false }: ParseScopeOptions = {},
+): ScopesSet {
 	const set = ScopesSet.fromString(input ?? "");
 
 	if (!set.has(ATPROTO_SCOPE)) {
@@ -96,10 +114,13 @@ export function parseScope(input: string | undefined | null): ScopesSet {
 			if (!IncludeScope.fromString(scope)) {
 				throw new ScopeParseError(`Malformed include scope: ${scope}`, scope);
 			}
-			throw new ScopeParseError(
-				`Permission sets are not yet supported: ${scope}`,
-				scope,
-			);
+			if (!allowIncludes) {
+				throw new ScopeParseError(
+					`Permission sets cannot be requested in this context: ${scope}`,
+					scope,
+				);
+			}
+			continue;
 		}
 
 		const colon = scope.indexOf(":");
@@ -117,6 +138,69 @@ export function parseScope(input: string | undefined | null): ScopesSet {
 	}
 
 	return set;
+}
+
+/**
+ * Expand any `include:` scopes in the input by resolving each NSID against
+ * the supplied {@link PermissionSetResolver} and replacing the include with
+ * the bundle's concrete granular scopes (per the spec — only `repo:` / `rpc:`
+ * inside the include's namespace authority are kept).
+ *
+ * Returns the rewritten space-separated scope string. Throws a
+ * {@link ScopeParseError} when an include cannot be resolved.
+ */
+export async function expandScope(
+	scope: string,
+	resolver: PermissionSetResolver | undefined,
+): Promise<string> {
+	const tokens = scope.split(" ").filter(Boolean);
+	const out = new Set<string>();
+
+	for (const token of tokens) {
+		if (!token.startsWith("include:")) {
+			out.add(token);
+			continue;
+		}
+
+		if (!resolver) {
+			throw new ScopeParseError(
+				`Permission sets are not supported: no resolver configured`,
+				token,
+			);
+		}
+
+		const include = IncludeScope.fromString(token);
+		if (!include) {
+			throw new ScopeParseError(`Malformed include scope: ${token}`, token);
+		}
+
+		let permissionSet;
+		try {
+			permissionSet = await resolver.resolve(
+				include.nsid as unknown as AtcuteNsid,
+			);
+		} catch (err) {
+			throw new ScopeParseError(
+				`Failed to resolve permission set ${include.nsid}: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+				token,
+			);
+		}
+
+		if (!permissionSet) {
+			throw new ScopeParseError(
+				`Permission set ${include.nsid} is not a permission-set lexicon`,
+				token,
+			);
+		}
+
+		for (const expanded of include.toScopes(permissionSet)) {
+			out.add(expanded);
+		}
+	}
+
+	return Array.from(out).join(" ");
 }
 
 /**

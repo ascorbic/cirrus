@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { LexiconPermissionSet } from "../src/permission-sets.js";
 import {
 	ATPROTO_SCOPE,
 	ScopeMissingError,
 	ScopeParseError,
+	expandScope,
 	parseScope,
 	permissionsFor,
 } from "../src/scopes.js";
@@ -58,10 +60,18 @@ describe("parseScope", () => {
 		expect(() => parseScope("atproto madeup:thing")).toThrow(ScopeParseError);
 	});
 
-	it("rejects include: scopes (Phase 1)", () => {
+	it("rejects include: scopes by default (strict mode)", () => {
 		expect(() =>
 			parseScope("atproto include:com.example.basic?aud=did:web:foo%23svc"),
-		).toThrow(/Permission sets are not yet supported/);
+		).toThrow(/Permission sets cannot be requested/);
+	});
+
+	it("accepts include: scopes when allowIncludes is true", () => {
+		const set = parseScope(
+			"atproto include:com.example.basic?aud=did:web:foo%23svc",
+			{ allowIncludes: true },
+		);
+		expect(set.size).toBe(2);
 	});
 });
 
@@ -127,5 +137,119 @@ describe("permissionsFor", () => {
 describe("ATPROTO_SCOPE", () => {
 	it("is the literal 'atproto'", () => {
 		expect(ATPROTO_SCOPE).toBe("atproto");
+	});
+});
+
+describe("renderConsentUI bundle metadata", () => {
+	it("shows the bundle title for include: scopes when provided", async () => {
+		const { renderConsentUI } = await import("../src/ui.js");
+		const html = renderConsentUI({
+			client: {
+				clientId: "did:web:client.example.com",
+				clientName: "Test Client",
+				redirectUris: ["https://client.example.com/cb"],
+			},
+			scope: "atproto include:com.example.basic?aud=did:web:foo%23svc",
+			authorizeUrl: "/oauth/authorize",
+			state: "s",
+			oauthParams: {},
+			bundles: [
+				{ nsid: "com.example.basic", title: "Basic App Functionality" },
+			],
+		});
+		expect(html).toContain("Basic App Functionality");
+		expect(html).not.toContain("Permissions from com.example.basic");
+	});
+
+	it("falls back to NSID when no bundle metadata is provided", async () => {
+		const { renderConsentUI } = await import("../src/ui.js");
+		const html = renderConsentUI({
+			client: {
+				clientId: "did:web:client.example.com",
+				clientName: "Test Client",
+				redirectUris: ["https://client.example.com/cb"],
+			},
+			scope: "atproto include:com.example.basic?aud=did:web:foo%23svc",
+			authorizeUrl: "/oauth/authorize",
+			state: "s",
+			oauthParams: {},
+		});
+		expect(html).toContain("Permissions from com.example.basic");
+	});
+});
+
+describe("expandScope", () => {
+	const basicSet: LexiconPermissionSet = {
+		type: "permission-set",
+		title: "Basic",
+		permissions: [
+			{
+				type: "permission",
+				resource: "repo",
+				collection: ["com.example.post"],
+			},
+			{
+				type: "permission",
+				resource: "rpc",
+				lxm: ["com.example.feed.getTimeline"],
+				inheritAud: true,
+			},
+		],
+	};
+
+	function mockResolver(map: Record<string, LexiconPermissionSet | null>) {
+		return {
+			resolve: async (nsid: string) =>
+				nsid in map ? (map[nsid] ?? null) : null,
+		};
+	}
+
+	it("passes through scopes that have no include:", async () => {
+		const out = await expandScope(
+			"atproto repo:app.bsky.feed.post",
+			mockResolver({}),
+		);
+		expect(out.split(" ").sort()).toEqual([
+			"atproto",
+			"repo:app.bsky.feed.post",
+		]);
+	});
+
+	it("expands an include: into its bundled permissions", async () => {
+		const out = await expandScope(
+			"atproto include:com.example.basic?aud=did:web:foo%23svc",
+			mockResolver({ "com.example.basic": basicSet }),
+		);
+		const parts = out.split(" ").sort();
+		expect(parts).toContain("atproto");
+		expect(parts).toContain("repo:com.example.post");
+		// inheritAud=true means the rpc permission should pick up the
+		// include's aud parameter (did:web:foo#svc), which the spec serialises
+		// as percent-encoded `%23` for the fragment separator.
+		expect(
+			parts.some(
+				(s) =>
+					s.startsWith("rpc:com.example.feed.getTimeline") &&
+					/did:web:foo(?:#|%23)svc/.test(s),
+			),
+		).toBe(true);
+	});
+
+	it("throws when the include cannot be resolved", async () => {
+		await expect(
+			expandScope(
+				"atproto include:com.example.unknown?aud=did:web:foo%23svc",
+				mockResolver({}),
+			),
+		).rejects.toThrow(ScopeParseError);
+	});
+
+	it("throws when no resolver is configured but include: is present", async () => {
+		await expect(
+			expandScope(
+				"atproto include:com.example.basic?aud=did:web:foo%23svc",
+				undefined,
+			),
+		).rejects.toThrow(/no resolver configured/);
 	});
 });

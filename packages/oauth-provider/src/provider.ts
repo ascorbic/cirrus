@@ -23,16 +23,24 @@ import {
 	isTokenValid,
 	AUTH_CODE_TTL,
 } from "./tokens.js";
-import { renderConsentUI, renderErrorPage, getConsentUiCsp } from "./ui.js";
+import {
+	renderConsentUI,
+	renderErrorPage,
+	getConsentUiCsp,
+} from "./ui.js";
+import type { PermissionSetBundle } from "./ui.js";
+import { IncludeScope } from "@atproto/oauth-scopes";
 import { authenticateClient, ClientAuthError } from "./client-auth.js";
 import {
 	ATPROTO_SCOPE,
 	ScopeMissingError,
 	ScopeParseError,
+	expandScope,
 	parseScope,
 	permissionsFor,
 } from "./scopes.js";
 import type { ScopePermissionsTransition } from "./scopes.js";
+import type { PermissionSetResolver } from "./permission-sets.js";
 
 /**
  * OAuth provider configuration
@@ -61,6 +69,12 @@ export interface OAuthProviderConfig {
 		response: unknown,
 		challenge: string,
 	) => Promise<{ sub: string; handle: string } | null>;
+	/**
+	 * Permission set resolver. When provided, `include:NSID?aud=...` scopes
+	 * are expanded inline at authorize-time. When omitted, `include:` scopes
+	 * are rejected with `invalid_scope`.
+	 */
+	permissionSetResolver?: PermissionSetResolver;
 }
 
 /**
@@ -152,6 +166,41 @@ export class ATProtoOAuthProvider {
 		response: unknown,
 		challenge: string,
 	) => Promise<{ sub: string; handle: string } | null>;
+	private permissionSetResolver?: PermissionSetResolver;
+
+	/**
+	 * Resolve metadata for any `include:` scopes in the given scope string so
+	 * the consent UI can render bundle titles. Returns an empty array when
+	 * there is no resolver configured. Resolution failures are silently
+	 * dropped (the UI falls back to the bare NSID); the actual scope-grant
+	 * decision still happens at code-issuance time, where failures are fatal.
+	 */
+	private async resolveBundleMetadata(
+		scope: string,
+	): Promise<PermissionSetBundle[]> {
+		if (!this.permissionSetResolver) return [];
+		const bundles: PermissionSetBundle[] = [];
+		for (const token of scope.split(" ")) {
+			if (!token.startsWith("include:")) continue;
+			const include = IncludeScope.fromString(token);
+			if (!include) continue;
+			try {
+				const set = await this.permissionSetResolver.resolve(include.nsid);
+				if (set) {
+					bundles.push({
+						nsid: include.nsid,
+						title: set.title,
+						detail: set.detail,
+					});
+				} else {
+					bundles.push({ nsid: include.nsid });
+				}
+			} catch {
+				bundles.push({ nsid: include.nsid });
+			}
+		}
+		return bundles;
+	}
 
 	constructor(config: OAuthProviderConfig) {
 		this.storage = config.storage;
@@ -165,6 +214,7 @@ export class ATProtoOAuthProvider {
 		this.getCurrentUser = config.getCurrentUser;
 		this.getPasskeyOptions = config.getPasskeyOptions;
 		this.verifyPasskey = config.verifyPasskey;
+		this.permissionSetResolver = config.permissionSetResolver;
 	}
 
 	/**
@@ -275,13 +325,15 @@ export class ATProtoOAuthProvider {
 			);
 		}
 
-		// Validate the requested scope. We default to bare `atproto` if none was
-		// supplied. Granular scopes are parsed structurally; `include:` scopes
-		// are rejected here in Phase 1 (no permission set resolution yet).
+		// Structurally validate the requested scope. `include:` scopes are
+		// accepted here when a permission-set resolver is configured; they're
+		// expanded later, at code-issuance time, so the consent UI can show
+		// bundle titles in their original include form.
 		const scope = params.scope ?? ATPROTO_SCOPE;
 		params.scope = scope;
+		const allowIncludes = !!this.permissionSetResolver;
 		try {
-			parseScope(scope);
+			parseScope(scope, { allowIncludes });
 		} catch (e) {
 			if (e instanceof ScopeParseError) {
 				return await this.renderError("invalid_scope", e.message);
@@ -307,6 +359,7 @@ export class ATProtoOAuthProvider {
 		}
 
 		const passkeyAvailable = !user && !!passkeyOptions;
+		const bundles = await this.resolveBundleMetadata(scope);
 		const html = renderConsentUI({
 			client,
 			scope,
@@ -317,6 +370,7 @@ export class ATProtoOAuthProvider {
 			showLogin: !user && !!this.verifyUser,
 			passkeyAvailable,
 			passkeyOptions: passkeyOptions ?? undefined,
+			bundles,
 		});
 
 		const csp = await getConsentUiCsp(passkeyAvailable);
@@ -407,9 +461,39 @@ export class ATProtoOAuthProvider {
 			});
 		}
 
-		// Generate authorization code
+		// Generate authorization code. Expand any include: scopes now so the
+		// stored scope contains only concrete granular permissions.
+		const requestedScope = params.scope ?? ATPROTO_SCOPE;
+		let scope = requestedScope;
+		if (
+			this.permissionSetResolver &&
+			requestedScope.includes("include:")
+		) {
+			try {
+				scope = await expandScope(requestedScope, this.permissionSetResolver);
+				parseScope(scope);
+			} catch (e) {
+				if (e instanceof ScopeParseError) {
+					const errorUrl = new URL(redirectUri);
+					if (responseMode === "fragment") {
+						const hashParams = new URLSearchParams();
+						hashParams.set("error", "invalid_scope");
+						hashParams.set("error_description", e.message);
+						hashParams.set("state", state);
+						hashParams.set("iss", this.issuer);
+						errorUrl.hash = hashParams.toString();
+					} else {
+						errorUrl.searchParams.set("error", "invalid_scope");
+						errorUrl.searchParams.set("error_description", e.message);
+						errorUrl.searchParams.set("state", state);
+						errorUrl.searchParams.set("iss", this.issuer);
+					}
+					return Response.redirect(errorUrl.toString(), 302);
+				}
+				throw e;
+			}
+		}
 		const code = generateAuthCode();
-		const scope = params.scope ?? ATPROTO_SCOPE;
 
 		const authCodeData: AuthCodeData = {
 			clientId: params.client_id!,
@@ -947,17 +1031,23 @@ export class ATProtoOAuthProvider {
 			);
 		}
 
-		// Generate authorization code
+		// Generate authorization code, expanding any include: scopes inline.
 		const code = generateAuthCode();
-		const scope = oauthParams.scope ?? ATPROTO_SCOPE;
+		const requestedScope = oauthParams.scope ?? ATPROTO_SCOPE;
+		const allowIncludes = !!this.permissionSetResolver;
+		let scope = requestedScope;
 		try {
-			parseScope(scope);
+			parseScope(requestedScope, { allowIncludes });
+			if (allowIncludes && requestedScope.includes("include:")) {
+				scope = await expandScope(requestedScope, this.permissionSetResolver);
+				parseScope(scope);
+			}
 		} catch (e) {
 			if (e instanceof ScopeParseError) {
-				return new Response(
-					JSON.stringify({ error: e.message }),
-					{ status: 400, headers: { "Content-Type": "application/json" } },
-				);
+				return new Response(JSON.stringify({ error: e.message }), {
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				});
 			}
 			throw e;
 		}

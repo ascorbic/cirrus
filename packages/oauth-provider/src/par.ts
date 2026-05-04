@@ -139,7 +139,9 @@ export class PARHandler {
 		const scope = params.scope ?? ATPROTO_SCOPE;
 		params.scope = scope;
 		try {
-			parseScope(scope);
+			// PAR is a deferred authorize: includes are accepted here and
+			// resolved at the authorize step, so we use lenient parsing.
+			parseScope(scope, { allowIncludes: true });
 		} catch (e) {
 			if (e instanceof ScopeParseError) {
 				return this.errorResponse("invalid_scope", e.message, 400);
