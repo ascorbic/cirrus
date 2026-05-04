@@ -1,4 +1,9 @@
 import type { Context, Next } from "hono";
+import {
+	ScopeMissingError,
+	type ScopePermissionsTransition,
+	permissionsFor,
+} from "@getcirrus/oauth-provider";
 import { verifyServiceJwt } from "../service-auth";
 import { verifyAccessToken, TokenExpiredError } from "../session";
 import { getProvider } from "../oauth";
@@ -12,6 +17,48 @@ export interface AuthInfo {
 export type AuthVariables = {
 	auth: AuthInfo;
 };
+
+/**
+ * Legacy scope values produced by non-OAuth auth paths (session JWTs from
+ * createSession, service JWTs from external services). These predate the
+ * granular permission spec and represent fully-trusted callers, so scope
+ * checks short-circuit to allow.
+ */
+const LEGACY_FULL_TRUST_SCOPES = new Set([
+	"com.atproto.access",
+	"com.atproto.refresh",
+]);
+
+/**
+ * Run a scope check against the authenticated request's token. Returns a 403
+ * Response when the scope is missing, or null when the check passes.
+ *
+ * Use inside an XRPC handler after data-driven values (collection name, MIME
+ * type, etc.) become available from the request body.
+ */
+export function requireScope(
+	c: Context<{ Bindings: PDSEnv; Variables: AuthVariables }>,
+	check: (perms: ScopePermissionsTransition) => void,
+): Response | null {
+	const auth = c.get("auth");
+	if (!auth?.scope) return null;
+	if (LEGACY_FULL_TRUST_SCOPES.has(auth.scope)) return null;
+	try {
+		check(permissionsFor(auth.scope));
+		return null;
+	} catch (err) {
+		if (err instanceof ScopeMissingError) {
+			return c.json(
+				{
+					error: "InsufficientScope",
+					message: `Missing required scope: ${err.scope}`,
+				},
+				403,
+			);
+		}
+		throw err;
+	}
+}
 
 export async function requireAuth(
 	c: Context<{ Bindings: PDSEnv; Variables: AuthVariables }>,
@@ -62,7 +109,9 @@ export async function requireAuth(
 
 	const token = auth.slice(7);
 
-	// Try static token first (backwards compatibility)
+	// Try static token first (backwards compatibility). The static token is a
+	// shared operator secret; requireScope() treats `com.atproto.access` as a
+	// fully-trusted legacy scope, so this carries the same broad authority.
 	if (token === c.env.AUTH_TOKEN) {
 		c.set("auth", { did: c.env.DID, scope: "com.atproto.access" });
 		return next();
@@ -118,8 +167,11 @@ export async function requireAuth(
 			c.env.DID, // issuer should be the user's DID
 		);
 
-		// Store auth info in context
-		c.set("auth", { did: payload.iss, scope: payload.lxm || "atproto" });
+		// Store auth info in context. Service JWTs are bound to a specific
+		// `lxm` method by the JWT itself, so we don't re-check scope at the
+		// resource layer; mark with the legacy `com.atproto.access` scope so
+		// requireScope() short-circuits.
+		c.set("auth", { did: payload.iss, scope: "com.atproto.access" });
 		return next();
 	} catch {
 		// Service JWT verification also failed

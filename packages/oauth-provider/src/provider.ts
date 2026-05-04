@@ -25,6 +25,14 @@ import {
 } from "./tokens.js";
 import { renderConsentUI, renderErrorPage, getConsentUiCsp } from "./ui.js";
 import { authenticateClient, ClientAuthError } from "./client-auth.js";
+import {
+	ATPROTO_SCOPE,
+	ScopeMissingError,
+	ScopeParseError,
+	parseScope,
+	permissionsFor,
+} from "./scopes.js";
+import type { ScopePermissionsTransition } from "./scopes.js";
 
 /**
  * OAuth provider configuration
@@ -267,6 +275,20 @@ export class ATProtoOAuthProvider {
 			);
 		}
 
+		// Validate the requested scope. We default to bare `atproto` if none was
+		// supplied. Granular scopes are parsed structurally; `include:` scopes
+		// are rejected here in Phase 1 (no permission set resolution yet).
+		const scope = params.scope ?? ATPROTO_SCOPE;
+		params.scope = scope;
+		try {
+			parseScope(scope);
+		} catch (e) {
+			if (e instanceof ScopeParseError) {
+				return await this.renderError("invalid_scope", e.message);
+			}
+			throw e;
+		}
+
 		// Handle POST (form submission)
 		if (request.method === "POST") {
 			return this.handleAuthorizePost(request, params, client);
@@ -285,9 +307,6 @@ export class ATProtoOAuthProvider {
 		}
 
 		const passkeyAvailable = !user && !!passkeyOptions;
-
-		// Show consent UI
-		const scope = params.scope ?? "atproto";
 		const html = renderConsentUI({
 			client,
 			scope,
@@ -367,7 +386,7 @@ export class ATProtoOAuthProvider {
 		if (!user) {
 			// Show login form with error
 			const url = new URL(request.url);
-			const scope = params.scope ?? "atproto";
+			const scope = params.scope ?? ATPROTO_SCOPE;
 			const html = renderConsentUI({
 				client,
 				scope,
@@ -390,7 +409,7 @@ export class ATProtoOAuthProvider {
 
 		// Generate authorization code
 		const code = generateAuthCode();
-		const scope = params.scope ?? "atproto";
+		const scope = params.scope ?? ATPROTO_SCOPE;
 
 		const authCodeData: AuthCodeData = {
 			clientId: params.client_id!,
@@ -739,7 +758,13 @@ export class ATProtoOAuthProvider {
 			scopes_supported: [
 				"atproto",
 				"transition:generic",
+				"transition:email",
 				"transition:chat.bsky",
+				"repo",
+				"rpc",
+				"blob",
+				"account",
+				"identity",
 			],
 			subject_types_supported: ["public"],
 			authorization_response_iss_parameter_supported: true,
@@ -764,14 +789,20 @@ export class ATProtoOAuthProvider {
 	}
 
 	/**
-	 * Verify an access token from a request
+	 * Verify an access token from a request.
+	 *
 	 * @param request The HTTP request
-	 * @param requiredScope Optional scope to require
-	 * @returns Token data if valid
+	 * @param check Optional scope check. Pass a string to require an exact
+	 *   space-separated scope (legacy `transition:generic` style) or a callback
+	 *   that receives a {@link ScopePermissionsTransition} and throws on
+	 *   insufficient permissions (e.g. `(p) => p.assertRepo({ collection, action })`).
+	 * @returns Token data if the token is valid and the check passes, else null.
 	 */
 	async verifyAccessToken(
 		request: Request,
-		requiredScope?: string,
+		check?:
+			| string
+			| ((perms: ScopePermissionsTransition) => void),
 	): Promise<TokenData | null> {
 		// Extract token from Authorization header
 		const tokenInfo = extractAccessToken(request);
@@ -817,11 +848,21 @@ export class ATProtoOAuthProvider {
 			}
 		}
 
-		// Check scope if required
-		if (requiredScope) {
-			const scopes = tokenData.scope.split(" ");
-			if (!scopes.includes(requiredScope)) {
-				return null;
+		if (check) {
+			if (typeof check === "string") {
+				const scopes = tokenData.scope.split(" ");
+				if (!scopes.includes(check)) {
+					return null;
+				}
+			} else {
+				try {
+					check(permissionsFor(tokenData.scope));
+				} catch (e) {
+					if (e instanceof ScopeMissingError) {
+						return null;
+					}
+					throw e;
+				}
 			}
 		}
 
@@ -908,7 +949,18 @@ export class ATProtoOAuthProvider {
 
 		// Generate authorization code
 		const code = generateAuthCode();
-		const scope = oauthParams.scope ?? "atproto";
+		const scope = oauthParams.scope ?? ATPROTO_SCOPE;
+		try {
+			parseScope(scope);
+		} catch (e) {
+			if (e instanceof ScopeParseError) {
+				return new Response(
+					JSON.stringify({ error: e.message }),
+					{ status: 400, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			throw e;
+		}
 
 		const authCodeData: AuthCodeData = {
 			clientId: oauthParams.client_id!,

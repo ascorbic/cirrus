@@ -4,6 +4,7 @@ import { AccountDurableObject } from "../account-do.js";
 import type { AppEnv, AuthedAppEnv } from "../types.js";
 import { validator } from "../validation.js";
 import { detectContentType } from "../format.js";
+import { requireScope } from "../middleware/auth.js";
 
 function invalidRecordError(
 	c: Context<AuthedAppEnv>,
@@ -233,6 +234,11 @@ export async function createRecord(
 		);
 	}
 
+	const scopeError = requireScope(c, (perms) =>
+		perms.assertRepo({ collection, action: "create" }),
+	);
+	if (scopeError) return scopeError;
+
 	// Validate record against lexicon schema
 	try {
 		validator.validateRecord(collection, record);
@@ -277,6 +283,11 @@ export async function deleteRecord(
 			400,
 		);
 	}
+
+	const scopeError = requireScope(c, (perms) =>
+		perms.assertRepo({ collection, action: "delete" }),
+	);
+	if (scopeError) return scopeError;
 
 	try {
 		const result = await accountDO.rpcDeleteRecord(collection, rkey);
@@ -326,6 +337,16 @@ export async function putRecord(
 			400,
 		);
 	}
+
+	// putRecord may create or update, so require both actions for the collection.
+	const scopeError =
+		requireScope(c, (perms) =>
+			perms.assertRepo({ collection, action: "create" }),
+		) ??
+		requireScope(c, (perms) =>
+			perms.assertRepo({ collection, action: "update" }),
+		);
+	if (scopeError) return scopeError;
 
 	// Validate record against lexicon schema
 	try {
@@ -388,13 +409,34 @@ export async function applyWrites(
 		);
 	}
 
-	// Validate all records in create and update operations
+	// Validate all records in create and update operations and assert the
+	// caller has the right repo scope for each write.
 	for (let i = 0; i < writes.length; i++) {
 		const write = writes[i];
-		if (
-			write.$type === "com.atproto.repo.applyWrites#create" ||
-			write.$type === "com.atproto.repo.applyWrites#update"
-		) {
+		const action: "create" | "update" | "delete" | null =
+			write.$type === "com.atproto.repo.applyWrites#create"
+				? "create"
+				: write.$type === "com.atproto.repo.applyWrites#update"
+					? "update"
+					: write.$type === "com.atproto.repo.applyWrites#delete"
+						? "delete"
+						: null;
+		if (!action || !write.collection) {
+			return c.json(
+				{
+					error: "InvalidRequest",
+					message: `Write ${i}: unknown $type or missing collection`,
+				},
+				400,
+			);
+		}
+
+		const scopeError = requireScope(c, (perms) =>
+			perms.assertRepo({ collection: write.collection, action }),
+		);
+		if (scopeError) return scopeError;
+
+		if (action !== "delete") {
 			try {
 				validator.validateRecord(write.collection, write.value);
 			} catch (err) {
@@ -430,6 +472,11 @@ export async function uploadBlob(
 	if (!contentType || contentType === "*/*") {
 		contentType = detectContentType(bytes) || "application/octet-stream";
 	}
+
+	const scopeError = requireScope(c, (perms) =>
+		perms.assertBlob({ mime: contentType }),
+	);
+	if (scopeError) return scopeError;
 
 	// Size limit check (60MB)
 	const MAX_BLOB_SIZE = 60 * 1024 * 1024;

@@ -20,7 +20,8 @@
 		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm"
 	},
 	"dependencies": {
-		"@atproto/oauth-types": "^0.5.2",
+		"@atproto/oauth-scopes": "^0.3.2",
+		"@atproto/oauth-types": "^0.6.3",
 		"@atproto/syntax": "^0.4.2",
 		"jose": "^6.1.3"
 	},

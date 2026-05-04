@@ -609,4 +609,188 @@ describe("OAuth Flow", () => {
 			expect(tokenData).toBeNull();
 		});
 	});
+
+	describe("Granular Scopes", () => {
+		async function authorizeAndToken(
+			scope: string,
+		): Promise<{ accessToken: string; keyPair: Awaited<ReturnType<typeof generateDpopKeyPair>> }> {
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+			const keyPair = await generateDpopKeyPair("ES256");
+
+			const formData = new FormData();
+			formData.set("client_id", testClient.clientId);
+			formData.set("redirect_uri", testClient.redirectUris[0]!);
+			formData.set("response_type", "code");
+			formData.set("code_challenge", challenge);
+			formData.set("code_challenge_method", "S256");
+			formData.set("state", "test-state");
+			formData.set("scope", scope);
+			formData.set("action", "allow");
+
+			const authRequest = new Request(
+				"https://pds.example.com/oauth/authorize",
+				{ method: "POST", body: formData },
+			);
+			const authResponse = await provider.handleAuthorize(authRequest);
+			const location = authResponse.headers.get("Location")!;
+			const code = new URL(location).searchParams.get("code")!;
+
+			const dpopProof = await createDpopProof(
+				keyPair.privateKey,
+				keyPair.publicJwk,
+				{ htm: "POST", htu: "https://pds.example.com/oauth/token" },
+				"ES256",
+			);
+
+			const tokenRequest = new Request("https://pds.example.com/oauth/token", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/x-www-form-urlencoded",
+					DPoP: dpopProof,
+				},
+				body: new URLSearchParams({
+					grant_type: "authorization_code",
+					code,
+					client_id: testClient.clientId,
+					redirect_uri: testClient.redirectUris[0]!,
+					code_verifier: verifier,
+				}).toString(),
+			});
+
+			const tokenResponse = await provider.handleToken(tokenRequest);
+			const tokens = (await tokenResponse.json()) as { access_token: string };
+			return { accessToken: tokens.access_token, keyPair };
+		}
+
+		async function apiRequestFor(
+			accessToken: string,
+			keyPair: Awaited<ReturnType<typeof generateDpopKeyPair>>,
+		): Promise<Request> {
+			const tokenHash = await crypto.subtle.digest(
+				"SHA-256",
+				new TextEncoder().encode(accessToken),
+			);
+			const ath = btoa(String.fromCharCode(...new Uint8Array(tokenHash)))
+				.replace(/\+/g, "-")
+				.replace(/\//g, "_")
+				.replace(/=+$/, "");
+			const proof = await createDpopProof(
+				keyPair.privateKey,
+				keyPair.publicJwk,
+				{ htm: "GET", htu: "https://pds.example.com/api/resource", ath },
+				"ES256",
+			);
+			return new Request("https://pds.example.com/api/resource", {
+				method: "GET",
+				headers: { Authorization: `DPoP ${accessToken}`, DPoP: proof },
+			});
+		}
+
+		it("issues a token carrying a granular repo scope", async () => {
+			const { accessToken, keyPair } = await authorizeAndToken(
+				"atproto repo:app.bsky.feed.post",
+			);
+			const data = await provider.verifyAccessToken(
+				await apiRequestFor(accessToken, keyPair),
+			);
+			expect(data?.scope).toBe("atproto repo:app.bsky.feed.post");
+		});
+
+		it("verifyAccessToken passes when callback is satisfied", async () => {
+			const { accessToken, keyPair } = await authorizeAndToken(
+				"atproto repo:app.bsky.feed.post",
+			);
+			const data = await provider.verifyAccessToken(
+				await apiRequestFor(accessToken, keyPair),
+				(perms) =>
+					perms.assertRepo({
+						collection: "app.bsky.feed.post",
+						action: "create",
+					}),
+			);
+			expect(data).not.toBeNull();
+		});
+
+		it("verifyAccessToken returns null when callback throws ScopeMissingError", async () => {
+			const { accessToken, keyPair } = await authorizeAndToken(
+				"atproto repo:app.bsky.feed.post",
+			);
+			const data = await provider.verifyAccessToken(
+				await apiRequestFor(accessToken, keyPair),
+				(perms) =>
+					perms.assertRepo({
+						collection: "app.bsky.feed.like",
+						action: "create",
+					}),
+			);
+			expect(data).toBeNull();
+		});
+
+		it("transition:generic still satisfies a granular check", async () => {
+			const { accessToken, keyPair } = await authorizeAndToken(
+				"atproto transition:generic",
+			);
+			const data = await provider.verifyAccessToken(
+				await apiRequestFor(accessToken, keyPair),
+				(perms) =>
+					perms.assertRepo({
+						collection: "app.bsky.feed.post",
+						action: "create",
+					}),
+			);
+			expect(data).not.toBeNull();
+		});
+
+		it("rejects an authorize request with include: scope", async () => {
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+			const formData = new FormData();
+			formData.set("client_id", testClient.clientId);
+			formData.set("redirect_uri", testClient.redirectUris[0]!);
+			formData.set("response_type", "code");
+			formData.set("code_challenge", challenge);
+			formData.set("code_challenge_method", "S256");
+			formData.set("state", "test-state");
+			formData.set(
+				"scope",
+				"atproto include:com.example.basic?aud=did:web:foo%23svc",
+			);
+			formData.set("action", "allow");
+
+			const response = await provider.handleAuthorize(
+				new Request("https://pds.example.com/oauth/authorize", {
+					method: "POST",
+					body: formData,
+				}),
+			);
+			expect(response.status).toBe(400);
+			const html = await response.text();
+			expect(html).toMatch(/Permission sets are not yet supported/);
+		});
+
+		it("PAR rejects malformed granular scope", async () => {
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+			const parBody = new URLSearchParams({
+				client_id: testClient.clientId,
+				redirect_uri: testClient.redirectUris[0]!,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "test-state",
+				scope: "atproto repo:not a real nsid",
+			});
+			const response = await provider.handlePAR(
+				new Request("https://pds.example.com/oauth/par", {
+					method: "POST",
+					headers: { "Content-Type": "application/x-www-form-urlencoded" },
+					body: parBody.toString(),
+				}),
+			);
+			expect(response.status).toBe(400);
+			const json = (await response.json()) as { error: string };
+			expect(json.error).toBe("invalid_scope");
+		});
+	});
 });

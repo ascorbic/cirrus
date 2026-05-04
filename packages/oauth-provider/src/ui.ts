@@ -3,7 +3,16 @@
  * Renders the HTML page for user consent during OAuth authorization
  */
 
+import {
+	AccountPermission,
+	BlobPermission,
+	IdentityPermission,
+	IncludeScope,
+	RepoPermission,
+	RpcPermission,
+} from "@atproto/oauth-scopes";
 import type { ClientMetadata } from "./storage.js";
+import { ATPROTO_SCOPE, ScopesSet } from "./scopes.js";
 
 /**
  * The passkey authentication script (static, can be hashed).
@@ -193,30 +202,74 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * Parse scope string into human-readable descriptions
+ * Parse scope string into human-readable descriptions.
+ *
+ * Recognizes the legacy `atproto` / `transition:*` scopes and the granular
+ * resource scopes from the atproto permissions spec (`repo:`, `rpc:`, `blob:`,
+ * `account:`, `identity:`, `include:`).
  */
 function getScopeDescriptions(scope: string): string[] {
-	const scopes = scope.split(" ").filter(Boolean);
+	const set = ScopesSet.fromString(scope);
 	const descriptions: string[] = [];
 
-	for (const s of scopes) {
-		switch (s) {
-			case "atproto":
-				descriptions.push("Access your AT Protocol account");
-				break;
-			case "transition:generic":
-				descriptions.push("Perform account operations");
-				break;
-			case "transition:chat.bsky":
-				descriptions.push("Access chat functionality");
-				break;
-			default:
-				// Don't show unknown scopes to avoid confusion
-				break;
+	if (set.has(ATPROTO_SCOPE)) {
+		descriptions.push("Access your AT Protocol account");
+	}
+	if (set.has("transition:generic")) {
+		descriptions.push("Perform account operations");
+	}
+	if (set.has("transition:email")) {
+		descriptions.push("Read your account email");
+	}
+	if (set.has("transition:chat.bsky")) {
+		descriptions.push("Access chat functionality");
+	}
+
+	for (const s of set) {
+		const colon = s.indexOf(":");
+		if (colon === -1) continue;
+		const resource = s.slice(0, colon);
+
+		if (resource === "repo") {
+			const perm = RepoPermission.fromString(s);
+			if (!perm) continue;
+			const collections = perm.collection.includes("*")
+				? "any record type"
+				: perm.collection.join(", ");
+			const actions = perm.action.join(", ");
+			descriptions.push(
+				`Write records (${actions}) for ${collections} in your repository`,
+			);
+		} else if (resource === "rpc") {
+			const perm = RpcPermission.fromString(s);
+			if (!perm) continue;
+			const lxms = perm.lxm.includes("*") ? "any method" : perm.lxm.join(", ");
+			const aud = perm.aud === "*" ? "any service" : perm.aud;
+			descriptions.push(`Call ${lxms} on ${aud}`);
+		} else if (resource === "blob") {
+			const perm = BlobPermission.fromString(s);
+			if (!perm) continue;
+			const types = perm.accept.includes("*/*")
+				? "any type"
+				: perm.accept.join(", ");
+			descriptions.push(`Upload media (${types})`);
+		} else if (resource === "account") {
+			const perm = AccountPermission.fromString(s);
+			if (!perm) continue;
+			const verb = perm.action.includes("manage") ? "Read and manage" : "Read";
+			descriptions.push(`${verb} your account ${perm.attr}`);
+		} else if (resource === "identity") {
+			const perm = IdentityPermission.fromString(s);
+			if (!perm) continue;
+			const what = perm.attr === "*" ? "identity" : perm.attr;
+			descriptions.push(`Manage your ${what}`);
+		} else if (resource === "include") {
+			const inc = IncludeScope.fromString(s);
+			if (!inc) continue;
+			descriptions.push(`Permissions from ${inc.nsid}`);
 		}
 	}
 
-	// If no recognized scopes, show a generic message
 	if (descriptions.length === 0) {
 		descriptions.push("Access your account on your behalf");
 	}

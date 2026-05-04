@@ -7,6 +7,7 @@ import type { OAuthParResponse } from "@atproto/oauth-types";
 import type { OAuthStorage, PARData } from "./storage.js";
 import { randomString } from "./encoding.js";
 import { parseRequestBody } from "./provider.js";
+import { ATPROTO_SCOPE, ScopeParseError, parseScope } from "./scopes.js";
 
 export type { OAuthParResponse };
 
@@ -133,6 +134,17 @@ export class PARHandler {
 			new URL(params.redirect_uri!);
 		} catch {
 			return this.errorResponse("invalid_request", "Invalid redirect_uri", 400);
+		}
+
+		const scope = params.scope ?? ATPROTO_SCOPE;
+		params.scope = scope;
+		try {
+			parseScope(scope);
+		} catch (e) {
+			if (e instanceof ScopeParseError) {
+				return this.errorResponse("invalid_scope", e.message, 400);
+			}
+			throw e;
 		}
 
 		const requestUri = generateRequestUri();
