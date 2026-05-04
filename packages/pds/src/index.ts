@@ -135,11 +135,7 @@ app.get("/.well-known/did.json", (c) => {
 });
 
 // Handle verification for AT Protocol
-// Only served if handle matches PDS hostname
 app.get("/.well-known/atproto-did", (c) => {
-	if (c.env.HANDLE !== c.env.PDS_HOSTNAME) {
-		return c.notFound();
-	}
 	return new Response(c.env.DID, {
 		headers: { "Content-Type": "text/plain" },
 	});
