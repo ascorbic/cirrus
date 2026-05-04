@@ -140,6 +140,87 @@ describe("ATPROTO_SCOPE", () => {
 	});
 });
 
+describe("renderConsentUI scope grouping", () => {
+	it("collapses many repo: scopes sharing an authority into a disclosure", async () => {
+		const { renderConsentUI } = await import("../src/ui.js");
+		// Subset of Tangled's actual scope list — 6 sh.tangled.* repo scopes.
+		const scope = [
+			"atproto",
+			"repo:sh.tangled.actor.profile",
+			"repo:sh.tangled.feed.reaction",
+			"repo:sh.tangled.feed.star",
+			"repo:sh.tangled.graph.follow",
+			"repo:sh.tangled.knot",
+			"repo:sh.tangled.repo",
+		].join(" ");
+
+		const html = renderConsentUI({
+			client: {
+				clientId: "did:web:tangled.example",
+				clientName: "Tangled",
+				redirectUris: ["https://tangled.example/cb"],
+			},
+			scope,
+			authorizeUrl: "/oauth/authorize",
+			state: "s",
+			oauthParams: {},
+		});
+
+		expect(html).toContain(
+			"Write records under sh.tangled.* in your repository (6 record types)",
+		);
+		expect(html).toContain("<details>");
+		// Per-NSID detail still present, just inside the disclosure.
+		expect(html).toContain("sh.tangled.actor.profile");
+		// Verbose per-row template should NOT be repeated 6 times.
+		const matches = html.match(/Write records \(create, update, delete\) for/g);
+		expect(matches).toBeNull();
+	});
+
+	it("groups rpc: scopes by audience and collapses ≥3", async () => {
+		const { renderConsentUI } = await import("../src/ui.js");
+		const scope = [
+			"atproto",
+			"rpc:sh.tangled.repo.create?aud=*",
+			"rpc:sh.tangled.repo.delete?aud=*",
+			"rpc:sh.tangled.repo.merge?aud=*",
+			"rpc:sh.tangled.repo.fork?aud=*",
+		].join(" ");
+		const html = renderConsentUI({
+			client: {
+				clientId: "did:web:tangled.example",
+				clientName: "Tangled",
+				redirectUris: ["https://tangled.example/cb"],
+			},
+			scope,
+			authorizeUrl: "/oauth/authorize",
+			state: "s",
+			oauthParams: {},
+		});
+
+		expect(html).toContain("API methods on any service");
+		expect(html).toContain("<details>");
+	});
+
+	it("renders ≤2 repo: scopes inline rather than collapsing", async () => {
+		const { renderConsentUI } = await import("../src/ui.js");
+		const html = renderConsentUI({
+			client: {
+				clientId: "did:web:client.example.com",
+				clientName: "Test Client",
+				redirectUris: ["https://client.example.com/cb"],
+			},
+			scope: "atproto repo:app.bsky.feed.post repo:app.bsky.feed.like",
+			authorizeUrl: "/oauth/authorize",
+			state: "s",
+			oauthParams: {},
+		});
+		expect(html).toContain("for app.bsky.feed.post");
+		expect(html).toContain("for app.bsky.feed.like");
+		expect(html).not.toContain("<details>");
+	});
+});
+
 describe("renderConsentUI bundle metadata", () => {
 	it("shows the bundle title for include: scopes when provided", async () => {
 		const { renderConsentUI } = await import("../src/ui.js");

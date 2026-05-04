@@ -216,11 +216,46 @@ export interface PermissionSetBundle {
 }
 
 /**
+ * A consent-UI permission line. Either a single string or a "summary +
+ * collapsible items" pair. The latter renders as a `<details>` disclosure so
+ * apps requesting many granular scopes (e.g. tangled.org with 21 `repo:` and
+ * 13 `rpc:` scopes) collapse into a few audit-friendly lines instead of a
+ * 30-line wall of text.
+ */
+export type ScopeDescription = string | { summary: string; items: string[] };
+
+/** Collapse a group into a `<details>` only when there are this many or more. */
+const COLLAPSE_THRESHOLD = 3;
+
+/**
+ * Longest common dot-separated prefix of a list of NSIDs, ending at a
+ * segment boundary. Returns null when no useful (≥2-segment) prefix exists.
+ */
+function commonNsidPrefix(nsids: readonly string[]): string | null {
+	if (nsids.length === 0) return null;
+	const segmented = nsids.map((n) => n.split("."));
+	const minLen = Math.min(...segmented.map((s) => s.length));
+	const shared: string[] = [];
+	for (let i = 0; i < minLen; i++) {
+		const seg = segmented[0]![i]!;
+		if (segmented.every((s) => s[i] === seg)) {
+			shared.push(seg);
+		} else break;
+	}
+	if (shared.length < 2) return null;
+	return shared.join(".");
+}
+
+/**
  * Parse scope string into human-readable descriptions.
  *
  * Recognizes the legacy `atproto` / `transition:*` scopes and the granular
  * resource scopes from the atproto permissions spec (`repo:`, `rpc:`, `blob:`,
  * `account:`, `identity:`, `include:`).
+ *
+ * Long flat lists are collapsed by NSID authority — e.g. 21 `repo:sh.tangled.*`
+ * scopes become one "Write records under sh.tangled.* (21 record types)" line
+ * with the full list available behind a disclosure.
  *
  * `bundles`, when supplied, lets us render `include:` scopes as the bundle's
  * human title rather than just its NSID.
@@ -228,80 +263,162 @@ export interface PermissionSetBundle {
 function getScopeDescriptions(
 	scope: string,
 	bundles?: readonly PermissionSetBundle[],
-): string[] {
+): ScopeDescription[] {
 	const set = ScopesSet.fromString(scope);
-	const descriptions: string[] = [];
+	const out: ScopeDescription[] = [];
 
 	if (set.has(ATPROTO_SCOPE)) {
-		descriptions.push("Access your AT Protocol account");
+		out.push("Access your AT Protocol account");
 	}
 	if (set.has("transition:generic")) {
-		descriptions.push("Perform account operations");
+		out.push("Perform account operations");
 	}
 	if (set.has("transition:email")) {
-		descriptions.push("Read your account email");
+		out.push("Read your account email");
 	}
 	if (set.has("transition:chat.bsky")) {
-		descriptions.push("Access chat functionality");
+		out.push("Access chat functionality");
 	}
+
+	// Bucket granular scopes by resource type so we can group within each.
+	const repos: RepoPermission[] = [];
+	const rpcs: RpcPermission[] = [];
+	const blobs: BlobPermission[] = [];
+	const accounts: AccountPermission[] = [];
+	const identities: IdentityPermission[] = [];
+	const includes: IncludeScope[] = [];
 
 	for (const s of set) {
 		const colon = s.indexOf(":");
 		if (colon === -1) continue;
 		const resource = s.slice(0, colon);
-
 		if (resource === "repo") {
-			const perm = RepoPermission.fromString(s);
-			if (!perm) continue;
-			const collections = perm.collection.includes("*")
-				? "any record type"
-				: perm.collection.join(", ");
-			const actions = perm.action.join(", ");
-			descriptions.push(
-				`Write records (${actions}) for ${collections} in your repository`,
-			);
+			const p = RepoPermission.fromString(s);
+			if (p) repos.push(p);
 		} else if (resource === "rpc") {
-			const perm = RpcPermission.fromString(s);
-			if (!perm) continue;
-			const lxms = perm.lxm.includes("*") ? "any method" : perm.lxm.join(", ");
-			const aud = perm.aud === "*" ? "any service" : perm.aud;
-			descriptions.push(`Call ${lxms} on ${aud}`);
+			const p = RpcPermission.fromString(s);
+			if (p) rpcs.push(p);
 		} else if (resource === "blob") {
-			const perm = BlobPermission.fromString(s);
-			if (!perm) continue;
-			const types = perm.accept.includes("*/*")
-				? "any type"
-				: perm.accept.join(", ");
-			descriptions.push(`Upload media (${types})`);
+			const p = BlobPermission.fromString(s);
+			if (p) blobs.push(p);
 		} else if (resource === "account") {
-			const perm = AccountPermission.fromString(s);
-			if (!perm) continue;
-			const verb = perm.action.includes("manage") ? "Read and manage" : "Read";
-			descriptions.push(`${verb} your account ${perm.attr}`);
+			const p = AccountPermission.fromString(s);
+			if (p) accounts.push(p);
 		} else if (resource === "identity") {
-			const perm = IdentityPermission.fromString(s);
-			if (!perm) continue;
-			const what = perm.attr === "*" ? "identity" : perm.attr;
-			descriptions.push(`Manage your ${what}`);
+			const p = IdentityPermission.fromString(s);
+			if (p) identities.push(p);
 		} else if (resource === "include") {
-			const inc = IncludeScope.fromString(s);
-			if (!inc) continue;
-			const bundle = bundles?.find((b) => b.nsid === inc.nsid);
-			if (bundle?.title) {
-				descriptions.push(
-					bundle.detail ? `${bundle.title} — ${bundle.detail}` : bundle.title,
-				);
-			} else {
-				descriptions.push(`Permissions from ${inc.nsid}`);
+			const p = IncludeScope.fromString(s);
+			if (p) includes.push(p);
+		}
+	}
+
+	// repo: collapse default-action scopes that share an NSID authority.
+	const fullActions = ["create", "update", "delete"] as const;
+	const isDefaultActions = (p: RepoPermission) =>
+		p.action.length === 3 &&
+		fullActions.every((a) => p.action.includes(a));
+
+	const repoFull: RepoPermission[] = [];
+	const repoOther: RepoPermission[] = [];
+	for (const p of repos) {
+		if (isDefaultActions(p)) repoFull.push(p);
+		else repoOther.push(p);
+	}
+
+	// Each repo permission can carry multiple collections — flatten to NSIDs.
+	const repoFullNsids = repoFull
+		.flatMap((p) => p.collection)
+		.filter((c) => c !== "*");
+	const repoHasWildcard = repoFull.some((p) => p.collection.includes("*"));
+
+	if (repoHasWildcard) {
+		out.push("Write any record in your repository");
+	} else if (repoFullNsids.length >= COLLAPSE_THRESHOLD) {
+		const prefix = commonNsidPrefix(repoFullNsids);
+		const items = repoFullNsids.map((n) => `${n} — create, update, delete`);
+		if (prefix) {
+			out.push({
+				summary: `Write records under ${prefix}.* in your repository (${repoFullNsids.length} record types)`,
+				items,
+			});
+		} else {
+			out.push({
+				summary: `Write records in your repository (${repoFullNsids.length} record types)`,
+				items,
+			});
+		}
+	} else {
+		for (const nsid of repoFullNsids) {
+			out.push(`Write records (create, update, delete) for ${nsid}`);
+		}
+	}
+	for (const p of repoOther) {
+		const collections = p.collection.includes("*")
+			? "any record type"
+			: p.collection.join(", ");
+		out.push(`${p.action.join(", ")} records for ${collections}`);
+	}
+
+	// rpc: collapse when ≥3 share the same `aud` (the most user-meaningful axis).
+	const rpcByAud = new Map<string, RpcPermission[]>();
+	for (const p of rpcs) {
+		const k = p.aud as string;
+		const arr = rpcByAud.get(k) ?? [];
+		arr.push(p);
+		rpcByAud.set(k, arr);
+	}
+	for (const [aud, group] of rpcByAud) {
+		const lxms = group.flatMap((p) => p.lxm).filter((l) => l !== "*");
+		const wildcard = group.some((p) => p.lxm.includes("*"));
+		const audLabel = aud === "*" ? "any service" : aud;
+		if (wildcard) {
+			out.push(`Call any API method on ${audLabel}`);
+		} else if (lxms.length >= COLLAPSE_THRESHOLD) {
+			const prefix = commonNsidPrefix(lxms);
+			const items = lxms.slice().sort();
+			out.push({
+				summary: prefix
+					? `Call ${lxms.length} ${prefix}.* API methods on ${audLabel}`
+					: `Call ${lxms.length} API methods on ${audLabel}`,
+				items,
+			});
+		} else {
+			for (const lxm of lxms) {
+				out.push(`Call ${lxm} on ${audLabel}`);
 			}
 		}
 	}
 
-	if (descriptions.length === 0) {
-		descriptions.push("Access your account on your behalf");
+	for (const p of blobs) {
+		const types = p.accept.includes("*/*")
+			? "any type"
+			: p.accept.join(", ");
+		out.push(`Upload media (${types})`);
+	}
+	for (const p of accounts) {
+		const verb = p.action.includes("manage") ? "Read and manage" : "Read";
+		out.push(`${verb} your account ${p.attr}`);
+	}
+	for (const p of identities) {
+		out.push(`Manage your ${p.attr === "*" ? "identity" : p.attr}`);
+	}
+	for (const inc of includes) {
+		const bundle = bundles?.find((b) => b.nsid === inc.nsid);
+		if (bundle?.title) {
+			out.push(
+				bundle.detail ? `${bundle.title} — ${bundle.detail}` : bundle.title,
+			);
+		} else {
+			out.push(`Permissions from ${inc.nsid}`);
+		}
 	}
 
-	return descriptions;
+	if (out.length === 0) {
+		out.push("Access your account on your behalf");
+	}
+
+	return out;
 }
 
 /**
@@ -502,6 +619,52 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 			flex-shrink: 0;
 		}
 
+		.permissions-list li.has-details {
+			align-items: flex-start;
+		}
+
+		.permissions-list li.has-details details {
+			flex: 1;
+			min-width: 0;
+		}
+
+		.permissions-list li.has-details summary {
+			cursor: pointer;
+			list-style: none;
+		}
+
+		.permissions-list li.has-details summary::-webkit-details-marker {
+			display: none;
+		}
+
+		.permissions-list li.has-details summary::after {
+			content: " ▸";
+			color: #6b7280;
+			font-size: 12px;
+		}
+
+		.permissions-list li.has-details details[open] summary::after {
+			content: " ▾";
+		}
+
+		.permissions-list li.has-details ul {
+			list-style: none;
+			margin-top: 8px;
+			padding-left: 0;
+			border-left: 2px solid rgba(255, 255, 255, 0.08);
+		}
+
+		.permissions-list li.has-details ul li {
+			padding: 4px 0 4px 12px;
+			font-size: 13px;
+			color: #9ca3af;
+			font-family: ui-monospace, "SF Mono", Menlo, monospace;
+		}
+
+		.permissions-list li.has-details ul li::before {
+			display: none;
+		}
+
 		.buttons {
 			display: flex;
 			gap: 12px;
@@ -680,7 +843,15 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 			<div class="permissions">
 				<p class="permissions-title">This app wants to:</p>
 				<ul class="permissions-list">
-					${scopeDescriptions.map((desc) => `<li>${escapeHtml(desc)}</li>`).join("")}
+					${scopeDescriptions
+						.map((desc) =>
+							typeof desc === "string"
+								? `<li>${escapeHtml(desc)}</li>`
+								: `<li class="has-details"><details><summary>${escapeHtml(desc.summary)}</summary><ul>${desc.items
+										.map((i) => `<li>${escapeHtml(i)}</li>`)
+										.join("")}</ul></details></li>`,
+						)
+						.join("")}
 				</ul>
 			</div>
 
