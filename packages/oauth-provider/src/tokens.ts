@@ -85,6 +85,7 @@ export function generateTokens(options: GenerateTokensOptions): {
 		scope,
 		dpopJkt,
 		accessTokenTtl = ACCESS_TOKEN_TTL,
+		refreshTokenTtl = REFRESH_TOKEN_TTL,
 	} = options;
 
 	const accessToken = generateRandomToken(32);
@@ -99,7 +100,8 @@ export function generateTokens(options: GenerateTokensOptions): {
 		scope,
 		dpopJkt,
 		issuedAt: now,
-		expiresAt: now + accessTokenTtl,
+		accessExpiresAt: now + accessTokenTtl,
+		refreshExpiresAt: now + refreshTokenTtl,
 		revoked: false,
 	};
 
@@ -120,12 +122,14 @@ export function generateTokens(options: GenerateTokensOptions): {
  * @param existingData The existing token data
  * @param rotateRefreshToken Whether to generate a new refresh token
  * @param accessTokenTtl Custom access token TTL in ms
+ * @param refreshTokenTtl Custom refresh token TTL in ms (used when rotating)
  * @returns Updated tokens and token data
  */
 export function refreshTokens(
 	existingData: TokenData,
 	rotateRefreshToken: boolean = false,
 	accessTokenTtl: number = ACCESS_TOKEN_TTL,
+	refreshTokenTtl: number = REFRESH_TOKEN_TTL,
 ): {
 	tokens: GeneratedTokens;
 	tokenData: TokenData;
@@ -141,7 +145,10 @@ export function refreshTokens(
 		accessToken,
 		refreshToken,
 		issuedAt: now,
-		expiresAt: now + accessTokenTtl,
+		accessExpiresAt: now + accessTokenTtl,
+		refreshExpiresAt: rotateRefreshToken
+			? now + refreshTokenTtl
+			: existingData.refreshExpiresAt,
 	};
 
 	const tokens: GeneratedTokens = {
@@ -214,7 +221,7 @@ export function isTokenValid(tokenData: TokenData): boolean {
 	if (tokenData.revoked) {
 		return false;
 	}
-	if (Date.now() > tokenData.expiresAt) {
+	if (Date.now() > tokenData.accessExpiresAt) {
 		return false;
 	}
 	return true;

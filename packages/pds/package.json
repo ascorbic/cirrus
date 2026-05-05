@@ -1,6 +1,6 @@
 {
 	"name": "@getcirrus/pds",
-	"version": "0.13.0",
+	"version": "0.14.0",
 	"description": "Cirrus – A single-user AT Protocol PDS on Cloudflare Workers",
 	"type": "module",
 	"main": "dist/index.js",
@@ -27,7 +27,7 @@
 		"@atcute/cbor": "^2.2.8",
 		"@atcute/cid": "^2.3.0",
 		"@atcute/client": "^4.2.0",
-		"@atcute/identity": "^1.1.3",
+		"@atcute/identity": "^1.1.4",
 		"@atcute/identity-resolver": "^1.2.2",
 		"@atcute/lexicons": "^1.2.6",
 		"@atcute/tid": "^1.1.1",

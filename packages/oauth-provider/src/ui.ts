@@ -3,7 +3,16 @@
  * Renders the HTML page for user consent during OAuth authorization
  */
 
+import {
+	AccountPermission,
+	BlobPermission,
+	IdentityPermission,
+	IncludeScope,
+	RepoPermission,
+	RpcPermission,
+} from "@atproto/oauth-scopes";
 import type { ClientMetadata } from "./storage.js";
+import { ATPROTO_SCOPE, ScopesSet } from "./scopes.js";
 
 /**
  * The passkey authentication script (static, can be hashed).
@@ -193,35 +202,233 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * Parse scope string into human-readable descriptions
+ * Metadata about a permission-set bundle the client requested via an
+ * `include:` scope. Used to render a friendly bundle title in the consent UI
+ * instead of the bare NSID.
  */
-function getScopeDescriptions(scope: string): string[] {
-	const scopes = scope.split(" ").filter(Boolean);
-	const descriptions: string[] = [];
+export interface PermissionSetBundle {
+	/** The bundle's NSID (matches an `include:NSID?aud=...` scope token). */
+	nsid: string;
+	/** Human-readable title from the lexicon document, if any. */
+	title?: string;
+	/** Longer human-readable detail from the lexicon document, if any. */
+	detail?: string;
+	/**
+	 * Set when resolution failed. The consent UI surfaces this as a warning
+	 * and disables the Allow button — granting permissions you couldn't see
+	 * is a security footgun.
+	 */
+	error?: string;
+}
 
-	for (const s of scopes) {
-		switch (s) {
-			case "atproto":
-				descriptions.push("Access your AT Protocol account");
-				break;
-			case "transition:generic":
-				descriptions.push("Perform account operations");
-				break;
-			case "transition:chat.bsky":
-				descriptions.push("Access chat functionality");
-				break;
-			default:
-				// Don't show unknown scopes to avoid confusion
-				break;
+/**
+ * A consent-UI permission line. Either a single string or a "summary +
+ * collapsible items" pair. The latter renders as a `<details>` disclosure so
+ * apps requesting many granular scopes (e.g. tangled.org with 21 `repo:` and
+ * 13 `rpc:` scopes) collapse into a few audit-friendly lines instead of a
+ * 30-line wall of text.
+ */
+export type ScopeDescription = string | { summary: string; items: string[] };
+
+/** Collapse a group into a `<details>` only when there are this many or more. */
+const COLLAPSE_THRESHOLD = 3;
+
+/**
+ * Longest common dot-separated prefix of a list of NSIDs, ending at a
+ * segment boundary. Returns null when no useful (≥2-segment) prefix exists.
+ */
+function commonNsidPrefix(nsids: readonly string[]): string | null {
+	if (nsids.length === 0) return null;
+	const segmented = nsids.map((n) => n.split("."));
+	const minLen = Math.min(...segmented.map((s) => s.length));
+	const shared: string[] = [];
+	for (let i = 0; i < minLen; i++) {
+		const seg = segmented[0]![i]!;
+		if (segmented.every((s) => s[i] === seg)) {
+			shared.push(seg);
+		} else break;
+	}
+	if (shared.length < 2) return null;
+	return shared.join(".");
+}
+
+/**
+ * Parse scope string into human-readable descriptions.
+ *
+ * Recognizes the legacy `atproto` / `transition:*` scopes and the granular
+ * resource scopes from the atproto permissions spec (`repo:`, `rpc:`, `blob:`,
+ * `account:`, `identity:`, `include:`).
+ *
+ * Long flat lists are collapsed by NSID authority — e.g. 21 `repo:sh.tangled.*`
+ * scopes become one "Write records under sh.tangled.* (21 record types)" line
+ * with the full list available behind a disclosure.
+ *
+ * `bundles`, when supplied, lets us render `include:` scopes as the bundle's
+ * human title rather than just its NSID.
+ */
+function getScopeDescriptions(
+	scope: string,
+	bundles?: readonly PermissionSetBundle[],
+): ScopeDescription[] {
+	const set = ScopesSet.fromString(scope);
+	const out: ScopeDescription[] = [];
+
+	if (set.has(ATPROTO_SCOPE)) {
+		out.push("Access your AT Protocol account");
+	}
+	if (set.has("transition:generic")) {
+		out.push("Perform account operations");
+	}
+	if (set.has("transition:email")) {
+		out.push("Read your account email");
+	}
+	if (set.has("transition:chat.bsky")) {
+		out.push("Access chat functionality");
+	}
+
+	// Bucket granular scopes by resource type so we can group within each.
+	const repos: RepoPermission[] = [];
+	const rpcs: RpcPermission[] = [];
+	const blobs: BlobPermission[] = [];
+	const accounts: AccountPermission[] = [];
+	const identities: IdentityPermission[] = [];
+	const includes: IncludeScope[] = [];
+
+	for (const s of set) {
+		const colon = s.indexOf(":");
+		if (colon === -1) continue;
+		const resource = s.slice(0, colon);
+		if (resource === "repo") {
+			const p = RepoPermission.fromString(s);
+			if (p) repos.push(p);
+		} else if (resource === "rpc") {
+			const p = RpcPermission.fromString(s);
+			if (p) rpcs.push(p);
+		} else if (resource === "blob") {
+			const p = BlobPermission.fromString(s);
+			if (p) blobs.push(p);
+		} else if (resource === "account") {
+			const p = AccountPermission.fromString(s);
+			if (p) accounts.push(p);
+		} else if (resource === "identity") {
+			const p = IdentityPermission.fromString(s);
+			if (p) identities.push(p);
+		} else if (resource === "include") {
+			const p = IncludeScope.fromString(s);
+			if (p) includes.push(p);
 		}
 	}
 
-	// If no recognized scopes, show a generic message
-	if (descriptions.length === 0) {
-		descriptions.push("Access your account on your behalf");
+	// repo: collapse default-action scopes that share an NSID authority.
+	const fullActions = ["create", "update", "delete"] as const;
+	const isDefaultActions = (p: RepoPermission) =>
+		p.action.length === 3 &&
+		fullActions.every((a) => p.action.includes(a));
+
+	const repoFull: RepoPermission[] = [];
+	const repoOther: RepoPermission[] = [];
+	for (const p of repos) {
+		if (isDefaultActions(p)) repoFull.push(p);
+		else repoOther.push(p);
 	}
 
-	return descriptions;
+	// Each repo permission can carry multiple collections — flatten to NSIDs.
+	const repoFullNsids = repoFull
+		.flatMap((p) => p.collection)
+		.filter((c) => c !== "*");
+	const repoHasWildcard = repoFull.some((p) => p.collection.includes("*"));
+
+	if (repoHasWildcard) {
+		out.push("Write any record in your repository");
+	} else if (repoFullNsids.length >= COLLAPSE_THRESHOLD) {
+		const prefix = commonNsidPrefix(repoFullNsids);
+		const items = repoFullNsids.slice().sort();
+		if (prefix) {
+			out.push({
+				summary: `Write records under ${prefix}.* in your repository (${repoFullNsids.length} record types)`,
+				items,
+			});
+		} else {
+			out.push({
+				summary: `Write records in your repository (${repoFullNsids.length} record types)`,
+				items,
+			});
+		}
+	} else {
+		for (const nsid of repoFullNsids) {
+			out.push(`Write records (create, update, delete) for ${nsid}`);
+		}
+	}
+	for (const p of repoOther) {
+		const collections = p.collection.includes("*")
+			? "any record type"
+			: p.collection.join(", ");
+		out.push(`${p.action.join(", ")} records for ${collections}`);
+	}
+
+	// rpc: collapse when ≥3 share the same `aud` (the most user-meaningful axis).
+	const rpcByAud = new Map<string, RpcPermission[]>();
+	for (const p of rpcs) {
+		const k = p.aud as string;
+		const arr = rpcByAud.get(k) ?? [];
+		arr.push(p);
+		rpcByAud.set(k, arr);
+	}
+	for (const [aud, group] of rpcByAud) {
+		const lxms = group.flatMap((p) => p.lxm).filter((l) => l !== "*");
+		const wildcard = group.some((p) => p.lxm.includes("*"));
+		const audLabel = aud === "*" ? "any service" : aud;
+		if (wildcard) {
+			out.push(`Call any API method on ${audLabel}`);
+		} else if (lxms.length >= COLLAPSE_THRESHOLD) {
+			const prefix = commonNsidPrefix(lxms);
+			const items = lxms.slice().sort();
+			out.push({
+				summary: prefix
+					? `Call ${lxms.length} ${prefix}.* API methods on ${audLabel}`
+					: `Call ${lxms.length} API methods on ${audLabel}`,
+				items,
+			});
+		} else {
+			for (const lxm of lxms) {
+				out.push(`Call ${lxm} on ${audLabel}`);
+			}
+		}
+	}
+
+	for (const p of blobs) {
+		const types = p.accept.includes("*/*")
+			? "any type"
+			: p.accept.join(", ");
+		out.push(`Upload media (${types})`);
+	}
+	for (const p of accounts) {
+		const verb = p.action.includes("manage") ? "Read and manage" : "Read";
+		out.push(`${verb} your account ${p.attr}`);
+	}
+	for (const p of identities) {
+		out.push(`Manage your ${p.attr === "*" ? "identity" : p.attr}`);
+	}
+	for (const inc of includes) {
+		const bundle = bundles?.find((b) => b.nsid === inc.nsid);
+		if (bundle?.error) {
+			out.push(
+				`⚠️ ${inc.nsid} — could not resolve permission set: ${bundle.error}`,
+			);
+		} else if (bundle?.title) {
+			out.push(
+				bundle.detail ? `${bundle.title} — ${bundle.detail}` : bundle.title,
+			);
+		} else {
+			out.push(`Permissions from ${inc.nsid}`);
+		}
+	}
+
+	if (out.length === 0) {
+		out.push("Access your account on your behalf");
+	}
+
+	return out;
 }
 
 /**
@@ -248,6 +455,12 @@ export interface ConsentUIOptions {
 	passkeyAvailable?: boolean;
 	/** WebAuthn authentication options for passkey login */
 	passkeyOptions?: Record<string, unknown>;
+	/**
+	 * Resolved metadata for any permission-set `include:` scopes in the
+	 * request. The consent UI uses this to show the bundle's title/detail
+	 * instead of the bare NSID.
+	 */
+	bundles?: readonly PermissionSetBundle[];
 }
 
 /**
@@ -269,7 +482,8 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 	} = options;
 
 	const clientName = escapeHtml(client.clientName);
-	const scopeDescriptions = getScopeDescriptions(scope);
+	const scopeDescriptions = getScopeDescriptions(scope, options.bundles);
+	const hasResolutionFailure = !!options.bundles?.some((b) => b.error);
 	const logoHtml = client.logoUri
 		? `<img src="${escapeHtml(client.logoUri)}" alt="${clientName} logo" class="app-logo" />`
 		: `<div class="app-logo-placeholder">${clientName.charAt(0).toUpperCase()}</div>`;
@@ -416,6 +630,51 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 			flex-shrink: 0;
 		}
 
+		.permissions-list li.has-details {
+			align-items: flex-start;
+		}
+
+		.permissions-list li.has-details details {
+			flex: 1;
+			min-width: 0;
+		}
+
+		.permissions-list li.has-details summary {
+			cursor: pointer;
+			list-style: none;
+		}
+
+		.permissions-list li.has-details summary::-webkit-details-marker {
+			display: none;
+		}
+
+		.permissions-list li.has-details summary::after {
+			content: " ▸";
+			color: #6b7280;
+			font-size: 12px;
+		}
+
+		.permissions-list li.has-details details[open] summary::after {
+			content: " ▾";
+		}
+
+		.permissions-list li.has-details ul {
+			list-style: none;
+			margin-top: 8px;
+			padding-left: 0;
+			border-left: 2px solid rgba(255, 255, 255, 0.08);
+		}
+
+		.permissions-list li.has-details ul li {
+			padding: 4px 0 4px 12px;
+			font-size: 13px;
+			color: #9ca3af;
+		}
+
+		.permissions-list li.has-details ul li::before {
+			display: none;
+		}
+
 		.buttons {
 			display: flex;
 			gap: 12px;
@@ -448,6 +707,22 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 
 		.btn-allow:hover {
 			background: linear-gradient(135deg, #2563eb, #1d4ed8);
+		}
+
+		.btn-allow:disabled {
+			background: rgba(255, 255, 255, 0.08);
+			color: #6b7280;
+			cursor: not-allowed;
+		}
+
+		.permissions-warning {
+			margin: 12px 0 0;
+			padding: 10px 12px;
+			border-radius: 8px;
+			background: rgba(239, 68, 68, 0.12);
+			border: 1px solid rgba(239, 68, 68, 0.3);
+			color: #fca5a5;
+			font-size: 13px;
 		}
 
 		.info {
@@ -594,13 +869,26 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 			<div class="permissions">
 				<p class="permissions-title">This app wants to:</p>
 				<ul class="permissions-list">
-					${scopeDescriptions.map((desc) => `<li>${escapeHtml(desc)}</li>`).join("")}
+					${scopeDescriptions
+						.map((desc) =>
+							typeof desc === "string"
+								? `<li>${escapeHtml(desc)}</li>`
+								: `<li class="has-details"><details><summary>${escapeHtml(desc.summary)}</summary><ul>${desc.items
+										.map((i) => `<li>${escapeHtml(i)}</li>`)
+										.join("")}</ul></details></li>`,
+						)
+						.join("")}
 				</ul>
+				${
+					hasResolutionFailure
+						? `<p class="permissions-warning">One or more permission sets could not be resolved. You can't safely grant permissions you can't see.</p>`
+						: ""
+				}
 			</div>
 
 			<div class="buttons">
 				<button type="submit" name="action" value="deny" class="btn-deny">Deny</button>
-				<button type="submit" name="action" value="allow" class="btn-allow">Allow</button>
+				<button type="submit" name="action" value="allow" class="btn-allow"${hasResolutionFailure ? " disabled" : ""}>Allow</button>
 			</div>
 		</form>
 
