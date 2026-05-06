@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { now as genTid } from "@atcute/tid";
 import { env, worker } from "./helpers";
 
 describe("Account Migration", () => {
@@ -164,7 +165,7 @@ describe("Account Migration", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "test-import-1",
+						rkey: genTid(),
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "Test post for import",
@@ -410,7 +411,7 @@ describe("Account Migration", () => {
 		});
 
 		it("returns CAR file for existing record", async () => {
-			// First create a record
+			const rkey = genTid();
 			const createResponse = await worker.fetch(
 				new Request(`http://pds.test/xrpc/com.atproto.repo.createRecord`, {
 					method: "POST",
@@ -421,7 +422,7 @@ describe("Account Migration", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "sync-test-record",
+						rkey,
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "Test post for sync.getRecord",
@@ -436,7 +437,7 @@ describe("Account Migration", () => {
 			// Now get the record proof
 			const response = await worker.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.sync.getRecord?did=${env.DID}&collection=app.bsky.feed.post&rkey=sync-test-record`,
+					`http://pds.test/xrpc/com.atproto.sync.getRecord?did=${env.DID}&collection=app.bsky.feed.post&rkey=${rkey}`,
 				),
 				env,
 			);
@@ -594,7 +595,7 @@ describe("Account Migration", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "migration-test",
+						rkey: genTid(),
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "Post to be migrated",

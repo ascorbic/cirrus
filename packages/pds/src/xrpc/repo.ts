@@ -1,21 +1,47 @@
 import type { Context } from "hono";
 import { isDid } from "@atcute/lexicons/syntax";
+import { now as tidNow } from "@atcute/tid";
 import { AccountDurableObject } from "../account-do.js";
 import type { AppEnv, AuthedAppEnv } from "../types.js";
-import { validator } from "../validation.js";
+import {
+	InvalidRecordError,
+	isRecordAlreadyExistsError,
+	validator,
+	type ValidationStatus,
+} from "../validation.js";
 import { detectContentType } from "../format.js";
 import { buildScopeChecker, requireScope } from "../middleware/auth.js";
 
 function invalidRecordError(
 	c: Context<AuthedAppEnv>,
-	err: unknown,
+	err: InvalidRecordError,
 	prefix?: string,
 ): Response {
-	const message = err instanceof Error ? err.message : String(err);
 	return c.json(
 		{
 			error: "InvalidRecord",
-			message: prefix ? `${prefix}: ${message}` : message,
+			message: prefix ? `${prefix}: ${err.message}` : err.message,
+		},
+		400,
+	);
+}
+
+/**
+ * Validate the optional `validate` field from a write request body.
+ * Lexicon defines it as `boolean?`; reject anything else so clients can't
+ * silently fall through to optimistic mode by sending `"true"` or `1`.
+ */
+function checkValidateFlag(
+	c: Context<AuthedAppEnv>,
+	value: unknown,
+): boolean | undefined | Response {
+	if (value === undefined || typeof value === "boolean") {
+		return value;
+	}
+	return c.json(
+		{
+			error: "InvalidRequest",
+			message: "Parameter 'validate' must be a boolean if provided",
 		},
 		400,
 	);
@@ -43,6 +69,27 @@ function checkAccountDeactivatedError(
 		);
 	}
 	return null;
+}
+
+function checkRecordAlreadyExistsError(
+	c: Context<AuthedAppEnv>,
+	err: unknown,
+): Response | null {
+	if (!isRecordAlreadyExistsError(err)) return null;
+	// Strip the "RecordAlreadyExistsError: " prefix that Cloudflare DO RPC
+	// folds into the wrapper Error's `.message` so the client only sees the
+	// rkey identifier, not the internal class name.
+	const prefix = "RecordAlreadyExistsError:";
+	const message = err.message.startsWith(prefix)
+		? err.message.slice(prefix.length).trimStart()
+		: err.message;
+	return c.json(
+		{
+			error: "RecordAlreadyExists",
+			message,
+		},
+		409,
+	);
 }
 
 export async function describeRepo(
@@ -212,7 +259,7 @@ export async function createRecord(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const body = await c.req.json();
-	const { repo, collection, rkey, record } = body;
+	const { repo, collection, rkey, record, validate } = body;
 
 	if (!repo || !collection || !record) {
 		return c.json(
@@ -239,19 +286,51 @@ export async function createRecord(
 	);
 	if (scopeError) return scopeError;
 
-	// Validate record against lexicon schema
+	const validateChecked = checkValidateFlag(c, validate);
+	if (validateChecked instanceof Response) return validateChecked;
+
+	// Lexicon types rkey as `string?` (omitted = auto-generate). Reject
+	// anything else, including `null`, so the contract matches across all
+	// three write handlers.
+	if (rkey !== undefined && typeof rkey !== "string") {
+		return c.json(
+			{ error: "InvalidRequest", message: "rkey must be a string" },
+			400,
+		);
+	}
+
+	// Validate against a candidate TID so schemas with restrictive keySchemas
+	// (e.g. literal('self')) still reject unrkeyed requests. The DO picks the
+	// final rkey when the client didn't supply one, against authoritative MST
+	// state, to avoid worker-isolate clockid collisions.
+	const candidateRkey = rkey ?? tidNow();
+
+	let validated;
 	try {
-		validator.validateRecord(collection, record);
+		validated = validator.validate({
+			collection,
+			record,
+			rkey: candidateRkey,
+			validate: validateChecked,
+		});
 	} catch (err) {
-		return invalidRecordError(c, err);
+		if (err instanceof InvalidRecordError) return invalidRecordError(c, err);
+		throw err;
 	}
 
 	try {
-		const result = await accountDO.rpcCreateRecord(collection, rkey, record);
+		const result = await accountDO.rpcCreateRecord(
+			collection,
+			rkey,
+			validated.record,
+			validated.status,
+		);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
 		if (deactivatedError) return deactivatedError;
+		const conflictError = checkRecordAlreadyExistsError(c, err);
+		if (conflictError) return conflictError;
 
 		throw err;
 	}
@@ -316,7 +395,7 @@ export async function putRecord(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const body = await c.req.json();
-	const { repo, collection, rkey, record } = body;
+	const { repo, collection, rkey, record, validate } = body;
 
 	if (!repo || !collection || !rkey || !record) {
 		return c.json(
@@ -346,27 +425,36 @@ export async function putRecord(
 	);
 	if (scopeError) return scopeError;
 
-	// Validate record against lexicon schema
+	const validateChecked = checkValidateFlag(c, validate);
+	if (validateChecked instanceof Response) return validateChecked;
+
+	let validated;
 	try {
-		validator.validateRecord(collection, record);
+		validated = validator.validate({
+			collection,
+			record,
+			rkey,
+			validate: validateChecked,
+		});
 	} catch (err) {
-		return invalidRecordError(c, err);
+		if (err instanceof InvalidRecordError) return invalidRecordError(c, err);
+		throw err;
 	}
 
 	try {
-		const result = await accountDO.rpcPutRecord(collection, rkey, record);
+		const result = await accountDO.rpcPutRecord(
+			collection,
+			rkey,
+			validated.record,
+			validated.status,
+		);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
 		if (deactivatedError) return deactivatedError;
-
-		return c.json(
-			{
-				error: "InvalidRequest",
-				message: err instanceof Error ? err.message : String(err),
-			},
-			400,
-		);
+		const conflictError = checkRecordAlreadyExistsError(c, err);
+		if (conflictError) return conflictError;
+		throw err;
 	}
 }
 
@@ -375,7 +463,7 @@ export async function applyWrites(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const body = await c.req.json();
-	const { repo, writes } = body;
+	const { repo, writes, validate } = body;
 
 	if (!repo || !writes || !Array.isArray(writes)) {
 		return c.json(
@@ -407,9 +495,27 @@ export async function applyWrites(
 		);
 	}
 
+	const validateChecked = checkValidateFlag(c, validate);
+	if (validateChecked instanceof Response) return validateChecked;
+
 	// Build the scope checker once outside the loop — for a 200-write batch
 	// this avoids re-parsing the token's scope string on every iteration.
 	const checkScope = buildScopeChecker(c);
+
+	// Validate every write up-front so the DO either applies the whole batch
+	// or none of it. The reconciled record (with $type filled in) replaces
+	// the client-supplied value before being sent to the DO.
+	const preparedWrites: Array<{
+		$type: string;
+		collection: string;
+		rkey?: string;
+		value?: unknown;
+		validationStatus?: ValidationStatus;
+	}> = [];
+	// Detect intra-batch rkey duplicates here (client error → 400) so they
+	// don't surface from the DO as 409 RecordAlreadyExists, which is reserved
+	// for collisions against existing repo state.
+	const seenRkeys = new Set<string>();
 
 	for (let i = 0; i < writes.length; i++) {
 		const write = writes[i];
@@ -438,29 +544,87 @@ export async function applyWrites(
 			if (scopeError) return scopeError;
 		}
 
-		if (action !== "delete") {
-			try {
-				validator.validateRecord(write.collection, write.value);
-			} catch (err) {
+		if (action === "delete" || action === "update") {
+			if (typeof write.rkey !== "string" || write.rkey.length === 0) {
+				return c.json(
+					{
+						error: "InvalidRequest",
+						message: `Write ${i}: ${action} requires rkey`,
+					},
+					400,
+				);
+			}
+		} else if (write.rkey !== undefined) {
+			if (typeof write.rkey !== "string" || write.rkey.length === 0) {
+				return c.json(
+					{
+						error: "InvalidRequest",
+						message: `Write ${i}: rkey must be a non-empty string`,
+					},
+					400,
+				);
+			}
+		}
+
+		if (typeof write.rkey === "string") {
+			const composite = `${write.collection}/${write.rkey}`;
+			if (seenRkeys.has(composite)) {
+				return c.json(
+					{
+						error: "InvalidRequest",
+						message: `Write ${i}: duplicate rkey in batch (${composite})`,
+					},
+					400,
+				);
+			}
+			seenRkeys.add(composite);
+		}
+
+		if (action === "delete") {
+			preparedWrites.push({
+				$type: write.$type,
+				collection: write.collection,
+				rkey: write.rkey,
+			});
+			continue;
+		}
+
+		// Worker validates against a candidate TID so restrictive keySchemas
+		// reject unrkeyed creates here. DO picks the final rkey when none
+		// was supplied (see rpcApplyWrites collision-retry logic).
+		const candidateRkey = write.rkey ?? tidNow();
+
+		try {
+			const validated = validator.validate({
+				collection: write.collection,
+				record: write.value,
+				rkey: candidateRkey,
+				validate: validateChecked,
+			});
+			preparedWrites.push({
+				$type: write.$type,
+				collection: write.collection,
+				rkey: write.rkey,
+				value: validated.record,
+				validationStatus: validated.status,
+			});
+		} catch (err) {
+			if (err instanceof InvalidRecordError) {
 				return invalidRecordError(c, err, `Write ${i}`);
 			}
+			throw err;
 		}
 	}
 
 	try {
-		const result = await accountDO.rpcApplyWrites(writes);
+		const result = await accountDO.rpcApplyWrites(preparedWrites);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
 		if (deactivatedError) return deactivatedError;
-
-		return c.json(
-			{
-				error: "InvalidRequest",
-				message: err instanceof Error ? err.message : String(err),
-			},
-			400,
-		);
+		const conflictError = checkRecordAlreadyExistsError(c, err);
+		if (conflictError) return conflictError;
+		throw err;
 	}
 }
 

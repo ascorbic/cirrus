@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { now as genTid } from "@atcute/tid";
 import { env, worker, runInDurableObject } from "./helpers";
 import { asCid, isBlobRef } from "@atproto/lex-data";
 import type { AccountDurableObject } from "../src/account-do";
@@ -31,6 +32,7 @@ describe("Blob Reference Normalization", () => {
 		};
 		const blobCid = uploadData.blob.ref.$link;
 
+		const rkey = genTid();
 		// Step 2: Create a record with the blob ref in JSON wire format
 		// This is exactly what clients send — { "$link": "bafk..." } objects,
 		// not actual CID instances
@@ -44,7 +46,7 @@ describe("Blob Reference Normalization", () => {
 				body: JSON.stringify({
 					repo: env.DID,
 					collection: "app.bsky.feed.post",
-					rkey: "blob-ref-test",
+					rkey,
 					record: {
 						$type: "app.bsky.feed.post",
 						text: "Test post with image",
@@ -73,7 +75,7 @@ describe("Blob Reference Normalization", () => {
 		// Step 3: Read it back via the API — should round-trip correctly
 		const getResponse = await worker.fetch(
 			new Request(
-				`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=blob-ref-test`,
+				`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=${rkey}`,
 			),
 			env,
 		);
@@ -108,7 +110,7 @@ describe("Blob Reference Normalization", () => {
 			const repo = await instance.getRepo();
 			const rawRecord = (await repo.getRecord(
 				"app.bsky.feed.post",
-				"blob-ref-test",
+				rkey,
 			)) as any;
 
 			expect(rawRecord).toBeDefined();
@@ -147,6 +149,7 @@ describe("Blob Reference Normalization", () => {
 		const blobCid = uploadData.blob.ref.$link;
 
 		// Use putRecord (upsert) with a blob ref
+		const rkey = genTid();
 		const putResponse = await worker.fetch(
 			new Request("http://pds.test/xrpc/com.atproto.repo.putRecord", {
 				method: "POST",
@@ -157,7 +160,7 @@ describe("Blob Reference Normalization", () => {
 				body: JSON.stringify({
 					repo: env.DID,
 					collection: "app.bsky.feed.post",
-					rkey: "blob-ref-put-test",
+					rkey,
 					record: {
 						$type: "app.bsky.feed.post",
 						text: "Put record with image",
@@ -191,7 +194,7 @@ describe("Blob Reference Normalization", () => {
 			const repo = await instance.getRepo();
 			const rawRecord = (await repo.getRecord(
 				"app.bsky.feed.post",
-				"blob-ref-put-test",
+				rkey,
 			)) as any;
 
 			const rawImage = rawRecord.embed.images[0].image;
@@ -219,6 +222,7 @@ describe("Blob Reference Normalization", () => {
 		};
 		const blobCid = uploadData.blob.ref.$link;
 
+		const rkey = genTid();
 		// Use applyWrites with a blob ref
 		const applyResponse = await worker.fetch(
 			new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
@@ -233,7 +237,7 @@ describe("Blob Reference Normalization", () => {
 						{
 							$type: "com.atproto.repo.applyWrites#create",
 							collection: "app.bsky.feed.post",
-							rkey: "blob-ref-batch-test",
+							rkey,
 							value: {
 								$type: "app.bsky.feed.post",
 								text: "Batch write with image",
@@ -269,7 +273,7 @@ describe("Blob Reference Normalization", () => {
 			const repo = await instance.getRepo();
 			const rawRecord = (await repo.getRecord(
 				"app.bsky.feed.post",
-				"blob-ref-batch-test",
+				rkey,
 			)) as any;
 
 			const rawImage = rawRecord.embed.images[0].image;
