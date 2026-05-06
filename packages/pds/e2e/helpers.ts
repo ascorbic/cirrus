@@ -1,4 +1,5 @@
 import { AtpAgent } from "@atproto/api";
+import { now as tidNow } from "@atcute/tid";
 
 export function getPort(): number {
 	return (
@@ -15,10 +16,12 @@ export function createAgent(): AtpAgent {
 }
 
 /**
- * Generate a unique rkey for test isolation
+ * Generate a unique TID-format rkey for test isolation. Most app.bsky.*
+ * record collections constrain the rkey to TID format, so tests can't use
+ * arbitrary strings.
  */
 export function uniqueRkey(): string {
-	return `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+	return tidNow();
 }
 
 export const TEST_DID = "did:web:test.local";
