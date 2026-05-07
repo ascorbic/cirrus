@@ -17,121 +17,142 @@ describe("Bluesky Schema Validation", () => {
 
 	describe("app.bsky.feed.post", () => {
 		it("validates valid posts", () => {
-			expect(() => {
-				validator.validateRecord("app.bsky.feed.post", {
+			const result = validator.validate({
+				collection: "app.bsky.feed.post",
+				record: {
 					$type: "app.bsky.feed.post",
 					text: "Hello, Bluesky!",
 					createdAt: new Date().toISOString(),
-				});
-			}).not.toThrow();
+				},
+			});
+			expect(result.status).toBe("valid");
 		});
 
 		it("rejects posts with missing required fields", () => {
 			expect(() => {
-				validator.validateRecord("app.bsky.feed.post", {
-					$type: "app.bsky.feed.post",
-					text: "Hello",
-					// Missing createdAt
+				validator.validate({
+					collection: "app.bsky.feed.post",
+					record: {
+						$type: "app.bsky.feed.post",
+						text: "Hello",
+					},
 				});
-			}).toThrow(/validation failed/i);
+			}).toThrow(/invalid app\.bsky\.feed\.post record/i);
 		});
 
 		it("rejects posts with text exceeding maxLength", () => {
-			const longText = "x".repeat(3001); // maxLength is 3000
+			const longText = "x".repeat(3001);
 
 			expect(() => {
-				validator.validateRecord("app.bsky.feed.post", {
-					$type: "app.bsky.feed.post",
-					text: longText,
-					createdAt: new Date().toISOString(),
+				validator.validate({
+					collection: "app.bsky.feed.post",
+					record: {
+						$type: "app.bsky.feed.post",
+						text: longText,
+						createdAt: new Date().toISOString(),
+					},
 				});
-			}).toThrow(/validation failed/i);
+			}).toThrow(/invalid app\.bsky\.feed\.post record/i);
 		});
 
 		it("allows posts with optional fields", () => {
-			expect(() => {
-				validator.validateRecord("app.bsky.feed.post", {
+			const result = validator.validate({
+				collection: "app.bsky.feed.post",
+				record: {
 					$type: "app.bsky.feed.post",
 					text: "Post with langs",
 					createdAt: new Date().toISOString(),
 					langs: ["en"],
-				});
-			}).not.toThrow();
+				},
+			});
+			expect(result.status).toBe("valid");
 		});
 	});
 
 	describe("app.bsky.actor.profile", () => {
 		it("validates valid profiles", () => {
-			expect(() => {
-				validator.validateRecord("app.bsky.actor.profile", {
+			const result = validator.validate({
+				collection: "app.bsky.actor.profile",
+				record: {
 					$type: "app.bsky.actor.profile",
 					displayName: "Alice",
 					description: "A test user",
-				});
-			}).not.toThrow();
+				},
+				rkey: "self",
+			});
+			expect(result.status).toBe("valid");
 		});
 
 		it("allows empty profiles", () => {
-			expect(() => {
-				validator.validateRecord("app.bsky.actor.profile", {
-					$type: "app.bsky.actor.profile",
-				});
-			}).not.toThrow();
+			const result = validator.validate({
+				collection: "app.bsky.actor.profile",
+				record: { $type: "app.bsky.actor.profile" },
+				rkey: "self",
+			});
+			expect(result.status).toBe("valid");
 		});
 	});
 
 	describe("app.bsky.feed.like", () => {
 		it("rejects likes without required fields", () => {
 			expect(() => {
-				validator.validateRecord("app.bsky.feed.like", {
-					$type: "app.bsky.feed.like",
-					createdAt: new Date().toISOString(),
-					// Missing subject
+				validator.validate({
+					collection: "app.bsky.feed.like",
+					record: {
+						$type: "app.bsky.feed.like",
+						createdAt: new Date().toISOString(),
+					},
 				});
-			}).toThrow(/validation failed/i);
+			}).toThrow(/invalid app\.bsky\.feed\.like record/i);
 
 			expect(() => {
-				validator.validateRecord("app.bsky.feed.like", {
-					$type: "app.bsky.feed.like",
-					subject: {
-						uri: "at://did:plc:abc123/app.bsky.feed.post/xyz",
-						cid: "invalid-cid-format",
+				validator.validate({
+					collection: "app.bsky.feed.like",
+					record: {
+						$type: "app.bsky.feed.like",
+						subject: {
+							uri: "at://did:plc:abc123/app.bsky.feed.post/xyz",
+							cid: "invalid-cid-format",
+						},
 					},
-					// Missing createdAt
 				});
-			}).toThrow(/validation failed/i);
+			}).toThrow(/invalid app\.bsky\.feed\.like record/i);
 		});
 	});
 
 	describe("app.bsky.graph.follow", () => {
 		it("validates valid follows", () => {
-			expect(() => {
-				validator.validateRecord("app.bsky.graph.follow", {
+			const result = validator.validate({
+				collection: "app.bsky.graph.follow",
+				record: {
 					$type: "app.bsky.graph.follow",
 					subject: "did:plc:abc123",
 					createdAt: new Date().toISOString(),
-				});
-			}).not.toThrow();
+				},
+			});
+			expect(result.status).toBe("valid");
 		});
 
 		it("rejects follows without subject", () => {
 			expect(() => {
-				validator.validateRecord("app.bsky.graph.follow", {
-					$type: "app.bsky.graph.follow",
-					createdAt: new Date().toISOString(),
-					// Missing subject DID
+				validator.validate({
+					collection: "app.bsky.graph.follow",
+					record: {
+						$type: "app.bsky.graph.follow",
+						createdAt: new Date().toISOString(),
+					},
 				});
-			}).toThrow(/validation failed/i);
+			}).toThrow(/invalid app\.bsky\.graph\.follow record/i);
 		});
 	});
 
 	describe("unknown schemas (optimistic validation)", () => {
-		it("allows records for unknown schemas", () => {
-			expect(() => {
-				validator.validateRecord("com.example.custom", {
-					customField: "value",
-				});
-			}).not.toThrow();
+		it("allows records for unknown schemas with status 'unknown'", () => {
+			const result = validator.validate({
+				collection: "com.example.custom",
+				record: { customField: "value" },
+			});
+			expect(result.status).toBe("unknown");
 		});
 	});
 });

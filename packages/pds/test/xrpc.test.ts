@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { env, worker } from "./helpers";
+import { now as genTid } from "@atcute/tid";
 import {
 	SignJWT,
 	base64url,
@@ -352,7 +353,7 @@ describe("XRPC Endpoints", () => {
 			);
 			expect(response.status).toBe(200);
 
-			const data = await response.json();
+			const data = (await response.json()) as any;
 			expect(data).toMatchObject({
 				uri: expect.stringMatching(
 					new RegExp(
@@ -360,11 +361,109 @@ describe("XRPC Endpoints", () => {
 					),
 				),
 				cid: expect.any(String),
+				validationStatus: "valid",
 			});
 		});
 
+		it("returns 409 RecordAlreadyExists on duplicate client-supplied rkey", async () => {
+			const rkey = genTid();
+			const body = JSON.stringify({
+				repo: env.DID,
+				collection: "app.bsky.feed.post",
+				rkey,
+				record: {
+					$type: "app.bsky.feed.post",
+					text: "first",
+					createdAt: new Date().toISOString(),
+				},
+			});
+
+			const first = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body,
+				}),
+				env,
+			);
+			expect(first.status).toBe(200);
+
+			const second = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body,
+				}),
+				env,
+			);
+			expect(second.status).toBe(409);
+			const data = (await second.json()) as any;
+			expect(data.error).toBe("RecordAlreadyExists");
+			expect(data.message).toContain(rkey);
+		});
+
+		it("rejects createRecord with non-boolean validate flag as 400", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.feed.post",
+						validate: 1,
+						record: {
+							$type: "app.bsky.feed.post",
+							text: "Hi",
+							createdAt: new Date().toISOString(),
+						},
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(400);
+			const data = (await response.json()) as any;
+			expect(data.error).toBe("InvalidRequest");
+			expect(data.message).toMatch(/validate.*boolean/i);
+		});
+
+		it("rejects an auto-generated rkey that violates the schema's keySchema", async () => {
+			// app.bsky.actor.profile requires rkey "self". Without a rkey, the
+			// worker generates a TID, which fails the literal('self') check.
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						collection: "app.bsky.actor.profile",
+						record: {
+							$type: "app.bsky.actor.profile",
+							displayName: "Alice",
+						},
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(400);
+			const data = (await response.json()) as any;
+			expect(data.error).toBe("InvalidRecord");
+			expect(data.message).toMatch(/record key/i);
+		});
+
 		it("should get a record", async () => {
-			// First create a record
+			const rkey = genTid();
 			await worker.fetch(
 				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
 					method: "POST",
@@ -375,7 +474,7 @@ describe("XRPC Endpoints", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "test-post-1",
+						rkey,
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "Test post",
@@ -389,7 +488,7 @@ describe("XRPC Endpoints", () => {
 			// Now get it
 			const response = await worker.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=test-post-1`,
+					`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=${rkey}`,
 				),
 				env,
 			);
@@ -397,7 +496,7 @@ describe("XRPC Endpoints", () => {
 
 			const data = await response.json();
 			expect(data).toMatchObject({
-				uri: `at://${env.DID}/app.bsky.feed.post/test-post-1`,
+				uri: `at://${env.DID}/app.bsky.feed.post/${rkey}`,
 				cid: expect.any(String),
 				value: {
 					text: "Test post",
@@ -406,8 +505,10 @@ describe("XRPC Endpoints", () => {
 		});
 
 		it("should list records", async () => {
-			// Create a few records
+			const rkeys: string[] = [];
 			for (let i = 1; i <= 3; i++) {
+				const rkey = genTid();
+				rkeys.push(rkey);
 				await worker.fetch(
 					new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
 						method: "POST",
@@ -418,7 +519,7 @@ describe("XRPC Endpoints", () => {
 						body: JSON.stringify({
 							repo: env.DID,
 							collection: "app.bsky.feed.post",
-							rkey: `post-${i}`,
+							rkey,
 							record: {
 								$type: "app.bsky.feed.post",
 								text: `Post ${i}`,
@@ -440,11 +541,9 @@ describe("XRPC Endpoints", () => {
 			expect(response.status).toBe(200);
 
 			const data = (await response.json()) as any;
-			// Records persist across tests, so we have at least 3
 			expect(data.records.length).toBeGreaterThanOrEqual(3);
-			// Verify our specific records are present
 			const ourRecords = data.records.filter((r: any) =>
-				r.uri.match(/\/post-[123]$/),
+				rkeys.some((k) => r.uri.endsWith(`/${k}`)),
 			);
 			expect(ourRecords).toHaveLength(3);
 			expect(ourRecords[0]).toMatchObject({
@@ -460,7 +559,7 @@ describe("XRPC Endpoints", () => {
 		});
 
 		it("should delete a record", async () => {
-			// Create a record
+			const rkey = genTid();
 			await worker.fetch(
 				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
 					method: "POST",
@@ -471,7 +570,7 @@ describe("XRPC Endpoints", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "to-delete",
+						rkey,
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "Delete me",
@@ -493,7 +592,7 @@ describe("XRPC Endpoints", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "to-delete",
+						rkey,
 					}),
 				}),
 				env,
@@ -503,7 +602,7 @@ describe("XRPC Endpoints", () => {
 			// Verify it's gone
 			const getResponse = await worker.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=to-delete`,
+					`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=${rkey}`,
 				),
 				env,
 			);
@@ -627,7 +726,7 @@ describe("XRPC Endpoints", () => {
 		});
 
 		it("should handle concurrent read operations", async () => {
-			// Create a record
+			const rkey = genTid();
 			await worker.fetch(
 				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
 					method: "POST",
@@ -638,7 +737,7 @@ describe("XRPC Endpoints", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "concurrent-read-test",
+						rkey,
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "Read me concurrently",
@@ -655,7 +754,7 @@ describe("XRPC Endpoints", () => {
 				promises.push(
 					worker.fetch(
 						new Request(
-							`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=concurrent-read-test`,
+							`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=${rkey}`,
 						),
 						env,
 					),
@@ -675,7 +774,7 @@ describe("XRPC Endpoints", () => {
 		});
 
 		it("should handle create and delete race conditions", async () => {
-			// Create a record
+			const rkey = genTid();
 			const createResponse = await worker.fetch(
 				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
 					method: "POST",
@@ -686,7 +785,7 @@ describe("XRPC Endpoints", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "race-test",
+						rkey,
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "Race test",
@@ -702,7 +801,7 @@ describe("XRPC Endpoints", () => {
 			const [readResponse, deleteResponse] = await Promise.all([
 				worker.fetch(
 					new Request(
-						`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=race-test`,
+						`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=${rkey}`,
 					),
 					env,
 				),
@@ -716,7 +815,7 @@ describe("XRPC Endpoints", () => {
 						body: JSON.stringify({
 							repo: env.DID,
 							collection: "app.bsky.feed.post",
-							rkey: "race-test",
+							rkey,
 						}),
 					}),
 					env,
@@ -733,6 +832,8 @@ describe("XRPC Endpoints", () => {
 
 	describe("applyWrites", () => {
 		it("should create multiple records in batch", async () => {
+			const rkey1 = genTid();
+			const rkey2 = genTid();
 			const response = await worker.fetch(
 				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
 					method: "POST",
@@ -746,7 +847,7 @@ describe("XRPC Endpoints", () => {
 							{
 								$type: "com.atproto.repo.applyWrites#create",
 								collection: "app.bsky.feed.post",
-								rkey: "batch-1",
+								rkey: rkey1,
 								value: {
 									$type: "app.bsky.feed.post",
 									text: "Batch post 1",
@@ -756,7 +857,7 @@ describe("XRPC Endpoints", () => {
 							{
 								$type: "com.atproto.repo.applyWrites#create",
 								collection: "app.bsky.feed.post",
-								rkey: "batch-2",
+								rkey: rkey2,
 								value: {
 									$type: "app.bsky.feed.post",
 									text: "Batch post 2",
@@ -777,12 +878,12 @@ describe("XRPC Endpoints", () => {
 			expect(data.results[0].$type).toBe(
 				"com.atproto.repo.applyWrites#createResult",
 			);
-			expect(data.results[0].uri).toContain("batch-1");
-			expect(data.results[1].uri).toContain("batch-2");
+			expect(data.results[0].uri).toContain(rkey1);
+			expect(data.results[1].uri).toContain(rkey2);
 		});
 
 		it("should update a record", async () => {
-			// First create a record
+			const rkey = genTid();
 			await worker.fetch(
 				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
 					method: "POST",
@@ -793,7 +894,7 @@ describe("XRPC Endpoints", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "to-update",
+						rkey,
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "Original text",
@@ -818,7 +919,7 @@ describe("XRPC Endpoints", () => {
 							{
 								$type: "com.atproto.repo.applyWrites#update",
 								collection: "app.bsky.feed.post",
-								rkey: "to-update",
+								rkey,
 								value: {
 									$type: "app.bsky.feed.post",
 									text: "Updated text",
@@ -840,7 +941,7 @@ describe("XRPC Endpoints", () => {
 			// Verify the update
 			const getResponse = await worker.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=to-update`,
+					`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=${rkey}`,
 				),
 				env,
 			);
@@ -849,7 +950,7 @@ describe("XRPC Endpoints", () => {
 		});
 
 		it("should delete a record via applyWrites", async () => {
-			// First create a record
+			const rkey = genTid();
 			await worker.fetch(
 				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
 					method: "POST",
@@ -860,7 +961,7 @@ describe("XRPC Endpoints", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "to-delete-batch",
+						rkey,
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "Delete me via batch",
@@ -885,7 +986,7 @@ describe("XRPC Endpoints", () => {
 							{
 								$type: "com.atproto.repo.applyWrites#delete",
 								collection: "app.bsky.feed.post",
-								rkey: "to-delete-batch",
+								rkey,
 							},
 						],
 					}),
@@ -902,7 +1003,7 @@ describe("XRPC Endpoints", () => {
 			// Verify deletion
 			const getResponse = await worker.fetch(
 				new Request(
-					`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=to-delete-batch`,
+					`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=${rkey}`,
 				),
 				env,
 			);
@@ -910,7 +1011,9 @@ describe("XRPC Endpoints", () => {
 		});
 
 		it("should handle mixed operations", async () => {
-			// Create records to work with
+			const rkeyUpdate = genTid();
+			const rkeyDelete = genTid();
+			const rkeyNew = genTid();
 			await worker.fetch(
 				new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
 					method: "POST",
@@ -921,7 +1024,7 @@ describe("XRPC Endpoints", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "mixed-update",
+						rkey: rkeyUpdate,
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "Will be updated",
@@ -942,7 +1045,7 @@ describe("XRPC Endpoints", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "mixed-delete",
+						rkey: rkeyDelete,
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "Will be deleted",
@@ -967,7 +1070,7 @@ describe("XRPC Endpoints", () => {
 							{
 								$type: "com.atproto.repo.applyWrites#create",
 								collection: "app.bsky.feed.post",
-								rkey: "mixed-new",
+								rkey: rkeyNew,
 								value: {
 									$type: "app.bsky.feed.post",
 									text: "New from batch",
@@ -977,7 +1080,7 @@ describe("XRPC Endpoints", () => {
 							{
 								$type: "com.atproto.repo.applyWrites#update",
 								collection: "app.bsky.feed.post",
-								rkey: "mixed-update",
+								rkey: rkeyUpdate,
 								value: {
 									$type: "app.bsky.feed.post",
 									text: "Updated from batch",
@@ -987,7 +1090,7 @@ describe("XRPC Endpoints", () => {
 							{
 								$type: "com.atproto.repo.applyWrites#delete",
 								collection: "app.bsky.feed.post",
-								rkey: "mixed-delete",
+								rkey: rkeyDelete,
 							},
 						],
 					}),
@@ -1024,6 +1127,230 @@ describe("XRPC Endpoints", () => {
 				env,
 			);
 			expect(response.status).toBe(401);
+		});
+
+		it("rejects update without rkey as 400", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						writes: [
+							{
+								$type: "com.atproto.repo.applyWrites#update",
+								collection: "app.bsky.feed.post",
+								value: {
+									$type: "app.bsky.feed.post",
+									text: "no rkey",
+									createdAt: new Date().toISOString(),
+								},
+							},
+						],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(400);
+			const data = (await response.json()) as any;
+			expect(data.error).toBe("InvalidRequest");
+			expect(data.message).toMatch(/update requires rkey/i);
+		});
+
+		it("rejects delete without rkey as 400", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						writes: [
+							{
+								$type: "com.atproto.repo.applyWrites#delete",
+								collection: "app.bsky.feed.post",
+							},
+						],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(400);
+			const data = (await response.json()) as any;
+			expect(data.error).toBe("InvalidRequest");
+			expect(data.message).toMatch(/delete requires rkey/i);
+		});
+
+		it("returns per-result validationStatus on each create/update in a batch", async () => {
+			const knownRkey = genTid();
+			const unknownRkey = genTid();
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						writes: [
+							{
+								$type: "com.atproto.repo.applyWrites#create",
+								collection: "app.bsky.feed.post",
+								rkey: knownRkey,
+								value: {
+									$type: "app.bsky.feed.post",
+									text: "known",
+									createdAt: new Date().toISOString(),
+								},
+							},
+							{
+								$type: "com.atproto.repo.applyWrites#create",
+								collection: "com.example.unknown",
+								rkey: unknownRkey,
+								value: { foo: "bar" },
+							},
+						],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(200);
+			const data = (await response.json()) as any;
+			expect(data.results).toHaveLength(2);
+			expect(data.results[0].validationStatus).toBe("valid");
+			expect(data.results[1].validationStatus).toBe("unknown");
+		});
+
+		it("rejects intra-batch duplicate rkey as 400 InvalidRequest (not 409)", async () => {
+			const dupRkey = genTid();
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						writes: [
+							{
+								$type: "com.atproto.repo.applyWrites#create",
+								collection: "app.bsky.feed.post",
+								rkey: dupRkey,
+								value: {
+									$type: "app.bsky.feed.post",
+									text: "first",
+									createdAt: new Date().toISOString(),
+								},
+							},
+							{
+								$type: "com.atproto.repo.applyWrites#create",
+								collection: "app.bsky.feed.post",
+								rkey: dupRkey,
+								value: {
+									$type: "app.bsky.feed.post",
+									text: "dup",
+									createdAt: new Date().toISOString(),
+								},
+							},
+						],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(400);
+			const data = (await response.json()) as any;
+			expect(data.error).toBe("InvalidRequest");
+			expect(data.message).toMatch(/duplicate rkey in batch/i);
+		});
+
+		it("rejects validate=true with unknown collection in applyWrites as 400", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						validate: true,
+						writes: [
+							{
+								$type: "com.atproto.repo.applyWrites#create",
+								collection: "com.example.unknown",
+								rkey: genTid(),
+								value: { foo: "bar" },
+							},
+						],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(400);
+			const data = (await response.json()) as any;
+			expect(data.error).toBe("InvalidRecord");
+			expect(data.message).toMatch(/unknown lexicon type/i);
+		});
+
+		it("rejects empty-string rkey on applyWrites#create as 400", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						writes: [
+							{
+								$type: "com.atproto.repo.applyWrites#create",
+								collection: "app.bsky.feed.post",
+								rkey: "",
+								value: {
+									$type: "app.bsky.feed.post",
+									text: "hi",
+									createdAt: new Date().toISOString(),
+								},
+							},
+						],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(400);
+			const data = (await response.json()) as any;
+			expect(data.error).toBe("InvalidRequest");
+			expect(data.message).toMatch(/rkey must be a non-empty string/i);
+		});
+
+		it("rejects non-boolean validate flag as 400", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						validate: "true",
+						writes: [],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(400);
+			const data = (await response.json()) as any;
+			expect(data.error).toBe("InvalidRequest");
+			expect(data.message).toMatch(/validate.*boolean/i);
 		});
 
 		it("should reject too many writes", async () => {
@@ -1211,7 +1538,7 @@ describe("XRPC Endpoints", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "car-test",
+						rkey: genTid(),
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "CAR export test",
@@ -1289,7 +1616,7 @@ describe("XRPC Endpoints", () => {
 					body: JSON.stringify({
 						repo: env.DID,
 						collection: "app.bsky.feed.post",
-						rkey: "stream-test",
+						rkey: genTid(),
 						record: {
 							$type: "app.bsky.feed.post",
 							text: "Streaming test",
