@@ -211,6 +211,18 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
+	 * Drop the in-memory repo so the next access reloads from storage.
+	 * Used after a write fails post-applyWrites: Cloudflare rolls back the
+	 * SQLite writes, but JS state isn't rolled back, so the cached Repo can
+	 * end up ahead of storage. That mismatch produces firehose events whose
+	 * `since` rev the relay never saw, causing it to mark us desynced.
+	 */
+	private invalidateRepoCache(): void {
+		this.repo = null;
+		this.repoInitialized = false;
+	}
+
+	/**
 	 * RPC method: Get repo metadata for describeRepo
 	 */
 	async rpcDescribeRepo(): Promise<{
@@ -368,61 +380,64 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		const prevRev = repo.commit.rev;
 		const updatedRepo = await repo.applyWrites([createOp], keypair);
-		this.repo = updatedRepo;
 
-		// Get the CID for the created record from the MST
-		const dataKey = `${collection}/${actualRkey}`;
-		const recordCid = await this.repo.data.get(dataKey);
+		try {
+			const dataKey = `${collection}/${actualRkey}`;
+			const recordCid = await updatedRepo.data.get(dataKey);
 
-		if (!recordCid) {
-			throw new Error(`Failed to create record: ${collection}/${actualRkey}`);
-		}
-
-		// Update collections cache
-		this.storage!.addCollection(collection);
-
-		// Sequence the commit for firehose
-		if (this.sequencer) {
-			// Get blocks that changed
-			const newBlocks = new BlockMap();
-			const rows = this.ctx.storage.sql
-				.exec(
-					"SELECT cid, bytes FROM blocks WHERE rev = ?",
-					this.repo.commit.rev,
-				)
-				.toArray();
-
-			for (const row of rows) {
-				const cid = CID.parse(row.cid as string);
-				const bytes = new Uint8Array(row.bytes as ArrayBuffer);
-				newBlocks.set(cid, bytes);
+			if (!recordCid) {
+				throw new Error(
+					`Failed to create record: ${collection}/${actualRkey}`,
+				);
 			}
 
-			// Include the record CID in the op for the firehose
-			const opWithCid = { ...createOp, cid: recordCid };
+			this.storage!.addCollection(collection);
 
-			const commitData: CommitData = {
-				did: this.repo.did,
-				commit: this.repo.cid,
-				rev: this.repo.commit.rev,
-				since: prevRev,
-				newBlocks,
-				ops: [opWithCid],
+			if (this.sequencer) {
+				const newBlocks = new BlockMap();
+				const rows = this.ctx.storage.sql
+					.exec(
+						"SELECT cid, bytes FROM blocks WHERE rev = ?",
+						updatedRepo.commit.rev,
+					)
+					.toArray();
+
+				for (const row of rows) {
+					const cid = CID.parse(row.cid as string);
+					const bytes = new Uint8Array(row.bytes as ArrayBuffer);
+					newBlocks.set(cid, bytes);
+				}
+
+				const opWithCid = { ...createOp, cid: recordCid };
+
+				const commitData: CommitData = {
+					did: updatedRepo.did,
+					commit: updatedRepo.cid,
+					rev: updatedRepo.commit.rev,
+					since: prevRev,
+					newBlocks,
+					ops: [opWithCid],
+				};
+
+				const event = await this.sequencer.sequenceCommit(commitData);
+				await this.broadcastCommit(event);
+			}
+
+			this.repo = updatedRepo;
+
+			return {
+				uri: `at://${updatedRepo.did}/${collection}/${actualRkey}`,
+				cid: recordCid.toString(),
+				commit: {
+					cid: updatedRepo.cid.toString(),
+					rev: updatedRepo.commit.rev,
+				},
+				...(validationStatus !== undefined ? { validationStatus } : {}),
 			};
-
-			const event = await this.sequencer.sequenceCommit(commitData);
-			await this.broadcastCommit(event);
+		} catch (err) {
+			this.invalidateRepoCache();
+			throw err;
 		}
-
-		return {
-			uri: `at://${this.repo.did}/${collection}/${actualRkey}`,
-			cid: recordCid.toString(),
-			commit: {
-				cid: this.repo.cid.toString(),
-				rev: this.repo.commit.rev,
-			},
-			...(validationStatus !== undefined ? { validationStatus } : {}),
-		};
 	}
 
 	/**
@@ -447,44 +462,48 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		const prevRev = repo.commit.rev;
 		const updatedRepo = await repo.applyWrites([deleteOp], keypair);
-		this.repo = updatedRepo;
 
-		// Sequence the commit for firehose
-		if (this.sequencer) {
-			// Get blocks that changed
-			const newBlocks = new BlockMap();
-			const rows = this.ctx.storage.sql
-				.exec(
-					"SELECT cid, bytes FROM blocks WHERE rev = ?",
-					this.repo.commit.rev,
-				)
-				.toArray();
+		try {
+			if (this.sequencer) {
+				const newBlocks = new BlockMap();
+				const rows = this.ctx.storage.sql
+					.exec(
+						"SELECT cid, bytes FROM blocks WHERE rev = ?",
+						updatedRepo.commit.rev,
+					)
+					.toArray();
 
-			for (const row of rows) {
-				const cid = CID.parse(row.cid as string);
-				const bytes = new Uint8Array(row.bytes as ArrayBuffer);
-				newBlocks.set(cid, bytes);
+				for (const row of rows) {
+					const cid = CID.parse(row.cid as string);
+					const bytes = new Uint8Array(row.bytes as ArrayBuffer);
+					newBlocks.set(cid, bytes);
+				}
+
+				const commitData: CommitData = {
+					did: updatedRepo.did,
+					commit: updatedRepo.cid,
+					rev: updatedRepo.commit.rev,
+					since: prevRev,
+					newBlocks,
+					ops: [deleteOp],
+				};
+
+				const event = await this.sequencer.sequenceCommit(commitData);
+				await this.broadcastCommit(event);
 			}
 
-			const commitData: CommitData = {
-				did: this.repo.did,
-				commit: this.repo.cid,
-				rev: this.repo.commit.rev,
-				since: prevRev,
-				newBlocks,
-				ops: [deleteOp],
+			this.repo = updatedRepo;
+
+			return {
+				commit: {
+					cid: updatedRepo.cid.toString(),
+					rev: updatedRepo.commit.rev,
+				},
 			};
-
-			const event = await this.sequencer.sequenceCommit(commitData);
-			await this.broadcastCommit(event);
+		} catch (err) {
+			this.invalidateRepoCache();
+			throw err;
 		}
-
-		return {
-			commit: {
-				cid: updatedRepo.cid.toString(),
-				rev: updatedRepo.commit.rev,
-			},
-		};
 	}
 
 	/**
@@ -526,59 +545,62 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		const prevRev = repo.commit.rev;
 		const updatedRepo = await repo.applyWrites([op], keypair);
-		this.repo = updatedRepo;
 
-		// Get the CID for the record from the MST
-		const dataKey = `${collection}/${rkey}`;
-		const recordCid = await this.repo.data.get(dataKey);
+		try {
+			const dataKey = `${collection}/${rkey}`;
+			const recordCid = await updatedRepo.data.get(dataKey);
 
-		if (!recordCid) {
-			throw new Error(`Failed to put record: ${collection}/${rkey}`);
-		}
-
-		// Update collections cache
-		this.storage!.addCollection(collection);
-
-		// Sequence the commit for firehose
-		if (this.sequencer) {
-			const newBlocks = new BlockMap();
-			const rows = this.ctx.storage.sql
-				.exec(
-					"SELECT cid, bytes FROM blocks WHERE rev = ?",
-					this.repo.commit.rev,
-				)
-				.toArray();
-
-			for (const row of rows) {
-				const cid = CID.parse(row.cid as string);
-				const bytes = new Uint8Array(row.bytes as ArrayBuffer);
-				newBlocks.set(cid, bytes);
+			if (!recordCid) {
+				throw new Error(`Failed to put record: ${collection}/${rkey}`);
 			}
 
-			const opWithCid = { ...op, cid: recordCid };
+			this.storage!.addCollection(collection);
 
-			const commitData: CommitData = {
-				did: this.repo.did,
-				commit: this.repo.cid,
-				rev: this.repo.commit.rev,
-				since: prevRev,
-				newBlocks,
-				ops: [opWithCid],
+			if (this.sequencer) {
+				const newBlocks = new BlockMap();
+				const rows = this.ctx.storage.sql
+					.exec(
+						"SELECT cid, bytes FROM blocks WHERE rev = ?",
+						updatedRepo.commit.rev,
+					)
+					.toArray();
+
+				for (const row of rows) {
+					const cid = CID.parse(row.cid as string);
+					const bytes = new Uint8Array(row.bytes as ArrayBuffer);
+					newBlocks.set(cid, bytes);
+				}
+
+				const opWithCid = { ...op, cid: recordCid };
+
+				const commitData: CommitData = {
+					did: updatedRepo.did,
+					commit: updatedRepo.cid,
+					rev: updatedRepo.commit.rev,
+					since: prevRev,
+					newBlocks,
+					ops: [opWithCid],
+				};
+
+				const event = await this.sequencer.sequenceCommit(commitData);
+				await this.broadcastCommit(event);
+			}
+
+			this.repo = updatedRepo;
+
+			return {
+				uri: `at://${updatedRepo.did}/${collection}/${rkey}`,
+				cid: recordCid.toString(),
+				commit: {
+					cid: updatedRepo.cid.toString(),
+					rev: updatedRepo.commit.rev,
+				},
+				...(validationStatus !== undefined ? { validationStatus } : {}),
 			};
-
-			const event = await this.sequencer.sequenceCommit(commitData);
-			await this.broadcastCommit(event);
+		} catch (err) {
+			this.invalidateRepoCache();
+			throw err;
 		}
-
-		return {
-			uri: `at://${this.repo.did}/${collection}/${rkey}`,
-			cid: recordCid.toString(),
-			commit: {
-				cid: this.repo.cid.toString(),
-				rev: this.repo.commit.rev,
-			},
-			...(validationStatus !== undefined ? { validationStatus } : {}),
-		};
 	}
 
 	/**
@@ -698,86 +720,87 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		const prevRev = repo.commit.rev;
 		const updatedRepo = await repo.applyWrites(ops, keypair);
-		this.repo = updatedRepo;
 
-		// Update collections cache for create/update ops
-		for (const op of ops) {
-			if (op.action !== WriteOpAction.Delete) {
-				this.storage!.addCollection(op.collection);
-			}
-		}
-
-		// Build final results with CIDs and prepare ops with CIDs for firehose
-		const finalResults: Array<{
-			$type: string;
-			uri?: string;
-			cid?: string;
-			validationStatus?: ValidationStatus;
-		}> = [];
-		const opsWithCids: Array<RecordWriteOp & { cid?: CID | null }> = [];
-
-		for (let i = 0; i < results.length; i++) {
-			const result = results[i]!;
-			const op = ops[i]!;
-
-			if (result.action === WriteOpAction.Delete) {
-				finalResults.push({
-					$type: result.$type,
-				});
-				opsWithCids.push(op);
-			} else {
-				// Get the CID for create/update
-				const dataKey = `${result.collection}/${result.rkey}`;
-				const recordCid = await this.repo.data.get(dataKey);
-				finalResults.push({
-					$type: result.$type,
-					uri: `at://${this.repo.did}/${result.collection}/${result.rkey}`,
-					cid: recordCid?.toString(),
-					...(result.validationStatus !== undefined
-						? { validationStatus: result.validationStatus }
-						: {}),
-				});
-				// Include the record CID in the op for the firehose
-				opsWithCids.push({ ...op, cid: recordCid });
-			}
-		}
-
-		// Sequence the commit for firehose
-		if (this.sequencer) {
-			const newBlocks = new BlockMap();
-			const rows = this.ctx.storage.sql
-				.exec(
-					"SELECT cid, bytes FROM blocks WHERE rev = ?",
-					this.repo.commit.rev,
-				)
-				.toArray();
-
-			for (const row of rows) {
-				const cid = CID.parse(row.cid as string);
-				const bytes = new Uint8Array(row.bytes as ArrayBuffer);
-				newBlocks.set(cid, bytes);
+		try {
+			for (const op of ops) {
+				if (op.action !== WriteOpAction.Delete) {
+					this.storage!.addCollection(op.collection);
+				}
 			}
 
-			const commitData: CommitData = {
-				did: this.repo.did,
-				commit: this.repo.cid,
-				rev: this.repo.commit.rev,
-				since: prevRev,
-				newBlocks,
-				ops: opsWithCids,
+			const finalResults: Array<{
+				$type: string;
+				uri?: string;
+				cid?: string;
+				validationStatus?: ValidationStatus;
+			}> = [];
+			const opsWithCids: Array<RecordWriteOp & { cid?: CID | null }> = [];
+
+			for (let i = 0; i < results.length; i++) {
+				const result = results[i]!;
+				const op = ops[i]!;
+
+				if (result.action === WriteOpAction.Delete) {
+					finalResults.push({
+						$type: result.$type,
+					});
+					opsWithCids.push(op);
+				} else {
+					const dataKey = `${result.collection}/${result.rkey}`;
+					const recordCid = await updatedRepo.data.get(dataKey);
+					finalResults.push({
+						$type: result.$type,
+						uri: `at://${updatedRepo.did}/${result.collection}/${result.rkey}`,
+						cid: recordCid?.toString(),
+						...(result.validationStatus !== undefined
+							? { validationStatus: result.validationStatus }
+							: {}),
+					});
+					opsWithCids.push({ ...op, cid: recordCid });
+				}
+			}
+
+			if (this.sequencer) {
+				const newBlocks = new BlockMap();
+				const rows = this.ctx.storage.sql
+					.exec(
+						"SELECT cid, bytes FROM blocks WHERE rev = ?",
+						updatedRepo.commit.rev,
+					)
+					.toArray();
+
+				for (const row of rows) {
+					const cid = CID.parse(row.cid as string);
+					const bytes = new Uint8Array(row.bytes as ArrayBuffer);
+					newBlocks.set(cid, bytes);
+				}
+
+				const commitData: CommitData = {
+					did: updatedRepo.did,
+					commit: updatedRepo.cid,
+					rev: updatedRepo.commit.rev,
+					since: prevRev,
+					newBlocks,
+					ops: opsWithCids,
+				};
+
+				const event = await this.sequencer.sequenceCommit(commitData);
+				await this.broadcastCommit(event);
+			}
+
+			this.repo = updatedRepo;
+
+			return {
+				commit: {
+					cid: updatedRepo.cid.toString(),
+					rev: updatedRepo.commit.rev,
+				},
+				results: finalResults,
 			};
-
-			const event = await this.sequencer.sequenceCommit(commitData);
-			await this.broadcastCommit(event);
+		} catch (err) {
+			this.invalidateRepoCache();
+			throw err;
 		}
-
-		return {
-			commit: {
-				cid: this.repo.cid.toString(),
-				rev: this.repo.commit.rev,
-			},
-			results: finalResults,
-		};
 	}
 
 	/**
