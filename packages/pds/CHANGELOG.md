@@ -1,5 +1,32 @@
 # @getcirrus/pds
 
+## 0.15.0
+
+### Minor Changes
+
+- [#160](https://github.com/ascorbic/cirrus/pull/160) [`a492bf7`](https://github.com/ascorbic/cirrus/commit/a492bf71e6c6e9c174617a98931ec005e07abbc8) Thanks [@ascorbic](https://github.com/ascorbic)! - Lexicon validation now matches the reference PDS more closely:
+  - `createRecord`, `putRecord`, and `applyWrites` honor the `validate` flag from the request body. `true` requires a known schema, `false` skips schema validation, `undefined` validates known schemas optimistically.
+  - Responses include `validationStatus` (`"valid"` for known, `"unknown"` for unknown collections; omitted when `validate: false`). Per-write `validationStatus` is returned in `applyWrites` results.
+  - The record's `$type` is filled in from `collection` when missing and rejected on mismatch.
+  - Generic record-key shape (`isRecordKey`) is enforced for any provided rkey, regardless of `validate` flag — closes a hole where empty-string and path-traversal-style rkeys could reach the repo.
+  - Schema-specific record keys are validated against the schema's `keySchema` for known collections (e.g. `app.bsky.feed.post` requires a TID, `app.bsky.actor.profile` requires `self`).
+  - Legacy `{ cid, mimeType }` blob refs are rejected.
+  - Bundled schema set broadened to include `com.atproto.lexicon.schema`, `app.bsky.actor.status`, `app.bsky.notification.declaration`, and `chat.bsky.actor.declaration`.
+  - The Durable Object is now the authoritative rkey allocator: when the client doesn't supply an rkey, the worker validates against a candidate (so restrictive `keySchema`s still reject early) and the DO picks the final rkey against its MST state, with a small retry loop to defeat any worker-isolate clockid collisions.
+  - Client-supplied rkey collisions return `409 RecordAlreadyExists` instead of a generic 500.
+  - Intra-batch duplicate rkeys in `applyWrites` return `400 InvalidRequest` (distinguished from the 409 above).
+  - Missing rkey for `applyWrites#update`/`#delete` returns `400 InvalidRequest`.
+  - Non-boolean `validate` flag values return `400 InvalidRequest`.
+  - Non-string `rkey` values (including `null`) return `400 InvalidRequest`.
+
+### Patch Changes
+
+- [#162](https://github.com/ascorbic/cirrus/pull/162) [`5920074`](https://github.com/ascorbic/cirrus/commit/5920074d3d1b12935c9e6ef014e422b3e2e503ec) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix relay desync after a failed write (e.g. an image post that errors mid-flight).
+
+  `applyWrites` was assigning the new `Repo` to in-memory state before sequencing the firehose event. If anything threw between then and `sequenceCommit` succeeding, Cloudflare rolled back the SQLite writes but the in-memory `Repo` stayed advanced. The next successful write then emitted a firehose commit whose `since` rev the relay had never seen, and the relay marked the repo desynced — requiring a manual `requestCrawl` to recover.
+
+  `this.repo` is now only assigned after the sequence + broadcast succeed, and any failure in that window invalidates the in-memory cache so the next access reloads from storage.
+
 ## 0.14.0
 
 ### Minor Changes
