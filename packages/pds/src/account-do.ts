@@ -494,6 +494,17 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 			this.repo = updatedRepo;
 
+			// If the collection has no records left, remove it from the cache
+			let collectionStillHasRecords = false;
+			for await (const remaining of updatedRepo.walkRecords(`${collection}/`)) {
+				if (remaining.collection !== collection) break;
+				collectionStillHasRecords = true;
+				break;
+			}
+			if (!collectionStillHasRecords) {
+				this.storage!.removeCollection(collection);
+			}
+
 			return {
 				commit: {
 					cid: updatedRepo.cid.toString(),
@@ -789,6 +800,27 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			}
 
 			this.repo = updatedRepo;
+
+			// For any collection touched by a delete, drop the cache entry if it's
+			// now empty. Runs after addCollection so a batch that creates + deletes
+			// in the same collection still walks the MST as the source of truth.
+			const deletedCollections = new Set<string>();
+			for (const op of ops) {
+				if (op.action === WriteOpAction.Delete) {
+					deletedCollections.add(op.collection);
+				}
+			}
+			for (const collection of deletedCollections) {
+				let collectionStillHasRecords = false;
+				for await (const remaining of updatedRepo.walkRecords(`${collection}/`)) {
+					if (remaining.collection !== collection) break;
+					collectionStillHasRecords = true;
+					break;
+				}
+				if (!collectionStillHasRecords) {
+					this.storage!.removeCollection(collection);
+				}
+			}
 
 			return {
 				commit: {

@@ -383,6 +383,13 @@ export class SqliteRepoStorage
 	}
 
 	/**
+	 * Remove a collection name from the cache (no-op if not present).
+	 */
+	removeCollection(collection: string): void {
+		this.sql.exec("DELETE FROM collections WHERE collection = ?", collection);
+	}
+
+	/**
 	 * Check if the collections cache has been populated.
 	 */
 	hasCollections(): boolean {
