@@ -1,5 +1,13 @@
 # @getcirrus/pds
 
+## 0.15.1
+
+### Patch Changes
+
+- [#157](https://github.com/ascorbic/cirrus/pull/157) [`241a5fc`](https://github.com/ascorbic/cirrus/commit/241a5fc58baa429c3938c0b99f9afdd9d5c85dce) Thanks [@NuroDev](https://github.com/NuroDev)! - fix(pds): Remove empty collections from cache on record delete.
+
+  When all records of a collection are deleted, it is now ensured that the collection is deleted from the user repository so collections don't linger around forever
+
 ## 0.15.0
 
 ### Minor Changes
