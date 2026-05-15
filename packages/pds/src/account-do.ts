@@ -28,7 +28,7 @@ import {
 	type SeqIdentityEvent,
 	type CommitData,
 } from "./sequencer";
-import { BlobStore, type BlobRef } from "./blobs";
+import { BlobStore } from "./blobs";
 import { jsonToLex } from "@atproto/lex-json";
 import type { PDSEnv } from "./types";
 import { RecordAlreadyExistsError, type ValidationStatus } from "./validation";
@@ -1038,28 +1038,23 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * RPC method: Upload a blob to R2
+	 * RPC method: Record an already-stored blob's metadata.
+	 *
+	 * The blob bytes are written to R2 by the stateless Worker, not here.
+	 * This DO is single-threaded and also holds the relay's firehose
+	 * WebSocket; awaiting an R2 put inside it (R2 latency is independent of
+	 * object size — even a small image can stall) pins the input gate, and
+	 * Cloudflare resets the object when a storage op can't complete in time,
+	 * dropping the firehose and desyncing the relay. Only the tiny tracking
+	 * row needs the DO's SQLite.
 	 */
-	async rpcUploadBlob(bytes: Uint8Array, mimeType: string): Promise<BlobRef> {
-		if (!this.blobStore) {
-			throw new Error("Blob storage not configured");
-		}
-
-		// Enforce size limit (60MB)
-		const MAX_BLOB_SIZE = 60 * 1024 * 1024;
-		if (bytes.length > MAX_BLOB_SIZE) {
-			throw new Error(
-				`Blob too large: ${bytes.length} bytes (max ${MAX_BLOB_SIZE})`,
-			);
-		}
-
-		const blobRef = await this.blobStore.putBlob(bytes, mimeType);
-
-		// Track the imported blob for migration progress
+	async rpcTrackBlob(
+		cid: string,
+		size: number,
+		mimeType: string,
+	): Promise<void> {
 		const storage = await this.getStorage();
-		storage.trackImportedBlob(blobRef.ref.$link, bytes.length, mimeType);
-
-		return blobRef;
+		storage.trackImportedBlob(cid, size, mimeType);
 	}
 
 	/**

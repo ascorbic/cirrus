@@ -10,6 +10,7 @@ import {
 	type ValidationStatus,
 } from "../validation.js";
 import { detectContentType } from "../format.js";
+import { BlobStore } from "../blobs.js";
 import { buildScopeChecker, requireScope } from "../middleware/auth.js";
 
 function invalidRecordError(
@@ -680,24 +681,30 @@ export async function uploadBlob(
 		);
 	}
 
-	try {
-		const blobRef = await accountDO.rpcUploadBlob(bytes, contentType);
-		return c.json({ blob: blobRef });
-	} catch (err) {
-		if (
-			err instanceof Error &&
-			err.message.includes("Blob storage not configured")
-		) {
-			return c.json(
-				{
-					error: "ServiceUnavailable",
-					message: "Blob storage is not configured",
-				},
-				503,
-			);
-		}
-		throw err;
+	if (!c.env.BLOBS) {
+		return c.json(
+			{
+				error: "ServiceUnavailable",
+				message: "Blob storage is not configured",
+			},
+			503,
+		);
 	}
+
+	// Store the blob from the stateless Worker, not the DO. The DO is
+	// single-threaded and holds the relay's firehose WebSocket; awaiting an
+	// R2 put inside it (R2 latency is independent of object size) pins the
+	// input gate, and Cloudflare resets the object when a storage op times
+	// out, dropping the firehose and desyncing the relay. The DO only
+	// records the tracking metadata. This mirrors sync.getBlob.
+	const blobStore = new BlobStore(c.env.BLOBS, c.env.DID);
+	const blobRef = await blobStore.putBlob(bytes, contentType);
+	await accountDO.rpcTrackBlob(
+		blobRef.ref.$link,
+		blobRef.size,
+		blobRef.mimeType,
+	);
+	return c.json({ blob: blobRef });
 }
 
 export async function importRepo(
