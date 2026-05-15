@@ -1,5 +1,13 @@
 # @getcirrus/pds
 
+## 0.15.2
+
+### Patch Changes
+
+- [#165](https://github.com/ascorbic/cirrus/pull/165) [`5e058c8`](https://github.com/ascorbic/cirrus/commit/5e058c8d7141391c761693de53bb6b1a8bb11a74) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix blob uploads intermittently desyncing the PDS from the relay.
+
+  Uploading a blob (commonly a link-card thumbnail) could occasionally fail and leave the relay no longer tracking the repo, so new posts stopped federating until a manual crawl request. Blob uploads are now reliable and no longer drop the firehose connection.
+
 ## 0.15.1
 
 ### Patch Changes
