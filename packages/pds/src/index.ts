@@ -212,6 +212,9 @@ app.get("/xrpc/com.atproto.sync.getRepo", (c) =>
 app.get("/xrpc/com.atproto.sync.getRepoStatus", (c) =>
 	sync.getRepoStatus(c, getAccountDO(c.env)),
 );
+app.get("/xrpc/com.atproto.sync.getLatestCommit", (c) =>
+	sync.getLatestCommit(c, getAccountDO(c.env)),
+);
 app.get("/xrpc/com.atproto.sync.getBlocks", (c) =>
 	sync.getBlocks(c, getAccountDO(c.env)),
 );

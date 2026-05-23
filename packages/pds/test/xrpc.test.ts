@@ -1481,6 +1481,46 @@ describe("XRPC Endpoints", () => {
 			expect(data.status).toBeUndefined();
 		});
 
+		it("should get latest commit", async () => {
+			const response = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.sync.getLatestCommit?did=${env.DID}`,
+				),
+				env,
+			);
+			expect(response.status).toBe(200);
+
+			const data = (await response.json()) as Record<string, unknown>;
+			expect(data).toMatchObject({
+				cid: expect.any(String),
+				rev: expect.any(String),
+			});
+		});
+
+		it("should reject getLatestCommit without a did", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.sync.getLatestCommit"),
+				env,
+			);
+			expect(response.status).toBe(400);
+
+			const data = (await response.json()) as Record<string, unknown>;
+			expect(data.error).toBe("InvalidRequest");
+		});
+
+		it("should return RepoNotFound for an unknown did on getLatestCommit", async () => {
+			const response = await worker.fetch(
+				new Request(
+					"http://pds.test/xrpc/com.atproto.sync.getLatestCommit?did=did:web:unknown.example.com",
+				),
+				env,
+			);
+			expect(response.status).toBe(404);
+
+			const data = (await response.json()) as Record<string, unknown>;
+			expect(data.error).toBe("RepoNotFound");
+		});
+
 		it("should return deactivated status when account is inactive", async () => {
 			const deactivateResponse = await worker.fetch(
 				new Request(

@@ -117,6 +117,55 @@ export async function listRepos(
 	});
 }
 
+export async function getLatestCommit(
+	c: Context<AppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
+	const did = c.req.query("did");
+
+	if (!did) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required parameter: did",
+			},
+			400,
+		);
+	}
+
+	// Validate DID format
+	if (!isDid(did)) {
+		return c.json(
+			{ error: "InvalidRequest", message: "Invalid DID format" },
+			400,
+		);
+	}
+
+	if (did !== c.env.DID) {
+		return c.json(
+			{
+				error: "RepoNotFound",
+				message: `Repository not found for DID: ${did}`,
+			},
+			404,
+		);
+	}
+
+	const [data, active] = await Promise.all([
+		accountDO.rpcGetRepoStatus(),
+		accountDO.rpcGetActive(),
+	]);
+
+	if (!active) {
+		return c.json(
+			{ error: "RepoDeactivated", message: "Repository has been deactivated" },
+			400,
+		);
+	}
+
+	return c.json({ cid: data.head, rev: data.rev });
+}
+
 export async function listBlobs(
 	c: Context<AppEnv>,
 	_accountDO: DurableObjectStub<AccountDurableObject>,
