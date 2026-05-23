@@ -32,6 +32,7 @@ interface CommitEvent {
 	commit: Cid;
 	rev: string;
 	since: string | null;
+	prevData: Cid;
 	blocks: Uint8Array;
 	ops: CommitOp[];
 	blobs: Cid[];

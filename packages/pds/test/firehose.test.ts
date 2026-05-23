@@ -343,6 +343,45 @@ describe("Firehose (subscribeRepos)", () => {
 			});
 		});
 
+		it("should include prevData matching the previous commit's MST root", async () => {
+			const id = env.ACCOUNT.idFromName("account");
+			const stub = env.ACCOUNT.get(id);
+
+			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+				await instance.getStorage();
+				const sequencer = (instance as any).sequencer;
+				const encodeEventFrame = (instance as any).encodeEventFrame.bind(
+					instance,
+				);
+
+				// Load the repo and capture the current (soon-to-be-previous) state.
+				await instance.rpcGetRepoStatus();
+				const prevRepo = (instance as any).repo;
+				const expectedPrevData = prevRepo.commit.data.toString();
+				const expectedSince = prevRepo.commit.rev;
+
+				const seqBefore = sequencer.getLatestSeq();
+				await instance.rpcCreateRecord("app.bsky.feed.post", "prevdata-test", {
+					text: "prevData test",
+					createdAt: new Date().toISOString(),
+				});
+
+				const events = await sequencer.getEventsSince(seqBefore, 1);
+				const frame = encodeEventFrame(events[0] as SeqCommitEvent);
+				const { body } = decodeFrame(frame);
+				const commitBody = body as {
+					prevData?: { toString(): string };
+					since?: string;
+				};
+
+				// prevData must be present (relays require it for verification)
+				// and equal the data CID of the commit at the `since` rev.
+				expect(commitBody.prevData).toBeDefined();
+				expect(commitBody.prevData!.toString()).toBe(expectedPrevData);
+				expect(commitBody.since).toBe(expectedSince);
+			});
+		});
+
 		it("should encode identity events with #identity frame type", async () => {
 			const id = env.ACCOUNT.idFromName("account");
 			const stub = env.ACCOUNT.get(id);

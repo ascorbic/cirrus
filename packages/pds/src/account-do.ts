@@ -415,6 +415,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 					commit: updatedRepo.cid,
 					rev: updatedRepo.commit.rev,
 					since: prevRev,
+					prevData: repo.commit.data,
 					newBlocks,
 					ops: [opWithCid],
 				};
@@ -484,6 +485,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 					commit: updatedRepo.cid,
 					rev: updatedRepo.commit.rev,
 					since: prevRev,
+					prevData: repo.commit.data,
 					newBlocks,
 					ops: [deleteOp],
 				};
@@ -589,6 +591,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 					commit: updatedRepo.cid,
 					rev: updatedRepo.commit.rev,
 					since: prevRev,
+					prevData: repo.commit.data,
 					newBlocks,
 					ops: [opWithCid],
 				};
@@ -791,6 +794,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 					commit: updatedRepo.cid,
 					rev: updatedRepo.commit.rev,
 					since: prevRev,
+					prevData: repo.commit.data,
 					newBlocks,
 					ops: opsWithCids,
 				};

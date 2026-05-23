@@ -14,6 +14,10 @@ export interface CommitEvent {
 	commit: CID;
 	rev: string;
 	since: string | null;
+	// Root CID of the MST for the previous commit (the `data` field of the
+	// commit at the `since` rev). Required for relays doing inductive firehose
+	// verification (com.atproto.sync.subscribeRepos#commit `prevData`).
+	prevData: CID;
 	blocks: Uint8Array;
 	ops: RepoOp[];
 	blobs: CID[];
@@ -72,6 +76,7 @@ export interface CommitData {
 	commit: CID;
 	rev: string;
 	since: string | null;
+	prevData: CID;
 	newBlocks: BlockMap;
 	ops: Array<RecordWriteOp & { cid?: CID | null }>;
 }
@@ -102,6 +107,7 @@ export class Sequencer {
 			commit: data.commit,
 			rev: data.rev,
 			since: data.since,
+			prevData: data.prevData,
 			blocks: carBytes,
 			ops: data.ops.map(
 				(op): RepoOp => ({
