@@ -32,7 +32,9 @@ interface CommitEvent {
 	commit: Cid;
 	rev: string;
 	since: string | null;
-	prevData: Cid;
+	// Optional: absent on legacy (pre-prevData) firehose data and on any
+	// initial commit where `since` is null.
+	prevData?: Cid;
 	blocks: Uint8Array;
 	ops: CommitOp[];
 	blobs: Cid[];

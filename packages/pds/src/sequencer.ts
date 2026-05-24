@@ -16,8 +16,9 @@ export interface CommitEvent {
 	since: string | null;
 	// Root CID of the MST for the previous commit (the `data` field of the
 	// commit at the `since` rev). Required for relays doing inductive firehose
-	// verification (com.atproto.sync.subscribeRepos#commit `prevData`).
-	prevData: CID;
+	// verification (com.atproto.sync.subscribeRepos#commit `prevData`). Nullable
+	// to mirror `since`; in practice every write has a prior commit so it is set.
+	prevData: CID | null;
 	blocks: Uint8Array;
 	ops: RepoOp[];
 	blobs: CID[];
@@ -76,7 +77,7 @@ export interface CommitData {
 	commit: CID;
 	rev: string;
 	since: string | null;
-	prevData: CID;
+	prevData: CID | null;
 	newBlocks: BlockMap;
 	ops: Array<RecordWriteOp & { cid?: CID | null }>;
 }
