@@ -338,7 +338,7 @@ function initialStepsFor(ids: readonly string[]): FlowStep[] {
 		"flow.par-rejects-invalid-include":
 			"PAR rejects a nonexistent permission set include:",
 		"flow.par-accepts-known-permission-set":
-			"PAR accepts include:app.bsky.authFullApp (a published, lexicon-resolved permission set)",
+			"PAR accepts include:site.standard.authFull (a published, lexicon-resolved permission set)",
 		"flow.build-authorization-url": "Build authorization URL",
 		"flow.callback-params-present": "Callback has code, state, iss",
 		"flow.iss-matches": "iss parameter matches auth server (RFC 9207)",
@@ -1013,11 +1013,11 @@ export function startPreRedirectFlow(target: string): FlowRun {
 				}
 			});
 
-			// 9c.ii — request a published permission set (`app.bsky.authFullApp`)
+			// 9c.ii — request a published permission set (`site.standard.authFull`)
 			// to test whether the AS can dynamically resolve `include:*` NSIDs via
 			// lexicon resolution.
 			await runStep("flow.par-accepts-known-permission-set", async () => {
-				const knownInclude = "include:app.bsky.authFullApp";
+				const knownInclude = "include:site.standard.authFull";
 				const probeParams = {
 					client_id: clientId(),
 					redirect_uri: redirectUri(),
@@ -1045,7 +1045,7 @@ export function startPreRedirectFlow(target: string): FlowRun {
 					const accepted = await withNonceRetry(attempt);
 					return {
 						status: "pass",
-						message: `AS resolved app.bsky.authFullApp (request_uri expires in ${accepted.expires_in}s)`,
+						message: `AS resolved site.standard.authFull (request_uri expires in ${accepted.expires_in}s)`,
 						evidence: {
 							response: { body: accepted },
 							actual: { probed: knownInclude },
@@ -1062,7 +1062,7 @@ export function startPreRedirectFlow(target: string): FlowRun {
 									"AS resolves the published lexicon and accepts the include:",
 								actual: error.error,
 								error:
-									"app.bsky.authFullApp is a published permission set lexicon. Rejecting it means this AS doesn't support dynamic lexicon-based permission-set resolution.",
+									"site.standard.authFull is a published permission set lexicon. Rejecting it means this AS doesn't support dynamic lexicon-based permission-set resolution.",
 							},
 						};
 					}
