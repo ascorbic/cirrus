@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@theme {
+	--color-paper: oklch(0.95 0 0);
+	--color-ink: oklch(0 0 0);
+	--color-muted: oklch(0.5 0 0);
+	--color-faint: oklch(0.7 0 0);
+	--color-line: oklch(0.85 0 0);
+
+	--color-pass: oklch(0.55 0.13 145);
+	--color-fail: oklch(0.55 0.16 25);
+	--color-warn: oklch(0.7 0.14 75);
+
+	--font-mono:
+		ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas,
+		"DejaVu Sans Mono", monospace;
+}
+
+@layer base {
+	html {
+		color-scheme: light;
+		background: var(--color-paper);
+		color: var(--color-ink);
+		font-family: var(--font-mono);
+	}
+
+	body {
+		min-height: 100dvh;
+		margin: 0;
+		text-rendering: optimizeLegibility;
+		-webkit-font-smoothing: antialiased;
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--color-ink);
+		outline-offset: 2px;
+	}
+}
