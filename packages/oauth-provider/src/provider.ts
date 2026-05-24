@@ -215,14 +215,15 @@ export class ATProtoOAuthProvider {
 		this.issuer = config.issuer;
 		this.dpopRequired = config.dpopRequired ?? true;
 		this.enablePAR = config.enablePAR ?? true;
+		this.clientResolver =
+			config.clientResolver ?? new ClientResolver({ storage: config.storage });
 		this.parHandler = new PARHandler(
 			config.storage,
+			this.clientResolver,
 			config.issuer,
 			undefined,
 			!!config.permissionSetResolver,
 		);
-		this.clientResolver =
-			config.clientResolver ?? new ClientResolver({ storage: config.storage });
 		this.verifyUser = config.verifyUser;
 		this.getCurrentUser = config.getCurrentUser;
 		this.getPasskeyOptions = config.getPasskeyOptions;

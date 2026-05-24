@@ -4,6 +4,7 @@
  */
 
 import type { OAuthParResponse } from "@atproto/oauth-types";
+import type { ClientResolver } from "./client-resolver.js";
 import type { OAuthStorage, PARData } from "./storage.js";
 import { randomString } from "./encoding.js";
 import { parseRequestBody } from "./provider.js";
@@ -53,6 +54,7 @@ const REQUIRED_PARAMS = [
  */
 export class PARHandler {
 	private storage: OAuthStorage;
+	private clientResolver: ClientResolver;
 	private issuer: string;
 	private expiresIn: number;
 	private allowIncludes: boolean;
@@ -60,6 +62,9 @@ export class PARHandler {
 	/**
 	 * Create a PAR handler
 	 * @param storage OAuth storage implementation
+	 * @param clientResolver Client metadata resolver. Used to validate
+	 *   redirect_uri against the registered list at push time per
+	 *   RFC 6749 §3.1.2.4.
 	 * @param issuer The OAuth issuer URL
 	 * @param expiresIn PAR expiration time in seconds (default: 90)
 	 * @param allowIncludes Whether `include:` (permission set) scopes are
@@ -69,11 +74,13 @@ export class PARHandler {
 	 */
 	constructor(
 		storage: OAuthStorage,
+		clientResolver: ClientResolver,
 		issuer: string,
 		expiresIn: number = DEFAULT_EXPIRES_IN,
 		allowIncludes: boolean = false,
 	) {
 		this.storage = storage;
+		this.clientResolver = clientResolver;
 		this.issuer = issuer;
 		this.expiresIn = expiresIn;
 		this.allowIncludes = allowIncludes;
@@ -145,6 +152,28 @@ export class PARHandler {
 			new URL(params.redirect_uri!);
 		} catch {
 			return this.errorResponse("invalid_request", "Invalid redirect_uri", 400);
+		}
+
+		// RFC 6749 §3.1.2.4: the AS MUST reject any redirect_uri that wasn't
+		// registered in the client metadata. Authorize re-validates, but PAR
+		// must also reject here — otherwise a request_uri gets issued for a
+		// redirect the client never registered.
+		let client;
+		try {
+			client = await this.clientResolver.resolveClient(clientId);
+		} catch (e) {
+			return this.errorResponse(
+				"invalid_client",
+				`Failed to resolve client: ${e instanceof Error ? e.message : String(e)}`,
+				400,
+			);
+		}
+		if (!client.redirectUris.includes(params.redirect_uri!)) {
+			return this.errorResponse(
+				"invalid_request",
+				"redirect_uri is not registered for this client",
+				400,
+			);
 		}
 
 		const scope = params.scope ?? ATPROTO_SCOPE;
