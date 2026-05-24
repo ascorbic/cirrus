@@ -901,6 +901,7 @@ export class ATProtoOAuthProvider {
 			authorization_endpoint: `${this.issuer}/oauth/authorize`,
 			token_endpoint: `${this.issuer}/oauth/token`,
 			userinfo_endpoint: `${this.issuer}/oauth/userinfo`,
+			jwks_uri: `${this.issuer}/oauth/jwks`,
 			response_types_supported: ["code"],
 			response_modes_supported: ["fragment", "query"],
 			grant_types_supported: ["authorization_code", "refresh_token"],
@@ -932,6 +933,24 @@ export class ATProtoOAuthProvider {
 		} as OAuthAuthorizationServerMetadata;
 
 		return new Response(JSON.stringify(metadata), {
+			status: 200,
+			headers: {
+				"Content-Type": "application/json",
+				"Cache-Control": "max-age=3600",
+			},
+		});
+	}
+
+	/**
+	 * Handle JWKS request (GET /oauth/jwks)
+	 *
+	 * Cirrus signs access tokens with HS256 (symmetric secret), so there are no
+	 * public keys to publish for token verification. The endpoint exists for
+	 * ecosystem compatibility — RFC 8414 marks `jwks_uri` as RECOMMENDED and
+	 * some OAuth clients fetch it unconditionally during discovery.
+	 */
+	handleJwks(): Response {
+		return new Response(JSON.stringify({ keys: [] }), {
 			status: 200,
 			headers: {
 				"Content-Type": "application/json",

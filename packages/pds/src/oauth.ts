@@ -262,6 +262,12 @@ export function createOAuthApp(
 		return provider.handleMetadata();
 	});
 
+	// JWKS endpoint (empty — Cirrus signs tokens with HS256)
+	oauth.get("/oauth/jwks", (c) => {
+		const provider = getProvider(c.env);
+		return provider.handleJwks();
+	});
+
 	// Protected resource metadata (for token introspection discovery)
 	oauth.get("/.well-known/oauth-protected-resource", (c) => {
 		const issuer = `https://${c.env.PDS_HOSTNAME}`;
