@@ -1,0 +1,45 @@
+{
+	"lexicon": 1,
+	"id": "earth.cirrus.check.testrecord",
+	"description": "Ephemeral test record created by pdscheck during PDS write verification. Records of this type are created and deleted within a single verification run; any leftover record can be safely deleted by hand. The namespace does not federate to app.bsky.* services.",
+	"defs": {
+		"main": {
+			"type": "record",
+			"description": "A disposable verification artifact.",
+			"key": "tid",
+			"record": {
+				"type": "object",
+				"required": ["createdAt"],
+				"properties": {
+					"createdAt": {
+						"type": "string",
+						"format": "datetime",
+						"description": "When this record was created."
+					},
+					"message": {
+						"type": "string",
+						"description": "Human-readable identifier — typically a fixed string flagging that the record is safe to delete.",
+						"maxLength": 256
+					},
+					"verifier": {
+						"type": "string",
+						"format": "uri",
+						"description": "Origin of the pdscheck instance that created the record, for tracing leftovers back to a specific verifier deployment.",
+						"maxLength": 256
+					},
+					"runId": {
+						"type": "string",
+						"description": "Identifier of the verification run that created the record. Useful for correlating leftovers with a specific test execution.",
+						"maxLength": 64
+					},
+					"blob": {
+						"type": "blob",
+						"description": "Optional blob attachment used to exercise uploadBlob and blob references.",
+						"accept": ["*/*"],
+						"maxSize": 1048576
+					}
+				}
+			}
+		}
+	}
+}
