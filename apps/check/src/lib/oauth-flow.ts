@@ -81,6 +81,19 @@ const CALLBACK_PATH = "/oauth/flow-callback";
 // flow at a time so this is safe.
 let activeScope: string = LEGACY_SCOPE;
 
+// Superset of every scope the flow might request — used in the client_id
+// metadata so an AS that enforces "requested scope must be declared" (RFC
+// 9101 / atproto OAuth) accepts both the legacy and granular probes. The
+// actual scope sent at PAR time is `activeScope`, selected by probe.
+const CLIENT_METADATA_SCOPE = [
+	"atproto",
+	"transition:generic",
+	GRANULAR_SCOPE.split(" ").filter((s) => s !== "atproto").join(" "),
+	"include:site.standard.authFull",
+]
+	.join(" ")
+	.trim();
+
 function clientId(): string {
 	const isLoopback =
 		location.hostname === "localhost" || location.hostname === "127.0.0.1";
@@ -88,7 +101,7 @@ function clientId(): string {
 	if (isLoopback) {
 		const params = new URLSearchParams({
 			redirect_uri: redirectUri,
-			scope: activeScope,
+			scope: CLIENT_METADATA_SCOPE,
 		});
 		return `http://localhost?${params.toString()}`;
 	}
