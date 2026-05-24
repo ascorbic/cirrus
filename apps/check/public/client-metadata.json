@@ -1,0 +1,15 @@
+{
+	"client_id": "https://check.cirrus.earth/client-metadata.json",
+	"client_name": "check · a PDS validator",
+	"client_uri": "https://check.cirrus.earth",
+	"redirect_uris": [
+		"https://check.cirrus.earth/oauth/callback",
+		"https://check.cirrus.earth/oauth/flow-callback"
+	],
+	"scope": "atproto transition:generic repo:earth.cirrus.check.testrecord include:site.standard.authFull",
+	"grant_types": ["authorization_code", "refresh_token"],
+	"response_types": ["code"],
+	"application_type": "web",
+	"token_endpoint_auth_method": "none",
+	"dpop_bound_access_tokens": true
+}

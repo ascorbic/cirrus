@@ -1,0 +1,45 @@
+{
+	"name": "@getcirrus/check",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Web-based PDS verifier for AT Protocol",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"preview": "vite preview",
+		"wrangler:dev": "wrangler dev",
+		"deploy": "vite build && wrangler deploy",
+		"check": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@atcute/atproto": "^4.0.0",
+		"@atcute/bluesky": "^4.0.3",
+		"@atcute/cbor": "^2.3.3",
+		"@atcute/cid": "^2.4.1",
+		"@atcute/client": "^5.0.0",
+		"@atcute/identity": "^2.0.0",
+		"@atcute/identity-resolver": "^2.0.0",
+		"@atcute/lexicons": "^2.0.0",
+		"@atcute/oauth-browser-client": "^4.0.0",
+		"@atcute/tid": "^1.1.2",
+		"@ipld/car": "^5.4.6",
+		"@kobalte/core": "^0.13.11",
+		"@solid-primitives/storage": "^4.3.4",
+		"idb-keyval": "^6.2.4",
+		"jose": "^6.2.3",
+		"multiformats": "^14.0.0",
+		"oauth4webapi": "^3.8.6",
+		"solid-js": "^1.9.13"
+	},
+	"devDependencies": {
+		"@tailwindcss/vite": "^4.3.0",
+		"tailwindcss": "^4.3.0",
+		"typescript": "^6.0.3",
+		"vite": "^8.0.14",
+		"vite-plugin-solid": "^2.11.12",
+		"vitest": "4.1.7",
+		"wrangler": "^4.94.0"
+	}
+}
