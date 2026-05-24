@@ -289,14 +289,13 @@ const PRE_REDIRECT_STEPS = [
 	"flow.discover-auth-server",
 	"flow.validate-auth-server-metadata",
 	"flow.atproto-conformance",
-	"flow.select-scope",
 	"flow.generate-pkce",
 	"flow.generate-dpop-key",
+	"flow.select-scope",
 	"flow.send-par",
 	"flow.par-response-shape",
 	"flow.par-rejects-unregistered-redirect-uri",
 	"flow.par-rejects-invalid-include",
-	"flow.par-accepts-advertised-include",
 	"flow.par-accepts-known-permission-set",
 	"flow.build-authorization-url",
 ] as const;
@@ -330,7 +329,7 @@ function initialStepsFor(ids: readonly string[]): FlowStep[] {
 			"Auth server metadata validates (oauth4webapi)",
 		"flow.atproto-conformance": "AT Proto OAuth conformance",
 		"flow.select-scope":
-			"Select scope (granular when AS advertises, legacy otherwise)",
+			"Select scope (granular when AS accepts, legacy otherwise)",
 		"flow.generate-pkce": "Generate PKCE code verifier and challenge",
 		"flow.generate-dpop-key": "Generate DPoP ES256 keypair",
 		"flow.send-par": "Send pushed authorization request",
@@ -339,8 +338,6 @@ function initialStepsFor(ids: readonly string[]): FlowStep[] {
 			"PAR rejects unregistered redirect_uri (RFC 6749 §3.1.2.4)",
 		"flow.par-rejects-invalid-include":
 			"PAR rejects a nonexistent permission set include:",
-		"flow.par-accepts-advertised-include":
-			"PAR accepts an include: scope advertised in scopes_supported",
 		"flow.par-accepts-known-permission-set":
 			"PAR accepts include:site.standard.authFull (a published, lexicon-resolved permission set)",
 		"flow.build-authorization-url": "Build authorization URL",
@@ -645,46 +642,6 @@ export function startPreRedirectFlow(target: string): FlowRun {
 			});
 
 			// 5b. Select scope based on what the AS advertises.
-			await runStep("flow.select-scope", async () => {
-				const supported = (
-					(state.authServer as Record<string, unknown> | undefined)
-						?.scopes_supported as string[] | undefined
-				)?.filter((s) => typeof s === "string") ?? [];
-				const hasGranular = supported.some(
-					(s) =>
-						s === "repo" ||
-						s.startsWith("repo:") ||
-						s.startsWith("repo "),
-				);
-				activeScope = hasGranular ? GRANULAR_SCOPE : LEGACY_SCOPE;
-				if (hasGranular) {
-					return {
-						status: "pass",
-						message: `granular scope: ${activeScope}`,
-						evidence: {
-							actual: {
-								scopesSupported: supported,
-								selected: activeScope,
-							},
-						},
-					};
-				}
-				return {
-					status: "warn",
-					message: `AS doesn't advertise repo:* scopes — falling back to legacy ${LEGACY_SCOPE}; granular boundary tests will skip`,
-					evidence: {
-						expected:
-							"scopes_supported to include at least one repo:* (Phase 2 granular) scope",
-						actual: {
-							scopesSupported: supported,
-							selected: activeScope,
-						},
-						error:
-							"PDS doesn't support Phase 2 granular scopes — the verifier can't differentiate scope enforcement using this AS.",
-					},
-				};
-			});
-
 			// 6. Generate PKCE
 			const codeVerifier = oauth.generateRandomCodeVerifier();
 			const codeChallenge =
@@ -716,6 +673,77 @@ export function startPreRedirectFlow(target: string): FlowRun {
 					},
 				},
 			}));
+
+			// 7b. Select scope by *probing*, not by reading scopes_supported. The
+			// atproto OAuth spec only requires `atproto` (and transitional scopes
+			// when supported) in scopes_supported; granular scopes (`repo:<nsid>`,
+			// `include:<nsid>`, etc.) are parameterised and "cannot be enumerated
+			// as they are dynamic" (atproto reference oauth-provider comment). So
+			// we send a probe PAR with the granular scope; if the AS accepts, use
+			// it. If it rejects with invalid_scope, fall back to LEGACY_SCOPE.
+			const probeDpop = oauth.DPoP(
+				{ [oauth.clockSkew]: 0 },
+				dpopKeyPair,
+			);
+			await runStep("flow.select-scope", async () => {
+				const probeParams = {
+					client_id: clientId(),
+					redirect_uri: redirectUri(),
+					response_type: "code",
+					scope: GRANULAR_SCOPE,
+					code_challenge: codeChallenge,
+					code_challenge_method: "S256",
+					state: oauth.generateRandomState(),
+				};
+				const probe = async () => {
+					const res = await oauth.pushedAuthorizationRequest(
+						state.authServer!,
+						{ client_id: clientId() },
+						oauth.None(),
+						probeParams,
+						{ DPoP: probeDpop },
+					);
+					return await oauth.processPushedAuthorizationResponse(
+						state.authServer!,
+						{ client_id: clientId() },
+						res,
+					);
+				};
+				try {
+					await withNonceRetry(probe);
+					activeScope = GRANULAR_SCOPE;
+					return {
+						status: "pass",
+						message: `granular scope accepted: ${activeScope}`,
+						evidence: { actual: { selected: activeScope } },
+					};
+				} catch (error) {
+					if (
+						error instanceof oauth.ResponseBodyError &&
+						(error.error === "invalid_scope" ||
+							error.error === "invalid_request")
+					) {
+						activeScope = LEGACY_SCOPE;
+						return {
+							status: "warn",
+							message: `AS rejected granular scope (${error.error}) — falling back to ${LEGACY_SCOPE}; granular boundary tests will skip`,
+							evidence: {
+								response: { status: error.status, body: error.cause },
+								actual: { selected: activeScope },
+							},
+						};
+					}
+					activeScope = LEGACY_SCOPE;
+					return {
+						status: "warn",
+						message: `probe inconclusive: ${error instanceof Error ? error.message : String(error)} — falling back to ${LEGACY_SCOPE}`,
+						evidence: {
+							error: String(error),
+							actual: { selected: activeScope },
+						},
+					};
+				}
+			});
 
 			// 8. Send PAR (with DPoP-nonce retry built in — RFC 9449 §8 allows the
 			// AS to require a nonce; the first request fails with use_dpop_nonce
@@ -917,26 +945,13 @@ export function startPreRedirectFlow(target: string): FlowRun {
 				},
 			);
 
-			// 9c. Permission-set probes: only meaningful if the AS advertises any
-			// `include:*` scope in scopes_supported. Skip otherwise.
-			const advertisedScopes = (
-				(state.authServer as Record<string, unknown> | undefined)
-					?.scopes_supported as string[] | undefined
-			)?.filter((s) => typeof s === "string") ?? [];
-			const advertisedIncludes = advertisedScopes.filter((s) =>
-				s.startsWith("include:"),
-			);
+			// 9c. Permission-set probes. We don't gate on scopes_supported — the
+			// spec doesn't require ASes to enumerate include:* scopes since they
+			// resolve dynamically via lexicon resolution.
 
 			// 9c.i — request a clearly-nonexistent permission set. The AS should
 			// reject with invalid_scope (or similar) once it tries to resolve.
 			await runStep("flow.par-rejects-invalid-include", async () => {
-				if (advertisedIncludes.length === 0) {
-					return {
-						status: "skip",
-						message:
-							"AS doesn't advertise any include:* scopes — permission set support not exercisable",
-					};
-				}
 				const bogusInclude =
 					"include:earth.cirrus.check.invalidnonexistentpermissionset";
 				const probeParams = {
@@ -999,74 +1014,9 @@ export function startPreRedirectFlow(target: string): FlowRun {
 				}
 			});
 
-			// 9c.ii — request the AS's OWN advertised include: scope. If the AS
-			// advertises it in scopes_supported, it must be able to accept and
-			// resolve it. Rejecting your own advertised scope is a real bug.
-			await runStep("flow.par-accepts-advertised-include", async () => {
-				if (advertisedIncludes.length === 0) {
-					return {
-						status: "skip",
-						message:
-							"AS doesn't advertise any include:* scopes — nothing to probe",
-					};
-				}
-				const advertised = advertisedIncludes[0]!;
-				const probeParams = {
-					client_id: clientId(),
-					redirect_uri: redirectUri(),
-					response_type: "code",
-					scope: `atproto ${advertised}`,
-					code_challenge: codeChallenge,
-					code_challenge_method: "S256",
-					state: oauth.generateRandomState(),
-				};
-				const attempt = async () => {
-					const res = await oauth.pushedAuthorizationRequest(
-						state.authServer!,
-						{ client_id: clientId() },
-						oauth.None(),
-						probeParams,
-						{ DPoP: dpop },
-					);
-					return await oauth.processPushedAuthorizationResponse(
-						state.authServer!,
-						{ client_id: clientId() },
-						res,
-					);
-				};
-				try {
-					const accepted = await withNonceRetry(attempt);
-					return {
-						status: "pass",
-						message: `AS accepted its own advertised ${advertised} (request_uri expires in ${accepted.expires_in}s)`,
-						evidence: {
-							response: { body: accepted },
-							actual: { probed: advertised },
-						},
-					};
-				} catch (error) {
-					if (error instanceof oauth.ResponseBodyError) {
-						return {
-							status: "fail",
-							message: `AS rejected ${advertised} (its own advertised scope): ${error.error}${error.cause?.error_description ? ` — ${error.cause.error_description}` : ""}`,
-							evidence: {
-								response: { status: error.status, body: error.cause },
-								error: `Permission set ${advertised} is listed in scopes_supported but PAR rejects it — the AS is advertising a scope it can't actually honor.`,
-							},
-						};
-					}
-					return {
-						status: "warn",
-						message: `probe inconclusive: ${error instanceof Error ? error.message : String(error)}`,
-						evidence: { error: String(error) },
-					};
-				}
-			});
-
-			// 9c.iii — request a published permission set (`site.standard.authFull`)
-			// that does NOT need to appear in scopes_supported. This tests whether
-			// the AS can dynamically resolve `include:*` NSIDs via lexicon resolution.
-			// An AS that only supports its own pre-advertised includes will fail here.
+			// 9c.ii — request a published permission set (`site.standard.authFull`)
+			// to test whether the AS can dynamically resolve `include:*` NSIDs via
+			// lexicon resolution.
 			await runStep("flow.par-accepts-known-permission-set", async () => {
 				const knownInclude = "include:site.standard.authFull";
 				const probeParams = {

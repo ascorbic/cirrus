@@ -563,70 +563,6 @@ const scopeAdvertisesTransitionGeneric = scopeAdvertises(
 				},
 );
 
-const scopeAdvertisesResourceBuckets = scopeAdvertises(
-	"oauth-discovery.scope-resource-buckets",
-	"Auth server advertises granular resource scopes",
-	(scopes) => {
-		// Per atproto.com/specs/permission, granular scopes are bare resource-
-		// type tokens (repo, rpc, blob, account, identity) in scopes_supported.
-		// Clients construct fully-qualified scopes by appending parameters at
-		// request time (e.g. `repo:my.collection?action=create`).
-		const RESOURCES = ["repo", "rpc", "blob", "identity", "account"] as const;
-		const present = RESOURCES.filter((r) => scopes.includes(r));
-		if (present.length === 0) {
-			return {
-				status: "warn",
-				message:
-					"no granular resource scopes (repo, rpc, blob, identity, account) advertised — AS supports only legacy transition:* bundles",
-				evidence: {
-					expected:
-						"scopes_supported to include resource-type tokens: repo, rpc, blob, account, identity",
-					actual: scopes,
-				},
-			};
-		}
-		const missing = RESOURCES.filter((r) => !scopes.includes(r));
-		if (missing.length > 0) {
-			return {
-				status: "warn",
-				message: `partial: advertises ${present.join(", ")}; missing ${missing.join(", ")}`,
-				evidence: { actual: { present, missing } },
-			};
-		}
-		return {
-			status: "pass",
-			message: `all five granular resources advertised: ${present.join(", ")}`,
-			evidence: { actual: present },
-		};
-	},
-);
-
-const scopeAdvertisesPermissionSets = scopeAdvertises(
-	"oauth-discovery.scope-permission-sets",
-	"Auth server advertises permission set support",
-	(scopes) => {
-		// The AS advertises `include` as a resource type to signal it supports
-		// permission sets; specific include:<nsid> scopes are dynamically
-		// resolved at PAR time via lexicon resolution, not enumerated here.
-		if (!scopes.includes("include")) {
-			return {
-				status: "warn",
-				message:
-					"`include` not in scopes_supported — AS does not advertise permission set resolution",
-				evidence: {
-					expected: "`include` token in scopes_supported",
-					actual: scopes,
-				},
-			};
-		}
-		return {
-			status: "pass",
-			message: "`include` advertised — AS resolves permission sets dynamically via lexicon resolution",
-			evidence: { actual: ["include"] },
-		};
-	},
-);
-
 export const oauthDiscoveryChecks: Check[] = [
 	protectedResourceResponds,
 	protectedResourceValidates,
@@ -634,8 +570,6 @@ export const oauthDiscoveryChecks: Check[] = [
 	authServerValidates,
 	scopeAdvertisesAtproto,
 	scopeAdvertisesTransitionGeneric,
-	scopeAdvertisesResourceBuckets,
-	scopeAdvertisesPermissionSets,
 	jwksResponds,
 	jwksValidates,
 ];
