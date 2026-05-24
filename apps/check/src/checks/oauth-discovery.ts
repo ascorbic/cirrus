@@ -563,90 +563,66 @@ const scopeAdvertisesTransitionGeneric = scopeAdvertises(
 				},
 );
 
-const scopeAdvertisesPhase2Granular = scopeAdvertises(
-	"oauth-discovery.scope-phase2-granular",
-	"Auth server advertises Phase 2 granular scopes",
-	(scopes) => {
-		const granular = scopes.filter(
-			(s) =>
-				s === "repo:read" ||
-				s === "repo:write" ||
-				s.startsWith("repo:write:") ||
-				s.startsWith("repo:read:") ||
-				s.startsWith("account.") ||
-				s.startsWith("pds."),
-		);
-		if (granular.length === 0) {
-			return {
-				status: "warn",
-				message:
-					"no Phase 2 granular scopes (repo:read, repo:write:<nsid>, account.*, pds.*) advertised",
-				evidence: { actual: scopes },
-			};
-		}
-		return {
-			status: "pass",
-			message: `${granular.length} granular scope${granular.length === 1 ? "" : "s"}: ${granular.slice(0, 4).join(", ")}${granular.length > 4 ? "…" : ""}`,
-			evidence: { actual: granular },
-		};
-	},
-);
-
 const scopeAdvertisesResourceBuckets = scopeAdvertises(
 	"oauth-discovery.scope-resource-buckets",
-	"Auth server advertises Phase 2 resource-bucket scopes",
+	"Auth server advertises granular resource scopes",
 	(scopes) => {
-		// Per discussion #4013, the Phase 2 design organizes permissions into
-		// resource buckets: repo, rpc, blob, identity, account.
-		const buckets: Record<string, string[]> = {
-			repo: [],
-			rpc: [],
-			blob: [],
-			identity: [],
-			account: [],
-		};
-		for (const s of scopes) {
-			for (const bucket of Object.keys(buckets)) {
-				if (s === bucket || s.startsWith(`${bucket}:`) || s.startsWith(`${bucket}.`)) {
-					buckets[bucket]!.push(s);
-				}
-			}
-		}
-		const present = Object.entries(buckets).filter(
-			([, v]) => v.length > 0,
-		);
+		// Per atproto.com/specs/permission, granular scopes are bare resource-
+		// type tokens (repo, rpc, blob, account, identity) in scopes_supported.
+		// Clients construct fully-qualified scopes by appending parameters at
+		// request time (e.g. `repo:my.collection?action=create`).
+		const RESOURCES = ["repo", "rpc", "blob", "identity", "account"] as const;
+		const present = RESOURCES.filter((r) => scopes.includes(r));
 		if (present.length === 0) {
 			return {
 				status: "warn",
 				message:
-					"no resource-bucket scopes (repo/rpc/blob/identity/account) advertised",
-				evidence: { actual: scopes },
+					"no granular resource scopes (repo, rpc, blob, identity, account) advertised — AS supports only legacy transition:* bundles",
+				evidence: {
+					expected:
+						"scopes_supported to include resource-type tokens: repo, rpc, blob, account, identity",
+					actual: scopes,
+				},
+			};
+		}
+		const missing = RESOURCES.filter((r) => !scopes.includes(r));
+		if (missing.length > 0) {
+			return {
+				status: "warn",
+				message: `partial: advertises ${present.join(", ")}; missing ${missing.join(", ")}`,
+				evidence: { actual: { present, missing } },
 			};
 		}
 		return {
 			status: "pass",
-			message: `buckets advertised: ${present.map(([k]) => k).join(", ")}`,
-			evidence: { actual: Object.fromEntries(present) },
+			message: `all five granular resources advertised: ${present.join(", ")}`,
+			evidence: { actual: present },
 		};
 	},
 );
 
 const scopeAdvertisesPermissionSets = scopeAdvertises(
 	"oauth-discovery.scope-permission-sets",
-	"Auth server advertises permission set scopes",
+	"Auth server advertises permission set support",
 	(scopes) => {
-		const sets = scopes.filter((s) => s.startsWith("include:"));
-		if (sets.length === 0) {
+		// The AS advertises `include` as a resource type to signal it supports
+		// permission sets; specific include:<nsid> scopes are dynamically
+		// resolved at PAR time via lexicon resolution, not enumerated here.
+		if (!scopes.includes("include")) {
 			return {
 				status: "warn",
-				message: "no permission set scopes (include:*) advertised",
-				evidence: { actual: scopes },
+				message:
+					"`include` not in scopes_supported — AS does not advertise permission set resolution",
+				evidence: {
+					expected: "`include` token in scopes_supported",
+					actual: scopes,
+				},
 			};
 		}
 		return {
 			status: "pass",
-			message: `${sets.length} permission set${sets.length === 1 ? "" : "s"}: ${sets.join(", ")}`,
-			evidence: { actual: sets },
+			message: "`include` advertised — AS resolves permission sets dynamically via lexicon resolution",
+			evidence: { actual: ["include"] },
 		};
 	},
 );
@@ -658,7 +634,6 @@ export const oauthDiscoveryChecks: Check[] = [
 	authServerValidates,
 	scopeAdvertisesAtproto,
 	scopeAdvertisesTransitionGeneric,
-	scopeAdvertisesPhase2Granular,
 	scopeAdvertisesResourceBuckets,
 	scopeAdvertisesPermissionSets,
 	jwksResponds,

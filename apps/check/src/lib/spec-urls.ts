@@ -68,12 +68,8 @@ const MAP: Record<string, string> = {
 	"oauth.jwks-validates": `${RFC}/rfc7517`,
 	"oauth-discovery.scope-atproto": `${SPECS}/oauth#scopes`,
 	"oauth-discovery.scope-transition-generic": `${SPECS}/oauth#scopes`,
-	"oauth-discovery.scope-phase2-granular":
-		"https://github.com/bluesky-social/atproto/discussions/4013",
-	"oauth-discovery.scope-resource-buckets":
-		"https://github.com/bluesky-social/atproto/discussions/4013",
-	"oauth-discovery.scope-permission-sets":
-		"https://github.com/bluesky-social/atproto/discussions/4013",
+	"oauth-discovery.scope-resource-buckets": `${SPECS}/permission`,
+	"oauth-discovery.scope-permission-sets": `${SPECS}/permission#permission-sets`,
 
 	// account
 	"account.get-session": `${LEX}/com/atproto/server/getSession.json`,
