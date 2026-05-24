@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { ClientResolver } from "../src/client-resolver.js";
 import { PARHandler } from "../src/par.js";
+import type {
+	LexiconPermissionSet,
+	PermissionSetResolver,
+} from "../src/permission-sets.js";
 import { InMemoryOAuthStorage } from "../src/storage.js";
 import type { ClientMetadata } from "../src/storage.js";
 import { generateCodeChallenge, generateCodeVerifier } from "./helpers.js";
@@ -131,6 +135,81 @@ describe("PAR Handler", () => {
 			};
 			expect(json.error).toBe("invalid_request");
 			expect(json.error_description).toMatch(/not registered/i);
+		});
+
+		it("rejects include: for a permission set that fails to resolve", async () => {
+			const resolver: PermissionSetResolver = {
+				async resolve() {
+					return null;
+				},
+			};
+			const handlerWithResolver = new PARHandler(
+				storage,
+				new StubResolver(REGISTERED_REDIRECT),
+				"https://example.com",
+				undefined,
+				resolver,
+			);
+
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+			const request = createPARRequest({
+				client_id: "did:web:client.example.com",
+				redirect_uri: REGISTERED_REDIRECT,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "random-state",
+				scope: "atproto include:com.example.nonexistent",
+			});
+
+			const response = await handlerWithResolver.handlePushRequest(request);
+			expect(response.status).toBe(400);
+
+			const json = (await response.json()) as {
+				error: string;
+				error_description: string;
+			};
+			expect(json.error).toBe("invalid_scope");
+			expect(json.error_description).toMatch(/com\.example\.nonexistent/);
+		});
+
+		it("accepts include: that the resolver successfully resolves", async () => {
+			const permissionSet: LexiconPermissionSet = {
+				type: "permission-set",
+				title: "Test bundle",
+				detail: "for tests",
+				permissions: [],
+			};
+			const resolver: PermissionSetResolver = {
+				async resolve() {
+					return permissionSet;
+				},
+			};
+			const handlerWithResolver = new PARHandler(
+				storage,
+				new StubResolver(REGISTERED_REDIRECT),
+				"https://example.com",
+				undefined,
+				resolver,
+			);
+
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+			const request = createPARRequest({
+				client_id: "did:web:client.example.com",
+				redirect_uri: REGISTERED_REDIRECT,
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "random-state",
+				scope: "atproto include:com.example.real",
+			});
+
+			const response = await handlerWithResolver.handlePushRequest(request);
+			expect(response.status).toBe(201);
+			const json = (await response.json()) as { request_uri: string };
+			expect(json.request_uri).toMatch(/^urn:ietf:params:oauth:request_uri:/);
 		});
 
 		it("rejects unsupported response_type", async () => {

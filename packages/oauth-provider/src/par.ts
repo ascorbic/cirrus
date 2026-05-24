@@ -5,10 +5,16 @@
 
 import type { OAuthParResponse } from "@atproto/oauth-types";
 import type { ClientResolver } from "./client-resolver.js";
+import type { PermissionSetResolver } from "./permission-sets.js";
 import type { OAuthStorage, PARData } from "./storage.js";
 import { randomString } from "./encoding.js";
 import { parseRequestBody } from "./provider.js";
-import { ATPROTO_SCOPE, ScopeParseError, parseScope } from "./scopes.js";
+import {
+	ATPROTO_SCOPE,
+	ScopeParseError,
+	expandScope,
+	parseScope,
+} from "./scopes.js";
 
 export type { OAuthParResponse };
 
@@ -57,7 +63,7 @@ export class PARHandler {
 	private clientResolver: ClientResolver;
 	private issuer: string;
 	private expiresIn: number;
-	private allowIncludes: boolean;
+	private permissionSetResolver?: PermissionSetResolver;
 
 	/**
 	 * Create a PAR handler
@@ -67,23 +73,24 @@ export class PARHandler {
 	 *   RFC 6749 §3.1.2.4.
 	 * @param issuer The OAuth issuer URL
 	 * @param expiresIn PAR expiration time in seconds (default: 90)
-	 * @param allowIncludes Whether `include:` (permission set) scopes are
-	 *   accepted. Should mirror the parent provider's
-	 *   `permissionSetResolver` configuration so PAR rejects upfront rather
-	 *   than letting the request fail at consent.
+	 * @param permissionSetResolver Resolver for `include:<nsid>` permission
+	 *   set scopes. When provided, PAR resolves every requested include
+	 *   eagerly and rejects with `invalid_scope` on resolution failure,
+	 *   matching the reference oauth-provider. When omitted, `include:`
+	 *   scopes are rejected outright at the parse step.
 	 */
 	constructor(
 		storage: OAuthStorage,
 		clientResolver: ClientResolver,
 		issuer: string,
 		expiresIn: number = DEFAULT_EXPIRES_IN,
-		allowIncludes: boolean = false,
+		permissionSetResolver?: PermissionSetResolver,
 	) {
 		this.storage = storage;
 		this.clientResolver = clientResolver;
 		this.issuer = issuer;
 		this.expiresIn = expiresIn;
-		this.allowIncludes = allowIncludes;
+		this.permissionSetResolver = permissionSetResolver;
 	}
 
 	/**
@@ -178,12 +185,16 @@ export class PARHandler {
 
 		const scope = params.scope ?? ATPROTO_SCOPE;
 		params.scope = scope;
+		const allowIncludes = !!this.permissionSetResolver;
 		try {
-			// PAR is a deferred authorize: when permission sets are enabled,
-			// includes are accepted here and resolved at the authorize step.
-			// When disabled, reject upfront so the client gets a clear error
-			// rather than a dead-end at consent time.
-			parseScope(scope, { allowIncludes: this.allowIncludes });
+			parseScope(scope, { allowIncludes });
+			// Eagerly resolve every `include:<nsid>` against the lexicon so a
+			// nonexistent permission set fails fast with invalid_scope here
+			// rather than dead-ending at the consent UI. Matches reference
+			// oauth-provider behaviour (request-manager.ts:297).
+			if (allowIncludes && scope.includes("include:")) {
+				await expandScope(scope, this.permissionSetResolver);
+			}
 		} catch (e) {
 			if (e instanceof ScopeParseError) {
 				return this.errorResponse("invalid_scope", e.message, 400);

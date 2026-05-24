@@ -222,7 +222,7 @@ export class ATProtoOAuthProvider {
 			this.clientResolver,
 			config.issuer,
 			undefined,
-			!!config.permissionSetResolver,
+			config.permissionSetResolver,
 		);
 		this.verifyUser = config.verifyUser;
 		this.getCurrentUser = config.getCurrentUser;
