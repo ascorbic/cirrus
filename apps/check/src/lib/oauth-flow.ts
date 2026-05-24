@@ -97,19 +97,35 @@ function clientId(): string {
 }
 
 // Whether the granted scope authorizes a createRecord to a given collection.
-// atproto granular scopes for repo are `repo:<collection>[?action=...]` with
-// default actions covering create+update+delete. `repo:*` grants any collection.
+// atproto granular scopes for repo come in two forms:
+//   `repo:<collection>[?action=...]`     — single-collection token
+//   `repo?collection=<X>&collection=<Y>` — multi-collection token (produced by
+//                                          permission-set expansion)
+// Default actions cover create+update+delete. `repo:*` grants any collection.
 // `transition:generic` is the legacy catch-all.
 function scopeGrantsWriteTo(grantedScope: string, collection: string): boolean {
 	const parts = grantedScope.split(/\s+/).filter(Boolean);
 	return parts.some((s) => {
 		if (s === "transition:generic") return true;
+		// Multi-collection form: repo?collection=X&collection=Y[&action=...]
+		if (s.startsWith("repo?")) {
+			const params = new URLSearchParams(s.slice("repo?".length));
+			const collections = params.getAll("collection");
+			const matchesCollection = collections.some(
+				(c) => c === "*" || c === collection,
+			);
+			if (!matchesCollection) return false;
+			const actions = params.getAll("action");
+			if (actions.length === 0) return true;
+			return actions.includes("create") || actions.includes("*");
+		}
+		// Single-collection form: repo:<collection>[?action=...]
 		const match = s.match(/^repo:([^?]+)(?:\?(.*))?$/);
 		if (!match) return false;
 		const scopeCollection = decodeURIComponent(match[1]!);
 		if (scopeCollection !== "*" && scopeCollection !== collection) return false;
 		const actions = new URLSearchParams(match[2] ?? "").getAll("action");
-		if (actions.length === 0) return true; // defaults include create
+		if (actions.length === 0) return true;
 		return actions.includes("create") || actions.includes("*");
 	});
 }
@@ -1441,6 +1457,9 @@ export async function runPostCallback(): Promise<CallbackRun> {
 		});
 
 		// 5b. Scope-echoed: verify the server returned the scope we asked for.
+		// `include:*` scopes are permission-set references that the AS resolves
+		// into expanded resource scopes — so if an include: was dropped AND new
+		// scopes appeared, we treat that as legitimate expansion, not a bug.
 		await runStep("flow.scope-echoed", async () => {
 			const requested = activeScope;
 			const granted = tokenResp.scope ?? "";
@@ -1457,11 +1476,30 @@ export async function runPostCallback(): Promise<CallbackRun> {
 			const added: string[] = [];
 			for (const s of requestedSet) if (!grantedSet.has(s)) dropped.push(s);
 			for (const s of grantedSet) if (!requestedSet.has(s)) added.push(s);
+			const droppedIncludes = dropped.filter((s) => s.startsWith("include:"));
+			const droppedOther = dropped.filter((s) => !s.startsWith("include:"));
 			if (dropped.length === 0 && added.length === 0) {
 				return { status: "pass", message: granted };
 			}
+			const isPureExpansion =
+				droppedOther.length === 0 &&
+				droppedIncludes.length > 0 &&
+				added.length > 0;
+			if (isPureExpansion) {
+				return {
+					status: "pass",
+					message: `expanded ${droppedIncludes.join(", ")} → ${added.length} resource scope${added.length === 1 ? "" : "s"}`,
+					evidence: {
+						expected: requested,
+						actual: granted,
+						actualDetail: {
+							expanded: droppedIncludes,
+							expansion: added,
+						},
+					},
+				};
+			}
 			if (dropped.length === 0 && added.length > 0) {
-				// Server granted MORE than we requested — that's a real conformance bug
 				return {
 					status: "fail",
 					message: `server granted scopes we didn't ask for: ${added.join(", ")}`,
@@ -1474,7 +1512,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 			}
 			return {
 				status: "warn",
-				message: `narrower than requested — dropped: ${dropped.join(", ")}`,
+				message: `narrower than requested — dropped: ${droppedOther.join(", ") || dropped.join(", ")}`,
 				evidence: {
 					expected: requested,
 					actual: granted,
