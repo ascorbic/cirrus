@@ -73,6 +73,8 @@ interface PersistedState {
 // so we don't even attempt it on those servers.
 const LEGACY_SCOPE = "atproto transition:generic";
 const GRANULAR_SCOPE = "atproto repo:earth.cirrus.check.testrecord";
+const GRANULAR_WITH_INCLUDE_SCOPE =
+	"atproto repo:earth.cirrus.check.testrecord include:site.standard.authFull";
 const OUT_OF_SCOPE_COLLECTION = "earth.cirrus.check.othertestrecord";
 const CALLBACK_PATH = "/oauth/flow-callback";
 
@@ -690,71 +692,78 @@ export function startPreRedirectFlow(target: string): FlowRun {
 			// atproto OAuth spec only requires `atproto` (and transitional scopes
 			// when supported) in scopes_supported; granular scopes (`repo:<nsid>`,
 			// `include:<nsid>`, etc.) are parameterised and "cannot be enumerated
-			// as they are dynamic" (atproto reference oauth-provider comment). So
-			// we send a probe PAR with the granular scope; if the AS accepts, use
-			// it. If it rejects with invalid_scope, fall back to LEGACY_SCOPE.
+			// as they are dynamic" (atproto reference oauth-provider comment).
+			//
+			// Three-tier probe: try granular + include, fall back to granular only,
+			// then to legacy. The user sees the richest scope set the AS will accept
+			// on the consent UI, and the boundary tests still run whenever granular
+			// works.
 			const probeDpop = oauth.DPoP(
 				{ [oauth.clockSkew]: 0 },
 				dpopKeyPair,
 			);
-			await runStep("flow.select-scope", async () => {
+			const probeScope = async (scope: string): Promise<oauth.ResponseBodyError | null> => {
 				const probeParams = {
 					client_id: clientId(),
 					redirect_uri: redirectUri(),
 					response_type: "code",
-					scope: GRANULAR_SCOPE,
+					scope,
 					code_challenge: codeChallenge,
 					code_challenge_method: "S256",
 					state: oauth.generateRandomState(),
 				};
-				const probe = async () => {
-					const res = await oauth.pushedAuthorizationRequest(
-						state.authServer!,
-						{ client_id: clientId() },
-						oauth.None(),
-						probeParams,
-						{ DPoP: probeDpop },
-					);
-					return await oauth.processPushedAuthorizationResponse(
-						state.authServer!,
-						{ client_id: clientId() },
-						res,
-					);
-				};
 				try {
-					await withNonceRetry(probe);
-					activeScope = GRANULAR_SCOPE;
+					await withNonceRetry(async () => {
+						const res = await oauth.pushedAuthorizationRequest(
+							state.authServer!,
+							{ client_id: clientId() },
+							oauth.None(),
+							probeParams,
+							{ DPoP: probeDpop },
+						);
+						return await oauth.processPushedAuthorizationResponse(
+							state.authServer!,
+							{ client_id: clientId() },
+							res,
+						);
+					});
+					return null;
+				} catch (error) {
+					if (error instanceof oauth.ResponseBodyError) return error;
+					throw error;
+				}
+			};
+			await runStep("flow.select-scope", async () => {
+				const fullErr = await probeScope(GRANULAR_WITH_INCLUDE_SCOPE);
+				if (!fullErr) {
+					activeScope = GRANULAR_WITH_INCLUDE_SCOPE;
 					return {
 						status: "pass",
-						message: `granular scope accepted: ${activeScope}`,
+						message: `granular + include scope accepted: ${activeScope}`,
 						evidence: { actual: { selected: activeScope } },
 					};
-				} catch (error) {
-					if (
-						error instanceof oauth.ResponseBodyError &&
-						(error.error === "invalid_scope" ||
-							error.error === "invalid_request")
-					) {
-						activeScope = LEGACY_SCOPE;
-						return {
-							status: "warn",
-							message: `AS rejected granular scope (${error.error}) — falling back to ${LEGACY_SCOPE}; granular boundary tests will skip`,
-							evidence: {
-								response: { status: error.status, body: error.cause },
-								actual: { selected: activeScope },
-							},
-						};
-					}
-					activeScope = LEGACY_SCOPE;
+				}
+				const granularErr = await probeScope(GRANULAR_SCOPE);
+				if (!granularErr) {
+					activeScope = GRANULAR_SCOPE;
 					return {
 						status: "warn",
-						message: `probe inconclusive: ${error instanceof Error ? error.message : String(error)} — falling back to ${LEGACY_SCOPE}`,
+						message: `AS rejected include: (${fullErr.error}) — using granular without include; permission-set tests will skip`,
 						evidence: {
-							error: String(error),
+							response: { status: fullErr.status, body: fullErr.cause },
 							actual: { selected: activeScope },
 						},
 					};
 				}
+				activeScope = LEGACY_SCOPE;
+				return {
+					status: "warn",
+					message: `AS rejected granular scope (${granularErr.error}) — falling back to ${LEGACY_SCOPE}; granular boundary tests will skip`,
+					evidence: {
+						response: { status: granularErr.status, body: granularErr.cause },
+						actual: { selected: activeScope },
+					},
+				};
 			});
 
 			// 8. Send PAR (with DPoP-nonce retry built in — RFC 9449 §8 allows the
