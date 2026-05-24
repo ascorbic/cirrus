@@ -4,7 +4,8 @@ import starlight from "@astrojs/starlight";
 
 // https://astro.build/config
 export default defineConfig({
-	site: "https://getcirrus.dev",
+	site: "https://cirrus.cloud",
+
 	integrations: [
 		starlight({
 			title: "Cirrus",
@@ -79,7 +80,10 @@ export default defineConfig({
 							slug: "guides/app-password",
 						},
 						{ label: "Update a deployed PDS", slug: "guides/update" },
-						{ label: "Troubleshoot common errors", slug: "guides/troubleshoot" },
+						{
+							label: "Troubleshoot common errors",
+							slug: "guides/troubleshoot",
+						},
 					],
 				},
 				{

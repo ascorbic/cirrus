@@ -6,13 +6,22 @@
     "dev": "astro dev",
     "start": "astro dev",
     "build": "astro build",
-    "preview": "astro preview",
-    "astro": "astro"
+    "preview": "pnpm build && wrangler dev",
+    "astro": "astro",
+    "generate-types": "wrangler types",
+    "deploy": "pnpm build && wrangler deploy",
+    "cf-typegen": "wrangler types"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.39.2",
     "astro": "^6.3.1",
     "hls.js": "^1.6.16",
     "plyr": "^3.8.4"
+  },
+  "devDependencies": {
+    "wrangler": "^4.93.0"
+  },
+  "overrides": {
+    "vite": "^7"
   }
 }
