@@ -107,31 +107,7 @@ function getAccountDO(env: PDSEnv) {
 
 // DID document for did:web resolution
 app.get("/.well-known/did.json", (c) => {
-	const didDocument = {
-		"@context": [
-			"https://www.w3.org/ns/did/v1",
-			"https://w3id.org/security/multikey/v1",
-			"https://w3id.org/security/suites/secp256k1-2019/v1",
-		],
-		id: c.env.DID,
-		alsoKnownAs: [`at://${c.env.HANDLE}`],
-		verificationMethod: [
-			{
-				id: `${c.env.DID}#atproto`,
-				type: "Multikey",
-				controller: c.env.DID,
-				publicKeyMultibase: c.env.SIGNING_KEY_PUBLIC,
-			},
-		],
-		service: [
-			{
-				id: "#atproto_pds",
-				type: "AtprotoPersonalDataServer",
-				serviceEndpoint: `https://${c.env.PDS_HOSTNAME}`,
-			},
-		],
-	};
-	return c.json(didDocument);
+	return c.json(identity.buildDidDocument(c.env));
 });
 
 // Handle verification for AT Protocol
@@ -308,6 +284,22 @@ app.use("/xrpc/com.atproto.identity.resolveHandle", async (c, next) => {
 	}
 	await next();
 });
+
+// DID resolution - serve our DID doc for our DID, others fall through to proxy
+app.use("/xrpc/com.atproto.identity.resolveDid", identity.resolveDid);
+
+// Identity resolution - serve our identity for our DID/handle, others fall through
+app.use(
+	"/xrpc/com.atproto.identity.resolveIdentity",
+	identity.resolveIdentity,
+);
+
+// Recommended PLC credentials for inbound migration
+app.get(
+	"/xrpc/com.atproto.identity.getRecommendedDidCredentials",
+	requireAuth,
+	identity.getRecommendedDidCredentials,
+);
 
 // Identity management for outbound migration
 // These endpoints allow migrating FROM Cirrus to another PDS
