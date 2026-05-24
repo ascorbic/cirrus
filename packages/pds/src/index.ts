@@ -224,6 +224,9 @@ app.get("/xrpc/com.atproto.sync.getBlob", (c) =>
 app.get("/xrpc/com.atproto.sync.listRepos", (c) =>
 	sync.listRepos(c, getAccountDO(c.env)),
 );
+app.get("/xrpc/com.atproto.sync.listReposByCollection", (c) =>
+	sync.listReposByCollection(c, getAccountDO(c.env)),
+);
 app.get("/xrpc/com.atproto.sync.listBlobs", (c) =>
 	sync.listBlobs(c, getAccountDO(c.env)),
 );
