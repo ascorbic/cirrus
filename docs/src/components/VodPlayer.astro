@@ -1,0 +1,138 @@
+---
+interface Props {
+	vodAtUri: string;
+	title: string;
+}
+
+const VOD_PLAYBACK_BASE =
+	"https://vod-beta.stream.place/xrpc/place.stream.playback.getVideoPlaylist";
+
+const { vodAtUri, title } = Astro.props;
+const playlistUrl = `${VOD_PLAYBACK_BASE}?uri=${encodeURIComponent(vodAtUri)}`;
+---
+
+<div class="vod-player" data-playlist-url={playlistUrl} data-title={title}>
+	<div class="vod-player-wrap">
+		<video class="vod-video" aria-label={title}></video>
+	</div>
+	<div class="vod-error" hidden>
+		<p>Failed to load video</p>
+	</div>
+</div>
+
+<script>
+	import Hls from "hls.js";
+	import Plyr from "plyr";
+	import "plyr/dist/plyr.css";
+
+	document.querySelectorAll<HTMLElement>(".vod-player").forEach((container) => {
+		const playlistUrl = container.dataset.playlistUrl!;
+		const videoEl = container.querySelector<HTMLVideoElement>(".vod-video")!;
+		const wrap = container.querySelector<HTMLElement>(".vod-player-wrap")!;
+		const errorEl = container.querySelector<HTMLElement>(".vod-error")!;
+
+		let hls: Hls | null = null;
+
+		function showError() {
+			wrap.hidden = true;
+			errorEl.hidden = false;
+		}
+
+		try {
+			if (Hls.isSupported()) {
+				hls = new Hls({ autoStartLoad: false });
+				hls.loadSource(playlistUrl);
+				hls.attachMedia(videoEl);
+				hls.on(Hls.Events.ERROR, (_event, data) => {
+					if (data.fatal) {
+						if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+							hls?.startLoad();
+						} else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+							hls?.recoverMediaError();
+						} else {
+							showError();
+						}
+					}
+				});
+			} else if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
+				videoEl.src = playlistUrl;
+			} else {
+				showError();
+				return;
+			}
+
+			const plyr = new Plyr(videoEl, {
+				controls: [
+					"play-large",
+					"play",
+					"progress",
+					"current-time",
+					"mute",
+					"volume",
+					"settings",
+					"fullscreen",
+				],
+				settings: ["speed"],
+				speed: {
+					selected: 1,
+					options: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2],
+				},
+				ratio: "16:9",
+			});
+
+			plyr.on("play", () => {
+				hls?.startLoad();
+			});
+		} catch {
+			showError();
+		}
+	});
+</script>
+
+<style>
+	.vod-player {
+		--plyr-color-main: var(--sl-color-accent);
+		--plyr-video-background: #000;
+		--plyr-video-control-color: #fff;
+		--plyr-video-control-background-hover: rgba(255, 255, 255, 0.15);
+		--plyr-video-controls-background: linear-gradient(
+			transparent,
+			rgba(0, 0, 0, 0.75)
+		);
+		margin: 1.5rem 0;
+	}
+
+	.vod-player-wrap {
+		aspect-ratio: 16 / 9;
+		width: 100%;
+		max-width: 100%;
+		overflow: hidden;
+		border-radius: 0.5rem;
+		border: 1px solid var(--sl-color-gray-5);
+	}
+
+	.vod-player-wrap :global(video) {
+		width: 100%;
+		height: 100%;
+	}
+
+	.vod-error {
+		aspect-ratio: 16 / 9;
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 0.5rem;
+		border: 1px solid var(--sl-color-gray-5);
+		background: var(--sl-color-gray-6);
+	}
+
+	.vod-error[hidden] {
+		display: none;
+	}
+
+	.vod-error p {
+		color: var(--sl-color-gray-3);
+		font-size: 0.875rem;
+	}
+</style>
