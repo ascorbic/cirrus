@@ -513,10 +513,6 @@ export async function applyWrites(
 		value?: unknown;
 		validationStatus?: ValidationStatus;
 	}> = [];
-	// Detect intra-batch rkey duplicates here (client error → 400) so they
-	// don't surface from the DO as 409 RecordAlreadyExists, which is reserved
-	// for collisions against existing repo state.
-	const seenRkeys = new Set<string>();
 
 	for (let i = 0; i < writes.length; i++) {
 		const write = writes[i];
@@ -565,20 +561,6 @@ export async function applyWrites(
 					400,
 				);
 			}
-		}
-
-		if (typeof write.rkey === "string") {
-			const composite = `${write.collection}/${write.rkey}`;
-			if (seenRkeys.has(composite)) {
-				return c.json(
-					{
-						error: "InvalidRequest",
-						message: `Write ${i}: duplicate rkey in batch (${composite})`,
-					},
-					400,
-				);
-			}
-			seenRkeys.add(composite);
 		}
 
 		if (action === "delete") {
