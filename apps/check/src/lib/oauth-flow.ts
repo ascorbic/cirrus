@@ -161,7 +161,7 @@ async function withNonceRetry<T>(call: () => Promise<T>): Promise<T> {
  * `error_description`, fall back to the WWW-Authenticate header, then to the
  * HTTP status. Returns a concise message and the parsed body for evidence.
  */
-export async function readOAuthError(
+async function readOAuthError(
 	res: Response,
 ): Promise<{ message: string; body: unknown; wwwAuthenticate: string | null }> {
 	const wwwAuthenticate = res.headers.get("www-authenticate");
@@ -370,7 +370,7 @@ function initialStepsFor(ids: readonly string[]): FlowStep[] {
 	}));
 }
 
-export function createFlowState(target: string): FlowState {
+function createFlowState(target: string): FlowState {
 	return {
 		phase: "pre-redirect",
 		target,
