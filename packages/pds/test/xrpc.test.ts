@@ -1227,7 +1227,58 @@ describe("XRPC Endpoints", () => {
 			expect(data.results[1].validationStatus).toBe("unknown");
 		});
 
-		it("rejects intra-batch duplicate rkey as 400 InvalidRequest (not 409)", async () => {
+		it("accepts create+delete on the same rkey atomically, leaving no record", async () => {
+			const rkey = genTid();
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
+					},
+					body: JSON.stringify({
+						repo: env.DID,
+						writes: [
+							{
+								$type: "com.atproto.repo.applyWrites#create",
+								collection: "app.bsky.feed.post",
+								rkey,
+								value: {
+									$type: "app.bsky.feed.post",
+									text: "ephemeral",
+									createdAt: new Date().toISOString(),
+								},
+							},
+							{
+								$type: "com.atproto.repo.applyWrites#delete",
+								collection: "app.bsky.feed.post",
+								rkey,
+							},
+						],
+					}),
+				}),
+				env,
+			);
+			expect(response.status).toBe(200);
+			const data = (await response.json()) as any;
+			expect(data.results).toHaveLength(2);
+			expect(data.results[0].$type).toBe(
+				"com.atproto.repo.applyWrites#createResult",
+			);
+			expect(data.results[1].$type).toBe(
+				"com.atproto.repo.applyWrites#deleteResult",
+			);
+
+			const getResponse = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=${rkey}`,
+				),
+				env,
+			);
+			expect(getResponse.status).toBe(404);
+		});
+
+		it("rejects two creates for the same rkey as 409 RecordAlreadyExists", async () => {
 			const dupRkey = genTid();
 			const response = await worker.fetch(
 				new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
@@ -1264,10 +1315,9 @@ describe("XRPC Endpoints", () => {
 				}),
 				env,
 			);
-			expect(response.status).toBe(400);
+			expect(response.status).toBe(409);
 			const data = (await response.json()) as any;
-			expect(data.error).toBe("InvalidRequest");
-			expect(data.message).toMatch(/duplicate rkey in batch/i);
+			expect(data.error).toBe("RecordAlreadyExists");
 		});
 
 		it("rejects validate=true with unknown collection in applyWrites as 400", async () => {
