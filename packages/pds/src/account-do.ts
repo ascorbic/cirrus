@@ -7,6 +7,7 @@ import {
 	writeCarStream,
 	readCarWithRoot,
 	getRecords,
+	cidForRecord,
 	type CarBlock,
 	type RecordCreateOp,
 	type RecordUpdateOp,
@@ -728,10 +729,10 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		}
 
 		// Capture prev CIDs for every update/delete *before* the write, so the
-		// firehose can emit ops[].prev per sync 1.1. Skipping creates avoids
-		// unnecessary MST lookups; for updates that touch a previously-created
-		// record in the same batch, formatCommit handles the chain — only the
-		// initial repo-state prev matters for the firehose op record.
+		// firehose can emit ops[].prev per sync 1.1. Matches reference PDS
+		// behaviour: prev is read from pre-batch MST state only, so a delete
+		// for a record that was also created earlier in the same batch will
+		// have no prev (the record didn't exist before the batch).
 		const prevCids = new Map<string, CID>();
 		for (const op of ops) {
 			if (op.action === WriteOpAction.Create) continue;
@@ -739,6 +740,19 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			if (prevCids.has(key)) continue;
 			const cid = await repo.data.get(key);
 			if (cid) prevCids.set(key, cid);
+		}
+
+		// Precompute every create/update record's CID. The lexicon marks
+		// `cid` as required on createResult / updateResult, and we can't rely
+		// on the post-commit MST: a create that is deleted later in the same
+		// batch leaves no entry. cidForRecord is deterministic from the
+		// record bytes and matches what formatCommit stores in the MST.
+		const opCids: Array<CID | undefined> = new Array(ops.length);
+		for (let i = 0; i < ops.length; i++) {
+			const op = ops[i]!;
+			if (op.action !== WriteOpAction.Delete) {
+				opCids[i] = await cidForRecord(op.record);
+			}
 		}
 
 		const prevRev = repo.commit.rev;
@@ -776,12 +790,11 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 						...(prev ? { prev } : {}),
 					});
 				} else {
-					const dataKey = `${result.collection}/${result.rkey}`;
-					const recordCid = await updatedRepo.data.get(dataKey);
+					const recordCid = opCids[i]!;
 					finalResults.push({
 						$type: result.$type,
 						uri: `at://${updatedRepo.did}/${result.collection}/${result.rkey}`,
-						cid: recordCid?.toString(),
+						cid: recordCid.toString(),
 						...(result.validationStatus !== undefined
 							? { validationStatus: result.validationStatus }
 							: {}),
