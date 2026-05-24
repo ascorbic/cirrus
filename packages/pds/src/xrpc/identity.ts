@@ -16,13 +16,130 @@ import type { Context } from "hono";
 import { Secp256k1Keypair } from "@atproto/crypto";
 import { encode } from "@atcute/cbor";
 import { base64url } from "jose";
-import type { AuthedAppEnv } from "../types";
+import type { AppEnv, AuthedAppEnv, PDSEnv } from "../types";
 import {
 	createMigrationToken,
 	validateMigrationToken,
 } from "../migration-token";
 
 const PLC_DIRECTORY = "https://plc.directory";
+
+/**
+ * Build the DID document for the local account.
+ *
+ * Shared between /.well-known/did.json and the
+ * com.atproto.identity.resolveDid / resolveIdentity endpoints.
+ */
+export function buildDidDocument(env: PDSEnv) {
+	return {
+		"@context": [
+			"https://www.w3.org/ns/did/v1",
+			"https://w3id.org/security/multikey/v1",
+			"https://w3id.org/security/suites/secp256k1-2019/v1",
+		],
+		id: env.DID,
+		alsoKnownAs: [`at://${env.HANDLE}`],
+		verificationMethod: [
+			{
+				id: `${env.DID}#atproto`,
+				type: "Multikey",
+				controller: env.DID,
+				publicKeyMultibase: env.SIGNING_KEY_PUBLIC,
+			},
+		],
+		service: [
+			{
+				id: "#atproto_pds",
+				type: "AtprotoPersonalDataServer",
+				serviceEndpoint: `https://${env.PDS_HOSTNAME}`,
+			},
+		],
+	};
+}
+
+/**
+ * Resolve a DID to its DID document.
+ *
+ * For our local DID we serve the document directly. Any other DID is
+ * passed through to the next handler (the AppView proxy).
+ *
+ * Endpoint: GET com.atproto.identity.resolveDid
+ */
+export async function resolveDid(
+	c: Context<AppEnv>,
+	next: () => Promise<void>,
+): Promise<Response | void> {
+	const did = c.req.query("did");
+	if (!did) {
+		return c.json(
+			{ error: "InvalidRequest", message: "Missing required parameter: did" },
+			400,
+		);
+	}
+	if (did === c.env.DID) {
+		return c.json({ didDoc: buildDidDocument(c.env) });
+	}
+	await next();
+}
+
+/**
+ * Resolve an identifier (handle or DID) to its full identity.
+ *
+ * For our local handle or DID we serve the response directly. Anything
+ * else falls through to the AppView proxy.
+ *
+ * Endpoint: GET com.atproto.identity.resolveIdentity
+ */
+export async function resolveIdentity(
+	c: Context<AppEnv>,
+	next: () => Promise<void>,
+): Promise<Response | void> {
+	const identifier = c.req.query("identifier");
+	if (!identifier) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required parameter: identifier",
+			},
+			400,
+		);
+	}
+	if (identifier === c.env.DID || identifier === c.env.HANDLE) {
+		return c.json({
+			did: c.env.DID,
+			handle: c.env.HANDLE,
+			didDoc: buildDidDocument(c.env),
+		});
+	}
+	await next();
+}
+
+/**
+ * Return recommended PLC credentials for the current account.
+ *
+ * Used by other PDSes during an inbound migration to discover the
+ * keys / services they should attach to a new PLC operation.
+ *
+ * Endpoint: GET com.atproto.identity.getRecommendedDidCredentials
+ */
+export async function getRecommendedDidCredentials(
+	c: Context<AuthedAppEnv>,
+): Promise<Response> {
+	const keypair = await Secp256k1Keypair.import(c.env.SIGNING_KEY);
+	const signingKey = keypair.did();
+
+	return c.json({
+		rotationKeys: [signingKey],
+		alsoKnownAs: [`at://${c.env.HANDLE}`],
+		verificationMethods: { atproto: signingKey },
+		services: {
+			atproto_pds: {
+				type: "AtprotoPersonalDataServer",
+				endpoint: `https://${c.env.PDS_HOSTNAME}`,
+			},
+		},
+	});
+}
 
 /**
  * PLC operation structure
