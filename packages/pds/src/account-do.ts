@@ -21,17 +21,14 @@ import { now as tidNow } from "@atcute/tid";
 import { encode as cborEncode } from "./cbor-compat";
 import { SqliteRepoStorage } from "./storage";
 import { SqliteOAuthStorage } from "./oauth-storage";
-import {
-	Sequencer,
-	type SeqEvent,
-	type SeqCommitEvent,
-	type SeqIdentityEvent,
-	type CommitData,
-} from "./sequencer";
+import { Sequencer, type SeqEvent, type CommitData } from "./sequencer";
 import { BlobStore } from "./blobs";
 import { jsonToLex } from "@atproto/lex-json";
 import type { PDSEnv } from "./types";
 import { RecordAlreadyExistsError, type ValidationStatus } from "./validation";
+
+/** Sync 1.1 spec: at most 200 record operations per commit. */
+const MAX_OPS_PER_COMMIT = 200;
 
 /**
  * Account Durable Object - manages a single user's AT Protocol repository.
@@ -379,7 +376,9 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		};
 
 		const prevRev = repo.commit.rev;
-		const updatedRepo = await repo.applyWrites([createOp], keypair);
+		const prevData = repo.commit.data;
+		const commit = await repo.formatCommit([createOp], keypair);
+		const updatedRepo = await repo.applyCommit(commit);
 
 		try {
 			const dataKey = `${collection}/${actualRkey}`;
@@ -394,33 +393,21 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			this.storage!.addCollection(collection);
 
 			if (this.sequencer) {
-				const newBlocks = new BlockMap();
-				const rows = this.ctx.storage.sql
-					.exec(
-						"SELECT cid, bytes FROM blocks WHERE rev = ?",
-						updatedRepo.commit.rev,
-					)
-					.toArray();
-
-				for (const row of rows) {
-					const cid = CID.parse(row.cid as string);
-					const bytes = new Uint8Array(row.bytes as ArrayBuffer);
-					newBlocks.set(cid, bytes);
-				}
-
 				const opWithCid = { ...createOp, cid: recordCid };
 
 				const commitData: CommitData = {
 					did: updatedRepo.did,
-					commit: updatedRepo.cid,
-					rev: updatedRepo.commit.rev,
+					commit: commit.cid,
+					rev: commit.rev,
 					since: prevRev,
-					newBlocks,
+					prevData,
+					newBlocks: commit.newBlocks,
+					relevantBlocks: commit.relevantBlocks,
 					ops: [opWithCid],
 				};
 
 				const event = await this.sequencer.sequenceCommit(commitData);
-				await this.broadcastCommit(event);
+				await this.broadcastEvent(event);
 			}
 
 			this.repo = updatedRepo;
@@ -451,8 +438,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		const repo = await this.getRepo();
 		const keypair = await this.getKeypair();
 
-		const existing = await repo.getRecord(collection, rkey);
-		if (!existing) return null;
+		const existingCid = await repo.data.get(`${collection}/${rkey}`);
+		if (!existingCid) return null;
 
 		const deleteOp: RecordDeleteOp = {
 			action: WriteOpAction.Delete,
@@ -461,35 +448,25 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		};
 
 		const prevRev = repo.commit.rev;
-		const updatedRepo = await repo.applyWrites([deleteOp], keypair);
+		const prevData = repo.commit.data;
+		const commit = await repo.formatCommit([deleteOp], keypair);
+		const updatedRepo = await repo.applyCommit(commit);
 
 		try {
 			if (this.sequencer) {
-				const newBlocks = new BlockMap();
-				const rows = this.ctx.storage.sql
-					.exec(
-						"SELECT cid, bytes FROM blocks WHERE rev = ?",
-						updatedRepo.commit.rev,
-					)
-					.toArray();
-
-				for (const row of rows) {
-					const cid = CID.parse(row.cid as string);
-					const bytes = new Uint8Array(row.bytes as ArrayBuffer);
-					newBlocks.set(cid, bytes);
-				}
-
 				const commitData: CommitData = {
 					did: updatedRepo.did,
-					commit: updatedRepo.cid,
-					rev: updatedRepo.commit.rev,
+					commit: commit.cid,
+					rev: commit.rev,
 					since: prevRev,
-					newBlocks,
-					ops: [deleteOp],
+					prevData,
+					newBlocks: commit.newBlocks,
+					relevantBlocks: commit.relevantBlocks,
+					ops: [{ ...deleteOp, cid: null, prev: existingCid }],
 				};
 
 				const event = await this.sequencer.sequenceCommit(commitData);
-				await this.broadcastCommit(event);
+				await this.broadcastEvent(event);
 			}
 
 			this.repo = updatedRepo;
@@ -535,9 +512,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		const repo = await this.getRepo();
 		const keypair = await this.getKeypair();
 
-		// Check if record exists to determine create vs update
-		const existing = await repo.getRecord(collection, rkey);
-		const isUpdate = existing !== null;
+		const existingCid = await repo.data.get(`${collection}/${rkey}`);
+		const isUpdate = existingCid !== null;
 
 		const normalizedRecord = jsonToLex(record) as RepoRecord;
 		const op: RecordWriteOp = isUpdate
@@ -555,7 +531,9 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 				} as RecordCreateOp);
 
 		const prevRev = repo.commit.rev;
-		const updatedRepo = await repo.applyWrites([op], keypair);
+		const prevData = repo.commit.data;
+		const commit = await repo.formatCommit([op], keypair);
+		const updatedRepo = await repo.applyCommit(commit);
 
 		try {
 			const dataKey = `${collection}/${rkey}`;
@@ -568,33 +546,25 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			this.storage!.addCollection(collection);
 
 			if (this.sequencer) {
-				const newBlocks = new BlockMap();
-				const rows = this.ctx.storage.sql
-					.exec(
-						"SELECT cid, bytes FROM blocks WHERE rev = ?",
-						updatedRepo.commit.rev,
-					)
-					.toArray();
-
-				for (const row of rows) {
-					const cid = CID.parse(row.cid as string);
-					const bytes = new Uint8Array(row.bytes as ArrayBuffer);
-					newBlocks.set(cid, bytes);
-				}
-
-				const opWithCid = { ...op, cid: recordCid };
+				const opWithCid: CommitData["ops"][number] = {
+					...op,
+					cid: recordCid,
+				};
+				if (existingCid) opWithCid.prev = existingCid;
 
 				const commitData: CommitData = {
 					did: updatedRepo.did,
-					commit: updatedRepo.cid,
-					rev: updatedRepo.commit.rev,
+					commit: commit.cid,
+					rev: commit.rev,
 					since: prevRev,
-					newBlocks,
+					prevData,
+					newBlocks: commit.newBlocks,
+					relevantBlocks: commit.relevantBlocks,
 					ops: [opWithCid],
 				};
 
 				const event = await this.sequencer.sequenceCommit(commitData);
-				await this.broadcastCommit(event);
+				await this.broadcastEvent(event);
 			}
 
 			this.repo = updatedRepo;
@@ -635,6 +605,14 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		}>;
 	}> {
 		await this.ensureActive();
+
+		// Spec limit: at most 200 operations per #commit.
+		if (writes.length > MAX_OPS_PER_COMMIT) {
+			throw new Error(
+				`InvalidRequest: applyWrites accepts at most ${MAX_OPS_PER_COMMIT} operations per call, got ${writes.length}`,
+			);
+		}
+
 		const repo = await this.getRepo();
 		const keypair = await this.getKeypair();
 
@@ -729,8 +707,24 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			}
 		}
 
+		// Capture prev CIDs for every update/delete *before* the write, so the
+		// firehose can emit ops[].prev per sync 1.1. Skipping creates avoids
+		// unnecessary MST lookups; for updates that touch a previously-created
+		// record in the same batch, formatCommit handles the chain — only the
+		// initial repo-state prev matters for the firehose op record.
+		const prevCids = new Map<string, CID>();
+		for (const op of ops) {
+			if (op.action === WriteOpAction.Create) continue;
+			const key = `${op.collection}/${op.rkey}`;
+			if (prevCids.has(key)) continue;
+			const cid = await repo.data.get(key);
+			if (cid) prevCids.set(key, cid);
+		}
+
 		const prevRev = repo.commit.rev;
-		const updatedRepo = await repo.applyWrites(ops, keypair);
+		const prevData = repo.commit.data;
+		const commit = await repo.formatCommit(ops, keypair);
+		const updatedRepo = await repo.applyCommit(commit);
 
 		try {
 			for (const op of ops) {
@@ -745,17 +739,22 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 				cid?: string;
 				validationStatus?: ValidationStatus;
 			}> = [];
-			const opsWithCids: Array<RecordWriteOp & { cid?: CID | null }> = [];
+			const opsWithCids: CommitData["ops"] = [];
 
 			for (let i = 0; i < results.length; i++) {
 				const result = results[i]!;
 				const op = ops[i]!;
+				const prev = prevCids.get(`${op.collection}/${op.rkey}`);
 
 				if (result.action === WriteOpAction.Delete) {
 					finalResults.push({
 						$type: result.$type,
 					});
-					opsWithCids.push(op);
+					opsWithCids.push({
+						...op,
+						cid: null,
+						...(prev ? { prev } : {}),
+					});
 				} else {
 					const dataKey = `${result.collection}/${result.rkey}`;
 					const recordCid = await updatedRepo.data.get(dataKey);
@@ -767,36 +766,28 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 							? { validationStatus: result.validationStatus }
 							: {}),
 					});
-					opsWithCids.push({ ...op, cid: recordCid });
+					opsWithCids.push({
+						...op,
+						cid: recordCid,
+						...(prev ? { prev } : {}),
+					});
 				}
 			}
 
 			if (this.sequencer) {
-				const newBlocks = new BlockMap();
-				const rows = this.ctx.storage.sql
-					.exec(
-						"SELECT cid, bytes FROM blocks WHERE rev = ?",
-						updatedRepo.commit.rev,
-					)
-					.toArray();
-
-				for (const row of rows) {
-					const cid = CID.parse(row.cid as string);
-					const bytes = new Uint8Array(row.bytes as ArrayBuffer);
-					newBlocks.set(cid, bytes);
-				}
-
 				const commitData: CommitData = {
 					did: updatedRepo.did,
-					commit: updatedRepo.cid,
-					rev: updatedRepo.commit.rev,
+					commit: commit.cid,
+					rev: commit.rev,
 					since: prevRev,
-					newBlocks,
+					prevData,
+					newBlocks: commit.newBlocks,
+					relevantBlocks: commit.relevantBlocks,
 					ops: opsWithCids,
 				};
 
 				const event = await this.sequencer.sequenceCommit(commitData);
-				await this.broadcastCommit(event);
+				await this.broadcastEvent(event);
 			}
 
 			this.repo = updatedRepo;
@@ -1082,29 +1073,11 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * Encode a commit event frame.
-	 */
-	private encodeCommitFrame(event: SeqCommitEvent): Uint8Array {
-		const header = { op: 1, t: "#commit" };
-		return this.encodeFrame(header, event.event);
-	}
-
-	/**
-	 * Encode an identity event frame.
-	 */
-	private encodeIdentityFrame(event: SeqIdentityEvent): Uint8Array {
-		const header = { op: 1, t: "#identity" };
-		return this.encodeFrame(header, event.event);
-	}
-
-	/**
 	 * Encode any event frame based on its type.
 	 */
 	private encodeEventFrame(event: SeqEvent): Uint8Array {
-		if (event.type === "identity") {
-			return this.encodeIdentityFrame(event);
-		}
-		return this.encodeCommitFrame(event);
+		const header = { op: 1, t: `#${event.type}` };
+		return this.encodeFrame(header, event.event);
 	}
 
 	/**
@@ -1113,6 +1086,16 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	private encodeErrorFrame(error: string, message: string): Uint8Array {
 		const header = { op: -1 };
 		const body = { error, message };
+		return this.encodeFrame(header, body);
+	}
+
+	/**
+	 * Encode an #info message (op:1, t:'#info'). Used for non-fatal
+	 * conditions like OutdatedCursor where the stream continues.
+	 */
+	private encodeInfoFrame(name: string, message: string): Uint8Array {
+		const header = { op: 1, t: "#info" };
+		const body = { name, message };
 		return this.encodeFrame(header, body);
 	}
 
@@ -1126,7 +1109,6 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		const latestSeq = this.sequencer.getLatestSeq();
 
-		// Check if cursor is in the future
 		if (cursor > latestSeq) {
 			const frame = this.encodeErrorFrame(
 				"FutureCursor",
@@ -1137,15 +1119,27 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			return;
 		}
 
-		// Backfill from cursor
-		const events = await this.sequencer.getEventsSince(cursor, 1000);
+		// If the cursor predates the oldest retained event, warn the client
+		// with #info OutdatedCursor and resume from the earliest available
+		// event. The stream stays open — they just miss the pruned range.
+		const earliestSeq = this.sequencer.getEarliestSeq();
+		let effectiveCursor = cursor;
+		if (earliestSeq !== null && cursor < earliestSeq - 1) {
+			const info = this.encodeInfoFrame(
+				"OutdatedCursor",
+				"Requested cursor exceeded retention window; some events skipped",
+			);
+			ws.send(info);
+			effectiveCursor = earliestSeq - 1;
+		}
+
+		const events = await this.sequencer.getEventsSince(effectiveCursor, 1000);
 
 		for (const event of events) {
 			const frame = this.encodeEventFrame(event);
 			ws.send(frame);
 		}
 
-		// Update cursor in attachment
 		if (events.length > 0) {
 			const lastEvent = events[events.length - 1];
 			if (lastEvent) {
@@ -1157,21 +1151,19 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * Broadcast a commit event to all connected firehose clients.
+	 * Broadcast a sequenced event to all connected firehose clients.
 	 */
-	private async broadcastCommit(event: SeqEvent): Promise<void> {
+	private async broadcastEvent(event: SeqEvent): Promise<void> {
 		const frame = this.encodeEventFrame(event);
 
 		for (const ws of this.ctx.getWebSockets()) {
 			try {
 				ws.send(frame);
 
-				// Update cursor
 				const attachment = ws.deserializeAttachment() as { cursor: number };
 				attachment.cursor = event.seq;
 				ws.serializeAttachment(attachment);
 			} catch (e) {
-				// Client disconnected, will be cleaned up
 				console.error("Error broadcasting to WebSocket:", e);
 			}
 		}
@@ -1284,19 +1276,62 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * RPC method: Activate account
+	 * RPC method: Activate account.
+	 * Emits #account + #identity + #sync per sync 1.1, so relays pick up
+	 * the new state without polling. #sync is only emitted when a repo
+	 * root exists (i.e. after migration import or initial commit).
 	 */
 	async rpcActivateAccount(): Promise<void> {
 		const storage = await this.getStorage();
+		const wasActive = await storage.getActive();
 		await storage.setActive(true);
+		if (wasActive || !this.sequencer) return;
+
+		const account = await this.sequencer.sequenceAccount({
+			did: this.env.DID,
+			active: true,
+		});
+		await this.broadcastEvent(account);
+
+		const identity = await this.sequencer.sequenceIdentity({
+			did: this.env.DID,
+		});
+		await this.broadcastEvent(identity);
+
+		const root = await storage.getRoot();
+		if (root) {
+			const commitBytes = await storage.getBytes(root);
+			if (commitBytes) {
+				const repo = await this.getRepo();
+				const blocks = new BlockMap();
+				blocks.set(root, commitBytes);
+				const sync = await this.sequencer.sequenceSync({
+					did: this.env.DID,
+					rev: repo.commit.rev,
+					cid: root,
+					blocks,
+				});
+				await this.broadcastEvent(sync);
+			}
+		}
 	}
 
 	/**
-	 * RPC method: Deactivate account
+	 * RPC method: Deactivate account.
+	 * Emits #account(active=false, status='deactivated') per sync 1.1.
 	 */
 	async rpcDeactivateAccount(): Promise<void> {
 		const storage = await this.getStorage();
+		const wasActive = await storage.getActive();
 		await storage.setActive(false);
+		if (!wasActive || !this.sequencer) return;
+
+		const account = await this.sequencer.sequenceAccount({
+			did: this.env.DID,
+			active: false,
+			status: "deactivated",
+		});
+		await this.broadcastEvent(account);
 	}
 
 	// ============================================
@@ -1391,48 +1426,16 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 	/**
 	 * Emit an identity event to notify downstream services to refresh identity cache.
+	 * `handle` is optional per sync 1.1.
 	 */
-	async rpcEmitIdentityEvent(handle: string): Promise<{ seq: number }> {
+	async rpcEmitIdentityEvent(handle?: string): Promise<{ seq: number }> {
 		await this.ensureStorageInitialized();
-
-		const time = new Date().toISOString();
-
-		// Get next sequence number
-		const result = this.ctx.storage.sql
-			.exec(
-				`INSERT INTO firehose_events (event_type, payload)
-				 VALUES ('identity', ?)
-				 RETURNING seq`,
-				new Uint8Array(0), // Empty payload, we just need seq
-			)
-			.one();
-		const seq = result.seq as number;
-
-		// Build identity event frame
-		const header = { op: 1, t: "#identity" };
-		const body = {
-			seq,
+		const event = await this.sequencer!.sequenceIdentity({
 			did: this.env.DID,
-			time,
-			handle,
-		};
-
-		const headerBytes = cborEncode(header);
-		const bodyBytes = cborEncode(body);
-		const frame = new Uint8Array(headerBytes.length + bodyBytes.length);
-		frame.set(headerBytes, 0);
-		frame.set(bodyBytes, headerBytes.length);
-
-		// Broadcast to all connected clients
-		for (const ws of this.ctx.getWebSockets()) {
-			try {
-				ws.send(frame);
-			} catch (e) {
-				console.error("Error broadcasting identity event:", e);
-			}
-		}
-
-		return { seq };
+			...(handle ? { handle } : {}),
+		});
+		await this.broadcastEvent(event);
+		return { seq: event.seq };
 	}
 
 	// ============================================
