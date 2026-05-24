@@ -64,9 +64,6 @@ importers:
       plyr:
         specifier: ^3.8.4
         version: 3.8.4
-      sharp:
-        specifier: ^0.34.5
-        version: 0.34.5
 
   packages/create-pds:
     devDependencies:
