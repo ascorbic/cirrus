@@ -155,6 +155,47 @@ describe("Session Authentication", () => {
 
 			expect(response.status).toBe(401);
 		});
+
+		it("accepts OAuth tokens presented with the DPoP scheme", async () => {
+			// pdscheck found getSession rejecting `Authorization: DPoP <jwt>`
+			// with 401 because the handler only accepted Bearer. Real OAuth
+			// clients present DPoP-bound tokens per RFC 9449.
+			const accessToken = `oauth-test-${crypto.randomUUID()}`;
+			const refreshToken = `refresh-test-${crypto.randomUUID()}`;
+			const stub = env.ACCOUNT.get(env.ACCOUNT.idFromName("account"));
+			await stub.rpcSaveTokens({
+				accessToken,
+				refreshToken,
+				clientId: "https://example.com/client-metadata.json",
+				sub: env.DID,
+				scope: "atproto",
+				issuedAt: Date.now(),
+				accessExpiresAt: Date.now() + 60_000,
+				refreshExpiresAt: Date.now() + 3_600_000,
+			});
+
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.server.getSession", {
+					headers: { Authorization: `DPoP ${accessToken}` },
+				}),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as Record<string, unknown>;
+			expect(body.did).toBe(env.DID);
+			expect(body.handle).toBe(env.HANDLE);
+		});
+
+		it("rejects DPoP scheme with an unknown token", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/xrpc/com.atproto.server.getSession", {
+					headers: { Authorization: "DPoP not-a-real-token" },
+				}),
+				env,
+			);
+			expect(response.status).toBe(401);
+		});
 	});
 
 	describe("refreshSession", () => {

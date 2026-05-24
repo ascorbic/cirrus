@@ -165,6 +165,32 @@ describe("App Passwords", () => {
 			expect(found!.createdAt).toBeDefined();
 		});
 
+		it("returns createdAt as an RFC 3339 datetime", async () => {
+			const token = await getAccessToken();
+			await createAppPassword(token, "iso-datetime-test");
+
+			const res = await worker.fetch(
+				new Request(
+					"http://pds.test/xrpc/com.atproto.server.listAppPasswords",
+					{
+						headers: { Authorization: `Bearer ${token}` },
+					},
+				),
+				env,
+			);
+			const body = (await res.json()) as {
+				passwords: Array<{ name: string; createdAt: string }>;
+			};
+			const found = body.passwords.find((p) => p.name === "iso-datetime-test");
+			expect(found).toBeDefined();
+			// Must match the atproto datetime lexicon (RFC 3339), not the
+			// "YYYY-MM-DD HH:MM:SS" form that SQLite's datetime('now') returns.
+			expect(found!.createdAt).toMatch(
+				/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/,
+			);
+			expect(new Date(found!.createdAt).toISOString()).toBe(found!.createdAt);
+		});
+
 		it("never exposes password hashes", async () => {
 			const token = await getAccessToken();
 			await createAppPassword(token, "hash-check");

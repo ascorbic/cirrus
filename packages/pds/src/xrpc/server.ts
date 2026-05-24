@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { hash as bcryptHash } from "bcryptjs";
 import type { AccountDurableObject } from "../account-do";
 import { createServiceJwt, getSigningKeypair } from "../service-auth";
+import { getProvider } from "../oauth";
 import {
 	createAccessToken,
 	createRefreshToken,
@@ -238,7 +239,49 @@ export async function getSession(
 ): Promise<Response> {
 	const authHeader = c.req.header("Authorization");
 
-	if (!authHeader?.startsWith("Bearer ")) {
+	if (!authHeader) {
+		return c.json(
+			{
+				error: "AuthenticationRequired",
+				message: "Access token required",
+			},
+			401,
+		);
+	}
+
+	const buildResponse = async () => {
+		const { email: storedEmail } = await accountDO.rpcGetEmail();
+		const email = storedEmail || c.env.EMAIL;
+		return c.json({
+			handle: c.env.HANDLE,
+			did: c.env.DID,
+			...(email ? { email } : {}),
+			emailConfirmed: true,
+			active: true,
+		});
+	};
+
+	// OAuth DPoP-bound access tokens (RFC 9449)
+	if (authHeader.startsWith("DPoP ")) {
+		const provider = getProvider(c.env);
+		const tokenData = await provider.verifyAccessToken(c.req.raw);
+		if (!tokenData || tokenData.sub !== c.env.DID) {
+			return c.json(
+				{
+					error: "InvalidToken",
+					message: "Invalid access token",
+				},
+				401,
+				{
+					"WWW-Authenticate":
+						'DPoP error="invalid_token", error_description="Invalid access token"',
+				},
+			);
+		}
+		return buildResponse();
+	}
+
+	if (!authHeader.startsWith("Bearer ")) {
 		return c.json(
 			{
 				error: "AuthenticationRequired",
@@ -251,20 +294,10 @@ export async function getSession(
 	const token = authHeader.slice(7);
 	const serviceDid = `did:web:${c.env.PDS_HOSTNAME}`;
 
-	// First try static token
 	if (token === c.env.AUTH_TOKEN) {
-		const { email: storedEmail } = await accountDO.rpcGetEmail();
-		const email = storedEmail || c.env.EMAIL;
-		return c.json({
-			handle: c.env.HANDLE,
-			did: c.env.DID,
-			...(email ? { email } : {}),
-			emailConfirmed: true,
-			active: true,
-		});
+		return buildResponse();
 	}
 
-	// Try JWT
 	try {
 		const payload = await verifyAccessToken(
 			token,
@@ -282,15 +315,7 @@ export async function getSession(
 			);
 		}
 
-		const { email: storedEmail } = await accountDO.rpcGetEmail();
-		const email = storedEmail || c.env.EMAIL;
-		return c.json({
-			handle: c.env.HANDLE,
-			did: c.env.DID,
-			...(email ? { email } : {}),
-			emailConfirmed: true,
-			active: true,
-		});
+		return buildResponse();
 	} catch (err) {
 		// Match official PDS: expired tokens return 400 with 'ExpiredToken'
 		// This is required for clients to trigger automatic token refresh
@@ -590,6 +615,19 @@ export async function listAppPasswords(
 			createdAt: p.createdAt,
 		})),
 	});
+}
+
+/**
+ * List invite codes for the account.
+ * com.atproto.server.getAccountInviteCodes
+ *
+ * Cirrus is single-user with `inviteCodeRequired: false` in describeServer,
+ * so there are no invite codes to list.
+ */
+export async function getAccountInviteCodes(
+	c: Context<AuthedAppEnv>,
+): Promise<Response> {
+	return c.json({ codes: [] });
 }
 
 /**
