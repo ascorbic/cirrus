@@ -908,17 +908,15 @@ export class ATProtoOAuthProvider {
 			grant_types_supported: ["authorization_code", "refresh_token"],
 			code_challenge_methods_supported: ["S256"],
 			token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+			// Per atproto OAuth spec: must include "atproto"; transitional scopes
+			// included when supported. Granular resource scopes (repo:, rpc:, blob:,
+			// account:, identity:) and permission-set include: scopes are
+			// parameterized and aren't enumerable, so they aren't listed.
 			scopes_supported: [
 				"atproto",
 				"transition:generic",
 				"transition:email",
 				"transition:chat.bsky",
-				"repo",
-				"rpc",
-				"blob",
-				"account",
-				"identity",
-				...(this.permissionSetResolver ? ["include"] : []),
 			],
 			subject_types_supported: ["public"],
 			authorization_response_iss_parameter_supported: true,
