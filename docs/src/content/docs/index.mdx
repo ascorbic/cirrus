@@ -1,0 +1,89 @@
+---
+title: Cirrus
+description: The lightest PDS in the Atmosphere. A single-user AT Protocol Personal Data Server that runs on a Cloudflare Worker.
+template: splash
+hero:
+  tagline: The lightest PDS in the Atmosphere. Run your own AT Protocol Personal Data Server on a Cloudflare Worker.
+  image:
+    html: '<div style="width: 100%; font-size: 8rem; line-height: 1; text-align: center;" aria-hidden="true">☁️</div>'
+  actions:
+    - text: Quick start
+      link: /start/quick-start/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/ascorbic/cirrus
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import VodPlayer from '../../components/VodPlayer.astro';
+
+## What Cirrus is
+
+Cirrus is a single-user [AT Protocol](https://atproto.com) Personal Data Server (PDS). It runs on a Cloudflare Worker with a Durable Object for the repository and R2 for blobs. There are no servers to manage, no containers to keep running, and no database to back up separately from the rest of the deployment.
+
+Run Cirrus to host the Bluesky identity, posts, follows, and media for one account on infrastructure under direct control.
+
+:::caution[Experimental beta]
+Cirrus is functional and account migration has been tested end to end. Breaking changes may still occur and not every edge case is covered. Back up important data before migrating a primary account.
+:::
+
+## Watch the walkthrough
+
+A full overview of Cirrus, including an end-to-end setup of a new PDS, from the Atmosphere Conference.
+
+<VodPlayer
+  vodAtUri="at://did:plc:rbvrr34edl5ddpuwcubjiost/place.stream.video/3mi5hy457fu2r"
+  title="Cirrus — the lightest PDS in the Atmosphere"
+/>
+
+## Next steps
+
+<CardGrid>
+  <LinkCard
+    title="Why run a PDS"
+    href="/start/why/"
+    description="Reasons to host your own AT Protocol identity, and the trade-offs involved."
+  />
+  <LinkCard
+    title="Prerequisites"
+    href="/start/prerequisites/"
+    description="A Cloudflare account, R2, and a domain. Set these up before installing."
+  />
+  <LinkCard
+    title="Quick start"
+    href="/start/quick-start/"
+    description="Scaffold a project, run the setup wizard, and deploy to Cloudflare."
+  />
+  <LinkCard
+    title="Migrate from Bluesky"
+    href="/guides/migrate-from-bluesky/"
+    description="Move an existing bsky.social account to Cirrus, including the DID rotation."
+  />
+</CardGrid>
+
+## Explore further
+
+<CardGrid>
+  <LinkCard
+    title="How Cirrus is built"
+    href="/concepts/architecture/"
+    description="The Worker, the Durable Object, and R2: what each component does."
+  />
+  <LinkCard
+    title="Authentication methods"
+    href="/concepts/auth/"
+    description="Static tokens, sessions, app passwords, OAuth, and passkeys — when to use each."
+  />
+  <LinkCard
+    title="pds CLI"
+    href="/reference/pds-cli/"
+    description="Every command the CLI exposes, with flags and examples."
+  />
+  <LinkCard
+    title="Status and roadmap"
+    href="/project/status/"
+    description="What works today, what is in progress, and what is deliberately out of scope."
+  />
+</CardGrid>
