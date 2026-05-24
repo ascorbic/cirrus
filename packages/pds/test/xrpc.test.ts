@@ -1290,6 +1290,12 @@ describe("XRPC Endpoints", () => {
 			expect(data.results[0].$type).toBe(
 				"com.atproto.repo.applyWrites#createResult",
 			);
+			// createResult.cid is required by the lexicon — the record never lands
+			// in the MST but its CID is still well-defined from the record bytes.
+			expect(data.results[0].cid).toMatch(/^bafy[a-z0-9]+$/);
+			expect(data.results[0].uri).toBe(
+				`at://${env.DID}/app.bsky.feed.post/${rkey}`,
+			);
 			expect(data.results[1].$type).toBe(
 				"com.atproto.repo.applyWrites#deleteResult",
 			);

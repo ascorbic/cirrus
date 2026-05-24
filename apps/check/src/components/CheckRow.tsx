@@ -58,7 +58,7 @@ export function CheckRow(props: { result: CheckResult }) {
 	};
 
 	return (
-		<li class={`border-b border-line/60 last:border-0 ${rowAccent()}`}>
+		<li class={`border-b border-line/60 last:border-b-0 ${rowAccent()}`}>
 			<div
 				role="button"
 				tabindex={0}

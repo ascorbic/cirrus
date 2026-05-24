@@ -676,10 +676,22 @@ const commitOpsHavePrev: Check = {
 		for (const frame of commits) {
 			const ops = frame.body.ops;
 			if (!Array.isArray(ops)) continue;
+			// Reference PDS sets prev from the pre-commit MST only; an
+			// update/delete for a path that was *also* created earlier in the
+			// same commit has no prev (the record didn't exist before the
+			// commit). Track intra-commit creates so we don't fail those.
+			const createdInCommit = new Set<string>();
 			for (const op of ops) {
 				if (!op || typeof op !== "object") continue;
 				const action = (op as { action?: unknown }).action;
+				const path = (op as { path?: unknown }).path;
+				if (typeof path !== "string") continue;
+				if (action === "create") {
+					createdInCommit.add(path);
+					continue;
+				}
 				if (action !== "update" && action !== "delete") continue;
+				if (createdInCommit.has(path)) continue;
 				updateDeleteOps++;
 				if (!Object.prototype.hasOwnProperty.call(op, "prev")) {
 					missingPrev++;
