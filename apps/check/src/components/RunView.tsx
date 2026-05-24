@@ -9,19 +9,6 @@ import {
 } from "../types";
 import { CheckRow } from "./CheckRow";
 
-function gradeFor(pass: number, total: number): string {
-	if (total === 0) return "—";
-	const pct = pass / total;
-	if (pct === 1) return "A+";
-	if (pct >= 0.95) return "A";
-	if (pct >= 0.9) return "A-";
-	if (pct >= 0.85) return "B+";
-	if (pct >= 0.8) return "B";
-	if (pct >= 0.7) return "C";
-	if (pct >= 0.5) return "D";
-	return "F";
-}
-
 function downloadString(filename: string, content: string, mime: string): void {
 	const blob = new Blob([content], { type: mime });
 	const url = URL.createObjectURL(blob);
@@ -392,7 +379,6 @@ function ResultSummary(props: {
 		props.run.endedAt && props.run.startedAt
 			? `${((props.run.endedAt - props.run.startedAt) / 1000).toFixed(1)}s`
 			: "";
-	const grade = () => gradeFor(props.summary.pass, props.summary.applicable);
 	const skipped = () => props.summary.total - props.summary.applicable;
 
 	async function copyLink() {
@@ -422,7 +408,11 @@ function ResultSummary(props: {
 							<div class="text-xs uppercase tracking-[0.2em] text-muted">
 								Score
 							</div>
-							<div class="text-2xl">
+							<div
+								class={`text-2xl ${
+									props.summary.fail === 0 ? "text-pass" : "text-fail"
+								}`}
+							>
 								{props.summary.pass} / {props.summary.applicable}
 							</div>
 							<Show when={skipped() > 0}>
@@ -430,18 +420,6 @@ function ResultSummary(props: {
 									{skipped()} skipped
 								</div>
 							</Show>
-						</div>
-						<div class="text-right">
-							<div class="text-xs uppercase tracking-[0.2em] text-muted">
-								Grade
-							</div>
-							<div
-								class={`text-4xl font-bold ${
-									props.summary.fail === 0 ? "text-pass" : "text-fail"
-								}`}
-							>
-								{grade()}
-							</div>
 						</div>
 					</div>
 				</div>
