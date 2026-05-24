@@ -64,6 +64,7 @@ interface PersistedState {
 	stateNonce: string;
 	expectedIss: string;
 	scope: string;
+	preRedirectSteps?: FlowStep[];
 }
 
 // Scope is chosen at runtime based on the auth server's advertised scopes:
@@ -1136,6 +1137,7 @@ export function startPreRedirectFlow(target: string): FlowRun {
 				evidence: { request: { method: "GET", url: authUrl.toString() } },
 			}));
 
+			const preRedirectSet = new Set<string>(PRE_REDIRECT_STEPS);
 			await persistState({
 				target,
 				handle: resolved.handle,
@@ -1146,6 +1148,9 @@ export function startPreRedirectFlow(target: string): FlowRun {
 				stateNonce,
 				expectedIss: (state.authServer!.issuer as string) ?? "",
 				scope: activeScope,
+				preRedirectSteps: state.steps
+					.filter((s) => preRedirectSet.has(s.id))
+					.map((s) => ({ ...s })),
 			});
 
 			setState(
@@ -1199,10 +1204,23 @@ export async function runPostCallback(): Promise<CallbackRun> {
 	if (persisted?.scope) activeScope = persisted.scope;
 
 	const initial = createFlowState(persisted?.target ?? "");
-	// Mark pre-redirect steps complete
+	// Restore the pre-redirect step results captured before the redirect. If
+	// we don't have them (older persisted state, or none at all), fall back
+	// to marking the steps "skip" rather than fabricating a "pass" — the
+	// alternative was to lie about what actually happened pre-redirect.
+	const persistedById = new Map<string, FlowStep>(
+		(persisted?.preRedirectSteps ?? []).map((s) => [s.id, s]),
+	);
 	for (const id of PRE_REDIRECT_STEPS) {
 		const idx = initial.steps.findIndex((s) => s.id === id);
-		if (idx >= 0) initial.steps[idx]!.status = "pass";
+		if (idx < 0) continue;
+		const prior = persistedById.get(id);
+		if (prior) {
+			initial.steps[idx] = { ...initial.steps[idx]!, ...prior };
+		} else {
+			initial.steps[idx]!.status = "skip";
+			initial.steps[idx]!.message = "no persisted result";
+		}
 	}
 	initial.phase = "post-callback";
 	initial.handle = persisted?.handle;
