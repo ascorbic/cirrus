@@ -40,6 +40,31 @@ describe("OAuth 2.1 Endpoints", () => {
 			);
 		});
 
+		it("should advertise jwks_uri pointing at /oauth/jwks", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/.well-known/oauth-authorization-server"),
+				env,
+			);
+			const metadata = await response.json();
+			expect(metadata.jwks_uri).toBe(
+				`https://${env.PDS_HOSTNAME}/oauth/jwks`,
+			);
+		});
+
+		it("should serve an empty JWKS at the advertised URL", async () => {
+			const response = await worker.fetch(
+				new Request("http://pds.test/oauth/jwks"),
+				env,
+			);
+			expect(response.status).toBe(200);
+			expect(response.headers.get("Content-Type")).toContain(
+				"application/json",
+			);
+
+			const jwks = await response.json();
+			expect(jwks).toEqual({ keys: [] });
+		});
+
 		it("should return protected resource metadata", async () => {
 			const response = await worker.fetch(
 				new Request("http://pds.test/.well-known/oauth-protected-resource"),

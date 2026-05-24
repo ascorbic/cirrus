@@ -462,6 +462,18 @@ describe("OAuth Flow", () => {
 			expect(json.response_types_supported).toContain("code");
 			expect(json.code_challenge_methods_supported).toContain("S256");
 			expect(json.dpop_signing_alg_values_supported).toContain("ES256");
+			expect(json.jwks_uri).toBe("https://pds.example.com/oauth/jwks");
+		});
+	});
+
+	describe("JWKS Endpoint", () => {
+		it("returns an empty JWKS", async () => {
+			const response = provider.handleJwks();
+			expect(response.status).toBe(200);
+			expect(response.headers.get("Content-Type")).toBe("application/json");
+
+			const json = (await response.json()) as { keys: unknown[] };
+			expect(json).toEqual({ keys: [] });
 		});
 	});
 
