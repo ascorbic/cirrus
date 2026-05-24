@@ -1,5 +1,21 @@
 # @getcirrus/oauth-provider
 
+## 0.5.0
+
+### Minor Changes
+
+- [#177](https://github.com/ascorbic/cirrus/pull/177) [`ec284fd`](https://github.com/ascorbic/cirrus/commit/ec284fde3544e9ea4e2b6b085f718de449e4862e) Thanks [@ascorbic](https://github.com/ascorbic)! - Advertise a `jwks_uri` in OAuth authorization-server metadata and serve an empty JWKS at `/oauth/jwks`. OAuth clients that run JWKS discovery against the metadata endpoint no longer fail when talking to Cirrus. The key set is empty because Cirrus signs access tokens with HS256 (symmetric `JWT_SECRET`) — there are no public keys to publish.
+
+### Patch Changes
+
+- [#175](https://github.com/ascorbic/cirrus/pull/175) [`54ab459`](https://github.com/ascorbic/cirrus/commit/54ab459588393a58ea906977c1ffc8996d8d0700) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix `parseScope` rejecting valid granular scopes that use the query-only form (e.g. `repo?collection=a&collection=b`) with `Unknown scope resource`. The parser previously only looked for `:` as the prefix delimiter, but per `@atproto/oauth-scopes` syntax a scope can use `prefix:positional`, `prefix?query`, or both. This affected permission sets whose `repo` permission listed multiple collections, since those expand to a single query-form token.
+
+- [#186](https://github.com/ascorbic/cirrus/pull/186) [`22f09de`](https://github.com/ascorbic/cirrus/commit/22f09def6b2ed644fb88b3f707fde4da35a6f04a) Thanks [@ascorbic](https://github.com/ascorbic)! - PAR (`/oauth/par`) now resolves every `include:<nsid>` permission-set scope eagerly and rejects with `invalid_scope` when an include points at a nonexistent or non-permission-set lexicon. Previously the resolver only ran at the authorize step, so clients with a typo in an include scope got a fresh `request_uri` from PAR and only learned about the bad scope at consent time. Matches reference oauth-provider behaviour (`request-manager.ts:297-313`).
+
+- [#184](https://github.com/ascorbic/cirrus/pull/184) [`47c8c1e`](https://github.com/ascorbic/cirrus/commit/47c8c1e401dff16c3983a2151cffd20bc83551d6) Thanks [@ascorbic](https://github.com/ascorbic)! - PAR (`/oauth/par`) now validates `redirect_uri` against the client's registered redirect_uris at push time. Previously the check only ran at the authorize step, which let a malicious caller obtain a `request_uri` for an unregistered redirect even though the subsequent authorize would have rejected it. Reject early per RFC 6749 §3.1.2.4.
+
+- [#185](https://github.com/ascorbic/cirrus/pull/185) [`aed8e1b`](https://github.com/ascorbic/cirrus/commit/aed8e1b629afe9d2eae6d2d5b9c5265d769b057b) Thanks [@ascorbic](https://github.com/ascorbic)! - `scopes_supported` in the authorization-server metadata now lists only the values the spec calls out: `atproto`, `transition:generic`, `transition:email`, `transition:chat.bsky`. Granular resource scopes (`repo:<nsid>`, `rpc:<lxm>`, `blob:<mime>`, `account:<…>`, `identity:<…>`) and permission-set scopes (`include:<nsid>`) are parameterised and aren't enumerable, so bare prefixes like `repo` or `include` are no longer advertised — clients discover support by attempting the scope and falling back on `invalid_scope`, matching the reference PDS.
+
 ## 0.4.0
 
 ### Minor Changes

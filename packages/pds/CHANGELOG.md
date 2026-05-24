@@ -1,5 +1,52 @@
 # @getcirrus/pds
 
+## 0.16.0
+
+### Minor Changes
+
+- [#179](https://github.com/ascorbic/cirrus/pull/179) [`9f8adee`](https://github.com/ascorbic/cirrus/commit/9f8adeef6ebd009dcdbc76f88da81bfaa7142037) Thanks [@ascorbic](https://github.com/ascorbic)! - Implement three PDS-side identity endpoints that previously fell through to the AppView proxy and returned 501:
+  - `com.atproto.identity.resolveDid` returns the DID document for the local account.
+  - `com.atproto.identity.resolveIdentity` returns `{did, handle, didDoc}` for the local handle or DID.
+  - `com.atproto.identity.getRecommendedDidCredentials` (authenticated) returns the rotation keys, `alsoKnownAs`, verification methods, and PDS service entry that a migrating account should advertise.
+
+  Requests for foreign DIDs or handles continue to fall through to the AppView proxy unchanged.
+
+- [#171](https://github.com/ascorbic/cirrus/pull/171) [`bf2f857`](https://github.com/ascorbic/cirrus/commit/bf2f857b0df9cc9e8eaeb7e336114107596473af) Thanks [@ascorbic](https://github.com/ascorbic)! - The firehose now emits the sync 1.1 message shape, matching what the bsky.network relay and other AT Protocol consumers expect. Existing subscribers will start seeing new fields and new event types; nothing has to change on the consumer side, but the warnings some relays were logging against Cirrus hosts (notably `missing prevData field`) will stop.
+
+  What changed on the wire:
+  - `#commit` messages now include `prevData` (the prior commit's MST root CID), so relays can verify each commit inductively without re-fetching the repo. The CAR slice now also carries the MST covering-proof blocks needed for that verification.
+  - Each `ops[]` entry on update and delete now includes `prev`, the previous CID of the touched record. Creates omit it as before.
+  - `tooBig` is always `false`. It was previously set based on payload size, which never matched the field's meaning under sync 1.1.
+  - New `#account` events are emitted on activation and deactivation, so relays learn about account status changes without polling. Deactivation reports `status: "deactivated"`; activation reports `active: true` with no status.
+  - New `#sync` events are emitted on activation (after migration or initial setup), giving relays the current commit block without a diff.
+  - `#identity` events now allow the `handle` field to be omitted, per spec.
+  - A `#info` frame with `name: "OutdatedCursor"` is sent when a client connects with a cursor older than the retained event window. The stream continues from the oldest available event instead of disconnecting.
+  - `applyWrites` rejects calls with more than 200 operations, matching the spec cap.
+
+- [#168](https://github.com/ascorbic/cirrus/pull/168) [`71b988e`](https://github.com/ascorbic/cirrus/commit/71b988e485d5128b185fb4970aaa35011bf67e04) Thanks [@simnaut](https://github.com/simnaut)! - Implement `com.atproto.sync.getLatestCommit`.
+
+  This sync XRPC endpoint was previously unimplemented, so requests fell through to the XRPC proxy and returned `501 MethodNotImplemented`. Relays call `getLatestCommit` during their crawl bootstrap, so a freshly created repo could never be indexed by a fresh `requestCrawl`. The endpoint now returns the repo's head commit as `{ cid, rev }` (sourced from the same `rpcGetRepoStatus` data used by `getRepoStatus`/`listRepos`).
+
+- [#178](https://github.com/ascorbic/cirrus/pull/178) [`aceda62`](https://github.com/ascorbic/cirrus/commit/aceda62d0e653c139302dc45b01091886b3234ae) Thanks [@ascorbic](https://github.com/ascorbic)! - Implement `com.atproto.sync.listReposByCollection`.
+
+  Relays and crawlers use this endpoint to discover which PDSes host repos that contain a given record collection. The PDS now answers with `{ repos: [{ did }] }` when its account has at least one record in the requested collection, or an empty list otherwise. Invalid or missing `collection` parameters return `InvalidRequest`.
+
+### Patch Changes
+
+- [#181](https://github.com/ascorbic/cirrus/pull/181) [`6589e1d`](https://github.com/ascorbic/cirrus/commit/6589e1dc854be11164b2ad80d77840ed7820bd4d) Thanks [@ascorbic](https://github.com/ascorbic)! - `applyWrites` now returns the record CID on `createResult` and `updateResult` even when the record is removed later in the same batch. The lexicon marks `cid` as required, but the previous code looked it up in the post-commit MST — for a record that was created then deleted within one batch, the MST has no entry and the field was missing. The CID is now computed from the record bytes up front, matching reference PDS behaviour.
+
+- [#176](https://github.com/ascorbic/cirrus/pull/176) [`36b79fd`](https://github.com/ascorbic/cirrus/commit/36b79fdcabb6d0620b7dc3b184549f9813f6ebcb) Thanks [@ascorbic](https://github.com/ascorbic)! - `com.atproto.repo.applyWrites` now accepts batches that touch the same rkey more than once, matching the reference PDS. The common case is a create followed by a delete on the same rkey within one batch (an atomic no-op pattern several clients rely on); previously Cirrus rejected this with `400 InvalidRequest: duplicate rkey in batch`. Two creates on the same rkey still fail, but now as `409 RecordAlreadyExists` from the repo layer rather than a pre-flight 400.
+
+- [#177](https://github.com/ascorbic/cirrus/pull/177) [`ec284fd`](https://github.com/ascorbic/cirrus/commit/ec284fde3544e9ea4e2b6b085f718de449e4862e) Thanks [@ascorbic](https://github.com/ascorbic)! - Advertise a `jwks_uri` in OAuth authorization-server metadata and serve an empty JWKS at `/oauth/jwks`. OAuth clients that run JWKS discovery against the metadata endpoint no longer fail when talking to Cirrus. The key set is empty because Cirrus signs access tokens with HS256 (symmetric `JWT_SECRET`) — there are no public keys to publish.
+
+- [#180](https://github.com/ascorbic/cirrus/pull/180) [`d107c59`](https://github.com/ascorbic/cirrus/commit/d107c596406b5b7c414f35010ea76d9d5a348b72) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix three conformance issues found by pdscheck:
+  - `com.atproto.server.getSession` now accepts OAuth access tokens presented with the `DPoP` scheme (RFC 9449), not just `Bearer`. OAuth clients can now read session info without first being rejected with 401.
+  - `com.atproto.server.listAppPasswords` returns `createdAt` as an RFC 3339 datetime (e.g. `2026-03-29T15:30:17.000Z`) instead of the SQLite `"YYYY-MM-DD HH:MM:SS"` form that violated the lexicon.
+  - `com.atproto.server.getAccountInviteCodes` is now implemented and returns `{ codes: [] }` for authenticated callers (Cirrus has `inviteCodeRequired: false`, so there are no invite codes to list). Previously it fell through to the AppView proxy and returned 501.
+
+- Updated dependencies [[`ec284fd`](https://github.com/ascorbic/cirrus/commit/ec284fde3544e9ea4e2b6b085f718de449e4862e), [`54ab459`](https://github.com/ascorbic/cirrus/commit/54ab459588393a58ea906977c1ffc8996d8d0700), [`22f09de`](https://github.com/ascorbic/cirrus/commit/22f09def6b2ed644fb88b3f707fde4da35a6f04a), [`47c8c1e`](https://github.com/ascorbic/cirrus/commit/47c8c1e401dff16c3983a2151cffd20bc83551d6), [`aed8e1b`](https://github.com/ascorbic/cirrus/commit/aed8e1b629afe9d2eae6d2d5b9c5265d769b057b)]:
+  - @getcirrus/oauth-provider@0.5.0
+
 ## 0.15.2
 
 ### Patch Changes
