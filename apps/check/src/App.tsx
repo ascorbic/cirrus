@@ -270,6 +270,19 @@ export function App() {
 						state={state()}
 						onExit={exitFlow}
 						onRedirect={continueFlowRedirect}
+						onReadChecks={() => {
+							const v = state().target.trim();
+							exitFlow();
+							if (v) void beginRun(v, anonymousChecks, "verify");
+						}}
+						onWriteTests={() => {
+							const v = state().target.trim();
+							exitFlow();
+							if (v) {
+								setTarget(v);
+								void startWriteTests();
+							}
+						}}
 					/>
 				)}
 			</Show>
@@ -324,6 +337,19 @@ export function App() {
 						state={flowBoot().state}
 						onExit={exitFlow}
 						onRedirect={continueFlowRedirect}
+						onReadChecks={() => {
+							const v = flowBoot().state.target.trim();
+							exitFlow();
+							if (v) void beginRun(v, anonymousChecks, "verify");
+						}}
+						onWriteTests={() => {
+							const v = flowBoot().state.target.trim();
+							exitFlow();
+							if (v) {
+								setTarget(v);
+								void startWriteTests();
+							}
+						}}
 					/>
 				)}
 			</Show>

@@ -274,6 +274,8 @@ export function OAuthFlowView(props: {
 	state: FlowState;
 	onExit: () => void;
 	onRedirect?: () => void;
+	onReadChecks?: () => void;
+	onWriteTests?: () => void;
 }) {
 	const summary = createMemo(() => {
 		let pass = 0;
@@ -374,16 +376,46 @@ export function OAuthFlowView(props: {
 							<div class="text-xs uppercase tracking-[0.2em] text-muted mb-3">
 								what next
 							</div>
-							<button
-								type="button"
-								onClick={props.onExit}
-								class="w-full border border-ink px-4 py-2 text-left text-sm hover:bg-ink hover:text-paper transition-colors flex justify-between items-baseline gap-3"
-							>
-								<span class="font-bold tracking-wider">
-									← VERIFY A DIFFERENT ACCOUNT
-								</span>
-								<span class="text-xs text-muted">back to landing</span>
-							</button>
+							<div class="flex flex-col gap-2 text-sm">
+								<button
+									type="button"
+									onClick={props.onExit}
+									class="border border-ink px-4 py-2 text-left hover:bg-ink hover:text-paper transition-colors flex justify-between items-baseline gap-3"
+								>
+									<span class="font-bold tracking-wider">
+										← VERIFY A DIFFERENT ACCOUNT
+									</span>
+									<span class="text-xs text-muted">back to landing</span>
+								</button>
+								<Show when={props.onReadChecks}>
+									<button
+										type="button"
+										onClick={props.onReadChecks}
+										class="border border-ink px-4 py-2 text-left hover:bg-ink hover:text-paper transition-colors flex justify-between items-baseline gap-3"
+									>
+										<span class="font-bold tracking-wider">
+											READ-ONLY CHECKS →
+										</span>
+										<span class="text-xs text-muted">
+											anonymous read checks against the same target
+										</span>
+									</button>
+								</Show>
+								<Show when={props.onWriteTests}>
+									<button
+										type="button"
+										onClick={props.onWriteTests}
+										class="border border-ink px-4 py-2 text-left hover:bg-ink hover:text-paper transition-colors flex justify-between items-baseline gap-3"
+									>
+										<span class="font-bold tracking-wider">
+											TEST WRITE OPERATIONS →
+										</span>
+										<span class="text-xs text-muted">
+											sign in + run write checks against the same target
+										</span>
+									</button>
+								</Show>
+							</div>
 						</div>
 					</Show>
 				</div>
