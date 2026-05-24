@@ -60,6 +60,21 @@ describe("parseScope", () => {
 		expect(() => parseScope("atproto madeup:thing")).toThrow(ScopeParseError);
 	});
 
+	it("accepts repo scopes in query-only form (no positional)", () => {
+		const set = parseScope("atproto repo?collection=app.bsky.feed.post");
+		expect(set.has("repo?collection=app.bsky.feed.post")).toBe(true);
+	});
+
+	it("accepts repo scopes with multiple collections", () => {
+		const scope =
+			"repo?collection=site.standard.document" +
+			"&collection=site.standard.graph.recommend" +
+			"&collection=site.standard.graph.subscription" +
+			"&collection=site.standard.publication";
+		const set = parseScope(`atproto ${scope}`);
+		expect(set.has(scope)).toBe(true);
+	});
+
 	it("rejects include: scopes by default (strict mode)", () => {
 		expect(() =>
 			parseScope("atproto include:com.example.basic?aud=did:web:foo%23svc"),
