@@ -3,6 +3,20 @@ import { BlockMap, type CommitData } from "@atproto/repo";
 import { ReadableBlockstore, type RepoStorage } from "@atproto/repo";
 
 /**
+ * Convert SQLite's `datetime('now')` output ("YYYY-MM-DD HH:MM:SS" in UTC) to
+ * an RFC 3339 / ISO 8601 string for lexicon-compliant API responses. Returns
+ * the input unchanged when it already parses as a date (e.g. ISO strings
+ * written by application code).
+ */
+function sqliteDatetimeToIso(value: string): string {
+	if (value.includes("T")) return value;
+	const iso = value.replace(" ", "T") + "Z";
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return value;
+	return date.toISOString();
+}
+
+/**
  * SQLite-backed repository storage for Cloudflare Durable Objects.
  *
  * Implements the RepoStorage interface from @atproto/repo, storing blocks
@@ -718,7 +732,7 @@ export class SqliteRepoStorage
 
 		return rows.map((row) => ({
 			name: row.name as string,
-			createdAt: row.created_at as string,
+			createdAt: sqliteDatetimeToIso(row.created_at as string),
 		}));
 	}
 

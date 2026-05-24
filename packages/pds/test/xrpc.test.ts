@@ -282,6 +282,31 @@ describe("XRPC Endpoints", () => {
 			});
 		});
 
+		it("should return empty invite codes when authenticated", async () => {
+			const response = await worker.fetch(
+				new Request(
+					"http://pds.test/xrpc/com.atproto.server.getAccountInviteCodes",
+					{
+						headers: { Authorization: `Bearer ${env.AUTH_TOKEN}` },
+					},
+				),
+				env,
+			);
+			expect(response.status).toBe(200);
+			const data = (await response.json()) as { codes: unknown[] };
+			expect(data).toEqual({ codes: [] });
+		});
+
+		it("should require auth for getAccountInviteCodes", async () => {
+			const response = await worker.fetch(
+				new Request(
+					"http://pds.test/xrpc/com.atproto.server.getAccountInviteCodes",
+				),
+				env,
+			);
+			expect(response.status).toBe(401);
+		});
+
 		it("should resolve handle", async () => {
 			const response = await worker.fetch(
 				new Request(

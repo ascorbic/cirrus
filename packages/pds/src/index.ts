@@ -296,6 +296,11 @@ app.get("/xrpc/com.atproto.repo.listMissingBlobs", requireAuth, (c) =>
 
 // Server identity
 app.get("/xrpc/com.atproto.server.describeServer", server.describeServer);
+app.get(
+	"/xrpc/com.atproto.server.getAccountInviteCodes",
+	requireAuth,
+	server.getAccountInviteCodes,
+);
 
 // Handle resolution - return our DID for our handle, let others fall through to proxy
 app.use("/xrpc/com.atproto.identity.resolveHandle", async (c, next) => {
