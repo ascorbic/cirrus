@@ -124,7 +124,10 @@ export function parseScope(
 		}
 
 		const colon = scope.indexOf(":");
-		const resource = colon === -1 ? scope : scope.slice(0, colon);
+		const question = scope.indexOf("?");
+		const end =
+			colon === -1 ? question : question === -1 ? colon : Math.min(colon, question);
+		const resource = end === -1 ? scope : scope.slice(0, end);
 		const parser =
 			STRUCTURAL_PARSERS[
 				resource as (typeof GRANULAR_RESOURCES)[number]
