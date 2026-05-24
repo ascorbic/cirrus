@@ -19,23 +19,30 @@ interface DecodeFailure {
 	error: string;
 }
 
+type SampleMode = "history" | "live" | "none";
+
 let collectedFrames: Frame[] = [];
 let decodeFailures: DecodeFailure[] = [];
 let collectionAttempted = false;
 let collectionTerminationReason = "";
 let collectionElapsedMs = 0;
+let sampleMode: SampleMode = "none";
+let liveWs: WebSocket | null = null;
+let liveStartedAt = 0;
+let liveFrameIndex = 0;
 
 const FRAME_TARGET = 200;
 const COLLECT_TIMEOUT_MS = 8000;
 const CONNECT_TIMEOUT_MS = 5000;
 const INACTIVITY_TIMEOUT_MS = 1500;
 const MIN_FRAMES_BEFORE_DIVERSITY_EXIT = 50;
+const LIVE_TAIL_QUIESCE_MS = 750;
 
-function wsUrlFor(pds: string): string {
+function wsUrlFor(pds: string, opts: { cursor?: number } = {}): string {
 	const url = new URL(pds);
 	url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
 	url.pathname = "/xrpc/com.atproto.sync.subscribeRepos";
-	url.search = "?cursor=0";
+	url.search = opts.cursor === undefined ? "" : `?cursor=${opts.cursor}`;
 	return url.toString();
 }
 
@@ -65,12 +72,13 @@ const connect: Check = {
 		collectionAttempted = false;
 		collectionTerminationReason = "";
 		collectionElapsedMs = 0;
+		sampleMode = "none";
 
 		if (!ctx.pds) {
 			return { status: "skip", message: "No PDS endpoint" };
 		}
 
-		const url = wsUrlFor(ctx.pds);
+		const url = wsUrlFor(ctx.pds, { cursor: 0 });
 		let ws: WebSocket;
 		try {
 			ws = new WebSocket(url);
@@ -221,6 +229,7 @@ const connect: Check = {
 		collectionAttempted = true;
 		collectionTerminationReason = terminationReason;
 		collectionElapsedMs = Date.now() - collectionStartedAt;
+		sampleMode = "history";
 
 		return {
 			status: "pass",
@@ -316,7 +325,7 @@ const commitHasPrevData: Check = {
 	category: "firehose",
 	label: "#commit frames include prevData",
 	description:
-		"Every #commit event must carry the previous MST root CID as prevData (atproto Sync 1.1).",
+		"Every #commit event must carry the previous MST root CID as prevData (atproto Sync 1.1). Strict on live samples; informational on historical replay since pre-upgrade events are retained in the firehose.",
 	requires: ["pds"],
 	run: async (): Promise<CheckOutcome> => {
 		if (!collectionAttempted) {
@@ -326,12 +335,23 @@ const commitHasPrevData: Check = {
 		if (commits.length === 0) {
 			return { status: "skip", message: "No #commit frames observed" };
 		}
-		const missing = commits.filter((f) => f.body.prevData === undefined);
-		if (missing.length > 0) {
-			const offending = missing[0]!;
+		const withPrev = commits.filter((f) => f.body.prevData !== undefined);
+		const missing = commits.length - withPrev.length;
+
+		if (missing === 0) {
+			return {
+				status: "pass",
+				message: `All ${commits.length} #commit frame${
+					commits.length === 1 ? "" : "s"
+				} include prevData`,
+			};
+		}
+
+		if (sampleMode === "live") {
+			const offending = commits.find((f) => f.body.prevData === undefined)!;
 			return {
 				status: "fail",
-				message: `${missing.length}/${commits.length} #commit frame${
+				message: `${missing}/${commits.length} live #commit frame${
 					commits.length === 1 ? "" : "s"
 				} missing prevData — required by atproto Sync 1.1`,
 				evidence: {
@@ -343,11 +363,25 @@ const commitHasPrevData: Check = {
 				},
 			};
 		}
+
+		// History sample: any prevData → pass; none → warn (ambiguous: could be
+		// pre-Sync 1.1 PDS, or pre-upgrade events retained in the firehose).
+		if (withPrev.length > 0) {
+			return {
+				status: "pass",
+				message: `${withPrev.length}/${commits.length} sampled #commit frames include prevData (rest may predate the Sync 1.1 upgrade)`,
+			};
+		}
 		return {
-			status: "pass",
-			message: `All ${commits.length} #commit frame${
-				commits.length === 1 ? "" : "s"
-			} include prevData`,
+			status: "warn",
+			message: `No #commit frames in the historical sample carry prevData (${commits.length}/${commits.length} missing) — could not confirm Sync 1.1 support. Sign in to run the live write probe, or trigger a fresh write and re-run.`,
+			evidence: {
+				expected: "body.prevData present on at least one sampled #commit",
+				actual: {
+					header: commits[0]!.header,
+					bodyKeys: Object.keys(commits[0]!.body),
+				},
+			},
 		};
 	},
 };
@@ -661,10 +695,17 @@ const commitOpsHavePrev: Check = {
 				message: "No update/delete ops in sampled commits — only creates",
 			};
 		}
-		if (missingPrev > 0) {
+		const withPrev = updateDeleteOps - missingPrev;
+		if (missingPrev === 0) {
+			return {
+				status: "pass",
+				message: `All ${updateDeleteOps} update/delete op${updateDeleteOps === 1 ? "" : "s"} carry prev`,
+			};
+		}
+		if (sampleMode === "live") {
 			return {
 				status: "fail",
-				message: `${missingPrev}/${updateDeleteOps} update/delete op${
+				message: `${missingPrev}/${updateDeleteOps} live update/delete op${
 					updateDeleteOps === 1 ? "" : "s"
 				} missing prev — required for inductive firehose (Sync 1.1)`,
 				evidence: {
@@ -674,9 +715,20 @@ const commitOpsHavePrev: Check = {
 				},
 			};
 		}
+		if (withPrev > 0) {
+			return {
+				status: "pass",
+				message: `${withPrev}/${updateDeleteOps} sampled update/delete ops carry prev (rest may predate the Sync 1.1 upgrade)`,
+			};
+		}
 		return {
-			status: "pass",
-			message: `All ${updateDeleteOps} update/delete op${updateDeleteOps === 1 ? "" : "s"} carry prev`,
+			status: "warn",
+			message: `No sampled update/delete ops carry prev (${missingPrev}/${updateDeleteOps} missing) — could not confirm Sync 1.1 support. Sign in to run the live write probe, or trigger a fresh write and re-run.`,
+			evidence: {
+				expected:
+					"at least one #repoOp with action=update|delete carries prev",
+				actual: firstOffending,
+			},
 		};
 	},
 };
@@ -741,6 +793,179 @@ const emitsIdentityEvents = eventPresenceCheck(
 	"#identity",
 );
 
+const liveListenStart: Check = {
+	id: "firehose.live-listen-start",
+	category: "firehose",
+	label: "Subscribe to firehose (live tail)",
+	description:
+		"Open subscribeRepos with no cursor before the write probe so fresh #commit events can be sampled. Frames buffer in the background while subsequent write checks run.",
+	requires: ["pds", "session"],
+	run: async (ctx): Promise<CheckOutcome> => {
+		collectedFrames = [];
+		decodeFailures = [];
+		collectionAttempted = false;
+		collectionTerminationReason = "";
+		collectionElapsedMs = 0;
+		sampleMode = "none";
+		liveFrameIndex = 0;
+
+		if (liveWs) {
+			try {
+				liveWs.close();
+			} catch {
+				// ignore
+			}
+			liveWs = null;
+		}
+
+		if (!ctx.pds) {
+			return { status: "skip", message: "No PDS endpoint" };
+		}
+
+		const url = wsUrlFor(ctx.pds);
+		let ws: WebSocket;
+		try {
+			ws = new WebSocket(url);
+		} catch (error) {
+			return {
+				status: "fail",
+				message: error instanceof Error ? error.message : String(error),
+				evidence: { request: { method: "WS", url }, error: String(error) },
+			};
+		}
+		ws.binaryType = "arraybuffer";
+
+		try {
+			await new Promise<void>((resolve, reject) => {
+				const timer = setTimeout(() => {
+					reject(new Error(`Connection timed out after ${CONNECT_TIMEOUT_MS}ms`));
+				}, CONNECT_TIMEOUT_MS);
+				ws.addEventListener(
+					"open",
+					() => {
+						clearTimeout(timer);
+						resolve();
+					},
+					{ once: true },
+				);
+				ws.addEventListener(
+					"error",
+					() => {
+						clearTimeout(timer);
+						reject(new Error("WebSocket error before open"));
+					},
+					{ once: true },
+				);
+				ws.addEventListener(
+					"close",
+					(ev) => {
+						clearTimeout(timer);
+						reject(
+							new Error(
+								`WebSocket closed before open: code=${ev.code} reason=${ev.reason || "(none)"}`,
+							),
+						);
+					},
+					{ once: true },
+				);
+			});
+		} catch (error) {
+			try {
+				ws.close();
+			} catch {
+				// ignore
+			}
+			return {
+				status: "fail",
+				message: error instanceof Error ? error.message : String(error),
+				evidence: { request: { method: "WS", url }, error: String(error) },
+			};
+		}
+
+		ws.addEventListener("message", (event) => {
+			const data = event.data;
+			if (!(data instanceof ArrayBuffer)) return;
+			const bytes = new Uint8Array(data);
+			const i = liveFrameIndex++;
+			try {
+				const [header, rest] = decodeFirst(bytes);
+				const [body] = decodeFirst(rest);
+				collectedFrames.push({
+					header: header as FrameHeader,
+					body: (body ?? {}) as Record<string, unknown>,
+					raw: bytes,
+				});
+			} catch (error) {
+				decodeFailures.push({
+					index: i,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		});
+
+		liveWs = ws;
+		liveStartedAt = Date.now();
+		sampleMode = "live";
+
+		return {
+			status: "pass",
+			message: `Subscribed to ${url} — buffering frames during the write probe`,
+			evidence: { request: { method: "WS", url } },
+		};
+	},
+};
+
+const liveListenEnd: Check = {
+	id: "firehose.live-listen-end",
+	category: "firehose",
+	label: "Capture live firehose frames",
+	description: `After the write probe, give the firehose ${LIVE_TAIL_QUIESCE_MS}ms to deliver any final frames, then close the subscription and run Sync 1.1 validators against the captured sample.`,
+	requires: ["pds", "session"],
+	run: async (): Promise<CheckOutcome> => {
+		if (!liveWs) {
+			return { status: "skip", message: "Live listen did not start" };
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, LIVE_TAIL_QUIESCE_MS));
+
+		try {
+			liveWs.close(1000, "complete");
+		} catch {
+			// ignore
+		}
+		liveWs = null;
+
+		collectionElapsedMs = Date.now() - liveStartedAt;
+		collectionAttempted = true;
+		collectionTerminationReason = "write-probe-complete";
+
+		const total = collectedFrames.length + decodeFailures.length;
+		if (total === 0) {
+			return {
+				status: "warn",
+				message: `No frames received during the write probe (${collectionElapsedMs}ms) — Sync 1.1 validators will skip`,
+				evidence: {
+					actual: { frames: 0, elapsedMs: collectionElapsedMs },
+				},
+			};
+		}
+		return {
+			status: "pass",
+			message: `Captured ${total} live frame${total === 1 ? "" : "s"} in ${collectionElapsedMs}ms`,
+			evidence: {
+				actual: {
+					frames: total,
+					decoded: collectedFrames.length,
+					types: countHeaderTypes(collectedFrames),
+				},
+			},
+		};
+	},
+};
+
+// Anonymous flow: history replay via cursor=0. Strict Sync 1.1 checks are
+// downgraded to "warn" when no live frames are available (see commitHasPrevData
+// / commitOpsHavePrev — they branch on sampleMode).
 export const firehoseChecks: Check[] = [
 	connect,
 	collectFrames,
@@ -755,4 +980,20 @@ export const firehoseChecks: Check[] = [
 	emitsAccountEvents,
 	accountEventShape,
 	emitsIdentityEvents,
+];
+
+// Live-tail probe: open WS before writes (firehoseLiveStartChecks), let the
+// write probe produce events, then close + validate (firehoseLiveEndChecks).
+export const firehoseLiveStartChecks: Check[] = [liveListenStart];
+
+export const firehoseLiveEndChecks: Check[] = [
+	liveListenEnd,
+	frameDecodes,
+	commitHasPrevData,
+	commitBlocksIsValidCar,
+	commitOpsHavePrev,
+	commitDeprecatedTooBig,
+	commitDeprecatedBlobs,
+	commitDeprecatedRebase,
+	accountEventShape,
 ];

@@ -1,7 +1,11 @@
 import type { Check } from "../types";
 import { accountChecks } from "./account";
 import { blobsChecks } from "./blobs";
-import { firehoseChecks } from "./firehose";
+import {
+	firehoseChecks,
+	firehoseLiveEndChecks,
+	firehoseLiveStartChecks,
+} from "./firehose";
 import { identityChecks } from "./identity";
 import { oauthDiscoveryChecks } from "./oauth-discovery";
 import { repoReadChecks } from "./repo-read";
@@ -21,9 +25,13 @@ export const anonymousChecks: readonly Check[] = [
 ];
 
 // Write tests — gated by sign-in AND an explicit confirmation step.
-// Includes identity (to populate ctx.pds/ctx.did) + account (verify session) + the actual writes.
+// Subscribes to the firehose live tail before the write probe so the
+// create/applyWrites/delete operations produce a fresh sample that strictly
+// validates Sync 1.1 (prevData, ops[].prev).
 export const writeChecks: readonly Check[] = [
 	...identityChecks,
 	...accountChecks,
+	...firehoseLiveStartChecks,
 	...repoWriteChecks,
+	...firehoseLiveEndChecks,
 ];
