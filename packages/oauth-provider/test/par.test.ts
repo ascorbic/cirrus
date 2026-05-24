@@ -1,15 +1,44 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { ClientResolver } from "../src/client-resolver.js";
 import { PARHandler } from "../src/par.js";
 import { InMemoryOAuthStorage } from "../src/storage.js";
+import type { ClientMetadata } from "../src/storage.js";
 import { generateCodeChallenge, generateCodeVerifier } from "./helpers.js";
+
+/**
+ * Stub resolver for PAR tests: returns metadata with a fixed registered
+ * redirect_uri so PAR's RFC 6749 §3.1.2.4 check passes for the canonical
+ * fixture. Tests that probe rejection pass a different redirect_uri.
+ */
+class StubResolver extends ClientResolver {
+	private fixed: ClientMetadata;
+	constructor(redirectUri: string) {
+		super();
+		this.fixed = {
+			clientId: "did:web:client.example.com",
+			clientName: "Test Client",
+			redirectUris: [redirectUri],
+			tokenEndpointAuthMethod: "none",
+			cachedAt: Date.now(),
+		};
+	}
+	override async resolveClient(): Promise<ClientMetadata> {
+		return this.fixed;
+	}
+}
 
 describe("PAR Handler", () => {
 	let storage: InMemoryOAuthStorage;
 	let handler: PARHandler;
+	const REGISTERED_REDIRECT = "https://client.example.com/callback";
 
 	beforeEach(() => {
 		storage = new InMemoryOAuthStorage();
-		handler = new PARHandler(storage, "https://example.com");
+		handler = new PARHandler(
+			storage,
+			new StubResolver(REGISTERED_REDIRECT),
+			"https://example.com",
+		);
 	});
 
 	function createPARRequest(params: Record<string, string>): Request {
@@ -77,6 +106,31 @@ describe("PAR Handler", () => {
 
 			const json = (await response.json()) as { error: string };
 			expect(json.error).toBe("invalid_request");
+		});
+
+		it("rejects redirect_uri not registered in client metadata (RFC 6749 §3.1.2.4)", async () => {
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+
+			const request = createPARRequest({
+				client_id: "did:web:client.example.com",
+				redirect_uri: "https://attacker.invalid/steal-code",
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "random-state",
+				scope: "atproto",
+			});
+
+			const response = await handler.handlePushRequest(request);
+			expect(response.status).toBe(400);
+
+			const json = (await response.json()) as {
+				error: string;
+				error_description: string;
+			};
+			expect(json.error).toBe("invalid_request");
+			expect(json.error_description).toMatch(/not registered/i);
 		});
 
 		it("rejects unsupported response_type", async () => {
