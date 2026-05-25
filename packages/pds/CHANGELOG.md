@@ -1,5 +1,11 @@
 # @getcirrus/pds
 
+## 0.17.1
+
+### Patch Changes
+
+- [#190](https://github.com/ascorbic/cirrus/pull/190) [`5384f54`](https://github.com/ascorbic/cirrus/commit/5384f54d49b863fc4672eeecc72b4895ce4e54bc) Thanks [@ascorbic](https://github.com/ascorbic)! - Match the reference @atproto PDS's exact `RecordNotFound` error message (`Could not locate record: <at-uri>`). The Bluesky social-app's quote-detach flow string-matches this phrase to decide whether to create a new `app.bsky.feed.postgate` record vs. update an existing one; the previous message caused it to rethrow instead of falling through to the create path.
+
 ## 0.17.0
 
 ### Minor Changes
