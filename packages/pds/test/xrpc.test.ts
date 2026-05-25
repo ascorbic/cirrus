@@ -631,10 +631,10 @@ describe("XRPC Endpoints", () => {
 				),
 				env,
 			);
-			expect(getResponse.status).toBe(404);
+			expect(getResponse.status).toBe(400);
 		});
 
-		it("should handle deleting non-existent record", async () => {
+		it("should handle deleting non-existent record as a no-op", async () => {
 			const response = await worker.fetch(
 				new Request("http://pds.test/xrpc/com.atproto.repo.deleteRecord", {
 					method: "POST",
@@ -650,22 +650,17 @@ describe("XRPC Endpoints", () => {
 				}),
 				env,
 			);
-			expect(response.status).toBe(404);
-
-			const data = await response.json();
-			expect(data).toMatchObject({
-				error: "RecordNotFound",
-			});
+			expect(response.status).toBe(200);
 		});
 
-		it("should return 404 for non-existent record", async () => {
+		it("should return 400 RecordNotFound for non-existent record", async () => {
 			const response = await worker.fetch(
 				new Request(
 					`http://pds.test/xrpc/com.atproto.repo.getRecord?repo=${env.DID}&collection=app.bsky.feed.post&rkey=does-not-exist`,
 				),
 				env,
 			);
-			expect(response.status).toBe(404);
+			expect(response.status).toBe(400);
 
 			const data = await response.json();
 			expect(data).toMatchObject({
@@ -1032,7 +1027,7 @@ describe("XRPC Endpoints", () => {
 				),
 				env,
 			);
-			expect(getResponse.status).toBe(404);
+			expect(getResponse.status).toBe(400);
 		});
 
 		it("should handle mixed operations", async () => {
@@ -1306,7 +1301,7 @@ describe("XRPC Endpoints", () => {
 				),
 				env,
 			);
-			expect(getResponse.status).toBe(404);
+			expect(getResponse.status).toBe(400);
 		});
 
 		it("rejects two creates for the same rkey as 409 RecordAlreadyExists", async () => {

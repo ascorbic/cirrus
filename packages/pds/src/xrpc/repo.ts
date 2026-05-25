@@ -194,7 +194,7 @@ export async function getRecord(
 				error: "RecordNotFound",
 				message: `Record not found: ${collection}/${rkey}`,
 			},
-			404,
+			400,
 		);
 	}
 
@@ -372,17 +372,7 @@ export async function deleteRecord(
 	try {
 		const result = await accountDO.rpcDeleteRecord(collection, rkey);
 
-		if (!result) {
-			return c.json(
-				{
-					error: "RecordNotFound",
-					message: `Record not found: ${collection}/${rkey}`,
-				},
-				404,
-			);
-		}
-
-		return c.json(result);
+		return c.json(result ?? {});
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
 		if (deactivatedError) return deactivatedError;

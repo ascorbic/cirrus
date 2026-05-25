@@ -564,6 +564,80 @@ const getRecordValidates: Check = {
 	},
 };
 
+const getRecordMissing: Check = {
+	id: "repo-read.get-record-missing",
+	category: "repo-read",
+	label: "getRecord returns 400 RecordNotFound for missing record",
+	description:
+		"Matches the reference @atproto PDS, which raises InvalidRequestError (HTTP 400) with error 'RecordNotFound' rather than returning a 404. Clients that probe a record before writing it (for example detaching a quote, which checks app.bsky.feed.postgate first) rely on this.",
+	requires: ["pds", "did"],
+	run: async (ctx): Promise<CheckOutcome> => {
+		const pds = ctx.pds!;
+		const did = ctx.did!;
+		const collection = sampleRecord?.collection ?? "app.bsky.feed.post";
+		const rkey = `pdscheck-missing-${Date.now().toString(36)}`;
+		const url = xrpcUrl(pds, "com.atproto.repo.getRecord", {
+			repo: did,
+			collection,
+			rkey,
+		});
+		try {
+			const res = await fetch(url);
+			let body: unknown;
+			try {
+				body = await res.json();
+			} catch {
+				body = await res.text().catch(() => undefined);
+			}
+			if (res.status !== 400) {
+				return {
+					status: "fail",
+					message: `Expected 400, got ${res.status}`,
+					evidence: {
+						request: { method: "GET", url },
+						response: { status: res.status, body },
+						expected: 400,
+						actual: res.status,
+					},
+				};
+			}
+			const error =
+				body && typeof body === "object" && "error" in body
+					? (body as { error: unknown }).error
+					: undefined;
+			if (error !== "RecordNotFound") {
+				return {
+					status: "fail",
+					message: `Expected error 'RecordNotFound', got ${JSON.stringify(error)}`,
+					evidence: {
+						request: { method: "GET", url },
+						response: { status: res.status, body },
+						expected: "RecordNotFound",
+						actual: error,
+					},
+				};
+			}
+			return {
+				status: "pass",
+				message: "400 RecordNotFound",
+				evidence: {
+					request: { method: "GET", url },
+					response: { status: res.status, body },
+				},
+			};
+		} catch (error) {
+			return {
+				status: "fail",
+				message: error instanceof Error ? error.message : String(error),
+				evidence: {
+					request: { method: "GET", url },
+					error: String(error),
+				},
+			};
+		}
+	},
+};
+
 const getRepoCarValidates: Check = {
 	id: "repo-read.get-repo-car.validates",
 	category: "repo-read",
@@ -635,6 +709,7 @@ export const repoReadChecks: Check[] = [
 	listRecordsValidates,
 	getRecord,
 	getRecordValidates,
+	getRecordMissing,
 	listRecordsCursor,
 	getRepoCar,
 	getRepoCarValidates,
