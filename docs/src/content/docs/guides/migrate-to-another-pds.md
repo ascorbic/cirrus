@@ -3,7 +3,7 @@ title: Migrate to another PDS
 description: Move an account off Cirrus to a different PDS implementation while keeping the DID and the followers.
 ---
 
-Migration off Cirrus is a defined operation. The target PDS performs the migration; Cirrus generates a short-lived token that authorises the transfer.
+Migration away from Cirrus is performed by the target PDS, or a tool such as [PDS Moover](https://pdsmoover.com/); Cirrus generates a short-lived token that authorises the transfer.
 
 This guide covers the Cirrus side of the operation. The target PDS's documentation covers the import side.
 
@@ -13,13 +13,12 @@ Reasons to migrate away from Cirrus include:
 
 - Switching to a multi-user or organisational PDS.
 - Moving off Cloudflare to a self-managed host.
-- The account has outgrown the [hard limits](/concepts/costs-and-limits/) of a single Durable Object.
 
 The DID and the followers transfer. The account experience on Bluesky does not change.
 
 ## Generate the migration token
 
-Cirrus issues a stateless migration token signed with the account's signing key. The token authorises the target PDS to export the repository and rotate the DID.
+Cirrus issues a stateless migration token signed with the account's signing key. The target PDS or tool may mention this as being emailed, but Cirrus uses the CLI not email. The token authorises the target PDS to export the repository and rotate the DID.
 
 ```bash
 pnpm pds migrate-token

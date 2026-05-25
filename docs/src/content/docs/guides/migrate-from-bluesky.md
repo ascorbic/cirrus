@@ -5,8 +5,6 @@ description: Move an existing Bluesky-hosted account to Cirrus, including the DI
 
 This guide moves an existing account from `bsky.social` (or any other PDS) to a Cirrus deployment. The account keeps its DID, its followers, its posts, and its handle.
 
-Migration is the path that has had the most testing in Cirrus. It works end to end, but it is the most consequential operation Cirrus performs. Read the [Back up your signing key](/guides/back-up-signing-key/) guide before starting.
-
 ## Before starting
 
 Make sure the following are in place:

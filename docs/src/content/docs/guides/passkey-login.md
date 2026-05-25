@@ -3,7 +3,7 @@ title: Set up passkey login
 description: Register a passkey for passwordless sign-in through the Cirrus OAuth flow.
 ---
 
-A passkey replaces a typed password with a device-held credential. Cirrus supports passkeys on its OAuth 2.1 authorisation page: any OAuth flow can sign in with a registered passkey instead of the account password.
+A passkey replaces a typed password with a device-held credential. This might be a biometric ID on a phone or computer, a password manager or physical pass key. Cirrus supports passkeys on its OAuth 2.1 authorisation page: any OAuth flow can sign in with a registered passkey instead of the account password.
 
 ## What a passkey gives
 
@@ -11,7 +11,7 @@ A passkey replaces a typed password with a device-held credential. Cirrus suppor
 - **Phishing resistance.** A passkey is bound to the origin and cannot be replayed against a lookalike site.
 - **Per-device credentials.** Each device gets its own passkey. Losing a device means revoking one credential, not resetting the account.
 
-Passkeys do not replace the account password for the Bluesky app's `createSession` flow. They are specifically for OAuth-based sign-in. The Bluesky app uses `createSession`; OAuth-based AT Protocol clients use the OAuth flow.
+Passkeys do not replace the account password for the Bluesky app's `createSession` flow.
 
 ## Register a passkey
 
@@ -59,7 +59,7 @@ The command prompts to select a passkey from the list.
 
 ## Recovery if all passkeys are lost
 
-If every passkey is unusable (device lost, all credentials wiped), the account password still works. Sign in with the password and re-register a fresh passkey.
+If every passkey is unusable (device lost, all credentials wiped), the account password still works. You can also create a new passkey from the CLI with `pds passkey add`.
 
 If the account password is also unknown, set a new one:
 

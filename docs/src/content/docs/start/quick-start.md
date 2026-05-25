@@ -11,7 +11,7 @@ The [Atmosphere Conference talk](/#watch-the-walkthrough) on the home page cover
 
 ## Scaffold and set up
 
-Run the scaffolder from an empty directory:
+Run the `create-pds` scaffolder:
 
 ```bash
 npm create pds@latest
@@ -36,7 +36,7 @@ The setup wizard then collects the information needed to deploy:
 The wizard generates a signing key, a JWT secret, and a password hash. It writes the public values to `wrangler.jsonc` and the secrets to `.dev.vars`.
 
 :::danger[Back up the signing key]
-The wizard prints the signing key once. Save it to a password manager or an encrypted backup before continuing. Cloudflare secrets cannot be retrieved after they are set, and a lost key cannot be recovered for `did:web` accounts. See [Back up your signing key](/guides/back-up-signing-key/).
+If you are creating a new `did:web` account, the wizard prints the signing key once. Save it to a password manager or an encrypted backup before continuing. Cloudflare secrets cannot be retrieved after they are set, and a lost key cannot be recovered for `did:web` accounts. See [Back up your signing key](/guides/back-up-signing-key/).
 :::
 
 For a non-interactive scaffold (defaults for everything), use the `--yes` flag:

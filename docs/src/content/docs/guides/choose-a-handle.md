@@ -11,12 +11,12 @@ Cirrus supports two verification methods. The choice depends on whether the hand
 
 If the handle shares its domain with the PDS, no DNS configuration is needed.
 
-For example, with PDS hostname `pds.example.com` and handle `alice.example.com`:
+For example, with PDS hostname `alice.example.com` and handle `alice.example.com`:
 
 - Cirrus serves `https://alice.example.com/.well-known/atproto-did` automatically.
 - The network resolves the handle by fetching that URL.
 
-This is the simplest setup. The wizard configures it automatically when the handle and the PDS hostname share a registrable domain.
+This is the simplest setup. The wizard configures it automatically when the handle and the PDS hostname match.
 
 ## Cross-host handles
 
@@ -59,8 +59,6 @@ For `did:plc` accounts, the handle can be changed without affecting the DID:
 2. Update the handle on Cirrus by editing `HANDLE` in `wrangler.jsonc` and redeploying.
 3. Submit a PLC operation to update the DID document's `alsoKnownAs` entry. The Bluesky app's settings page can do this. Otherwise, submit the operation directly to `plc.directory` — see the [PLC method spec](https://github.com/did-method-plc/did-method-plc).
 
-For `did:web` accounts, the handle is tied to the DID. Changing the handle means changing the DID, which is a full account migration.
-
 ## Picking a good handle
 
 - **Use a domain that will last.** The handle is the public-facing name. Losing the domain means losing the handle.
@@ -69,6 +67,5 @@ For `did:web` accounts, the handle is tied to the DID. Changing the handle means
 
 ## What handles cannot do
 
-- A handle cannot end in a reserved suffix (`.local`, `.invalid`).
 - A handle cannot collide with an existing one: handles are unique across the AT Protocol network. Bluesky's namespace conventions apply.
 - A handle is not the account's identity; the DID is. A leaked or stolen handle is recoverable. A lost signing key is not. See [Identity and your signing key](/concepts/identity/).

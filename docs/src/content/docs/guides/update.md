@@ -27,16 +27,8 @@ Cirrus follows semver while in beta, but the surface area is still in flux. Brea
 ## Update the dependency
 
 ```bash
-pnpm update @getcirrus/pds
-```
-
-For a major-version bump, allow majors:
-
-```bash
 pnpm update @getcirrus/pds --latest
 ```
-
-If both packages updated, also update `@getcirrus/oauth-provider`.
 
 ## Test locally
 
@@ -52,7 +44,7 @@ The Vite dev server starts the Worker locally on port 5173. Use `pds status --de
 pnpm run deploy
 ```
 
-`wrangler deploy` pushes the updated Worker. The Durable Object's storage is preserved. Existing sessions remain valid unless a release explicitly invalidates them (the changelog calls this out).
+This will build the worker and deploy it to Cloudflare. The Durable Object's storage is preserved. Existing sessions remain valid unless a release explicitly invalidates them (the changelog calls this out).
 
 After deploy, run `pds status` against production to confirm the upgraded Worker is healthy.
 

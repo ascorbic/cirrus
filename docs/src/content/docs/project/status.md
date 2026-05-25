@@ -20,10 +20,6 @@ For the up-to-date detail, the [plan documents](https://github.com/ascorbic/cirr
 - **Session auth.** Bluesky app sign-in via `createSession` with password or app password.
 - **App passwords.** Per-client revocable credentials.
 - **CLI.** Setup wizard, migration, identity rotation, status, dashboard, secret management.
-
-## What is in progress
-
-- **Passkey UX polish.** Registration and sign-in flows are functional; recovery edge cases are being firmed up.
 - **Granular scope coverage.** Most endpoints enforce scope; a few admin-style endpoints still need fine-grained checks.
 
 ## What is deliberately out of scope
@@ -41,7 +37,6 @@ Plans in the queue but not committed:
 
 - Deeper observability hooks (custom log destinations, structured event emission).
 - A web UI for operator tasks that the CLI handles today.
-- Optional cron-driven CAR exports to an external bucket for off-site backup.
 
 ## Beta caveats
 
@@ -49,7 +44,6 @@ The breaking-changes risk is concentrated in:
 
 - **Storage schema.** The Durable Object's SQLite schema can change between minor versions. The release notes call out migrations.
 - **Wire-level details of the firehose.** Sync 1.1 is the current target; further protocol changes are possible.
-- **OAuth scope grammar.** Granular scopes are an active spec area.
 
 The `@getcirrus/pds` changelog is the canonical place to read about breaking changes before updating. See [Update a deployed PDS](/guides/update/).
 

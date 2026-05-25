@@ -15,10 +15,10 @@ pnpm pds status
 
 The status command prints the handle, the DID, the resolved DID document, the repository revision, and the blob count. A green check next to **Handle resolves** confirms that the network can find the account from the handle.
 
-For a manual check, query the resolver endpoint:
+For a manual check, open the resolver endpoint:
 
 ```bash
-curl "https://pds.example.com/xrpc/com.atproto.identity.resolveHandle?handle=alice.example.com"
+https://pds.example.com/xrpc/com.atproto.identity.resolveHandle?handle=alice.example.com
 ```
 
 The response is `{"did": "did:..."}`.
@@ -37,29 +37,15 @@ The Bluesky mobile and web apps support custom PDS hosts via the **Hosting provi
 
 Once signed in, the app fetches the repository, refreshes the feed, and the account is live.
 
-## What happens behind the scenes
-
-The Bluesky app calls `com.atproto.server.createSession` against the custom PDS. Cirrus verifies the password against the bcrypt hash in `PASSWORD_HASH` and returns a session JWT pair (access and refresh). The app then talks to the PDS for write operations and to the Bluesky AppView (`api.bsky.app`) for reads — the PDS proxies unknown XRPC methods to the AppView automatically. See [Authentication methods](/concepts/auth/) for the full picture.
-
 ## Optional: register a passkey for OAuth sign-ins
 
-Passkeys in Cirrus are for the OAuth authorization flow. They let OAuth clients (and the Cirrus OAuth authorize page) sign in without typing the account password. They do **not** replace the password for the Bluesky app: that app uses `createSession`, which is password-based.
+Passkeys in Cirrus are for the OAuth authorization flow. They are a secure way to login to other Atmosphere apps such as Leaflet or Tangled, without sharing your account password. They do **not** replace the password for the Bluesky app:
 
 ```bash
 pnpm pds passkey add
 ```
 
 The command prints a URL (and QR code) that opens a registration page valid for ten minutes. Follow [Set up passkey login](/guides/passkey-login/) for the full flow.
-
-## Optional: create an app password for third-party clients
-
-App passwords let third-party AT Protocol clients sign in without exposing the main account password:
-
-```bash
-pnpm pds app-password create
-```
-
-See [Create an app password](/guides/app-password/) for details.
 
 ## Next
 

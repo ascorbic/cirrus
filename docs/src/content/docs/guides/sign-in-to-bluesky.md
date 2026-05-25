@@ -13,15 +13,11 @@ The Bluesky app (mobile and web) supports custom PDS hosts. The hosting provider
 4. Enter the PDS hostname, for example `pds.example.com`.
 5. Enter the handle (for example `alice.example.com`) and the account password set during `pds init`.
 
-The app calls `com.atproto.server.createSession` on the custom PDS. On success, it loads the timeline.
+The app logs-in to your Cirrus PDS. On success, it loads the timeline.
 
 ## How the app talks to Cirrus afterwards
 
-Once signed in, the app sends write operations to Cirrus and reads to the Bluesky AppView (`api.bsky.app`).
-
-Cirrus proxies any XRPC method it does not implement directly to the AppView, attaching a service JWT signed by the account. This is what makes feeds, notifications, search, and profile views work without Cirrus implementing each endpoint.
-
-The user does not see a difference between a Cirrus-hosted account and a `bsky.social`-hosted account in the app.
+Once signed in, the Bluesky app will use your Cirrus PDS for all API calls. This is transparent to the user: the app's UI and features work the same as with `bsky.social`. The only difference is that behind the scenes, the app talks to your Cirrus PDS instead of `bsky.social`'s PDS.
 
 ## Using an app password instead
 
@@ -35,9 +31,9 @@ The CLI prints the password once (format `xxxx-xxxx-xxxx-xxxx`). Use it on the s
 
 ## Trouble signing in
 
-**"Could not connect to PDS"** — verify the PDS hostname. `curl https://pds.example.com/xrpc/com.atproto.server.describeServer` should return JSON.
+**"Could not connect to PDS"** — verify the PDS hostname. `https://pds.example.com/xrpc/com.atproto.server.describeServer` should return JSON.
 
-**"Invalid handle or password"** — verify that the handle resolves to the expected DID (`pds status`) and that the password matches the bcrypt hash in `PASSWORD_HASH`. If the password was lost, set a new one with `pds secret password` (it pushes a new hash to Cloudflare).
+**"Invalid handle or password"** — make sure you're loggin-in with your handle, not your email address. Verify that the handle resolves to the expected DID (`pds status`) and that the password matches the bcrypt hash in `PASSWORD_HASH`. If the password was lost, set a new one with `pds secret password` (it pushes a new hash to Cloudflare).
 
 **The app signs in but the timeline is empty** — the account is brand new and follows nobody. Follow accounts to populate the timeline.
 
