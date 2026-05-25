@@ -19,8 +19,9 @@ Refer to [Cloudflare's current pricing](https://developers.cloudflare.com/worker
 
 For an active single-user account on the Bluesky network, expect:
 
-- **Worker requests:** hundreds to low thousands per day, mostly firehose subscribers polling and the Bluesky app's reads.
+- **Worker requests:** hundreds to low thousands per day, mostly firehose subscribers and the Bluesky app's reads when you are actively using Bluesky.
 - **Durable Object requests:** every write, every firehose broadcast. Lower than the Worker count.
+- **Durable Object SQLite queries:** these are billed by the row, so large repos with many records can have higher costs. The more expensive operations are cached aggressively to keep this low.
 - **Durable Object storage:** under 100 MB for the repository in most cases.
 - **R2 storage:** dominated by blobs. A few hundred MB for an account with many image posts.
 - **R2 operations:** one Class A per blob upload, one Class B per blob fetch.
@@ -29,9 +30,10 @@ The free tier of Workers covers up to 100,000 requests per day, which is well ab
 
 ## What can push the bill up
 
-- **A popular post.** A large number of clients fetching the same blob increases Class B operations.
-- **A firehose subscriber that reconnects often.** Each reconnect replays from a cursor and re-broadcasts events. Well-behaved relays do not do this.
-- **Many large blobs.** Video, in particular, increases R2 storage.
+In day-to-day use, most requests are not read directly from a PDS, but are served from caches or relays. However by its nature a PDS is a public source of truth, and any client can query it directly. This means that unusual traffic patterns can emerge from the network, and the PDS operator has no control over this.
+
+- **Misbehaving firehose subscribers.** A poorly-configured relay can sometimes make a lot of requests. If a client reconnects often, each reconnect replays from a cursor and re-broadcasts events. Well-behaved relays do not do this.
+- **Many large blobs.** Video, in particular, increases R2 storage. This is unlikely to be a problem for most personal accounts.
 
 Cirrus does not implement any rate limiting beyond what Cloudflare provides. For unusual traffic, the Cloudflare dashboard's analytics show what is consuming requests.
 
@@ -39,18 +41,18 @@ Cirrus does not implement any rate limiting beyond what Cloudflare provides. For
 
 These are limits set by Cirrus or by the platform that cannot be raised without code changes:
 
-| Limit | Value | Source |
-|---|---|---|
-| Blob upload size | 60 MB | Cirrus |
-| Single Worker request CPU | 30 s (paid) / 10 ms (free) | Cloudflare Workers |
-| Durable Object SQLite size | 10 GB | Cloudflare Durable Objects |
-| Single record size | ~1 MB practical | AT Protocol + lexicon |
-| WebSocket message size | 1 MB | Cloudflare Workers |
-| Concurrent WebSocket connections per DO | thousands (no hard limit) | Cloudflare Durable Objects |
+| Limit                                   | Value                      | Source                     |
+| --------------------------------------- | -------------------------- | -------------------------- |
+| Blob upload size                        | 60 MB                      | Cirrus                     |
+| Single Worker request CPU               | 30 s (paid) / 10 ms (free) | Cloudflare Workers         |
+| Durable Object SQLite size              | 10 GB                      | Cloudflare Durable Objects |
+| Single record size                      | ~1 MB practical            | AT Protocol + lexicon      |
+| WebSocket message size                  | 1 MB                       | Cloudflare Workers         |
+| Concurrent WebSocket connections per DO | thousands (no hard limit)  | Cloudflare Durable Objects |
 
-The 60 MB blob limit is hardcoded in `uploadBlob`. That covers full-resolution photos and short videos. Anything larger — long-form video, raw camera files — has to be split, hosted externally, or compressed before upload.
+The 60 MB blob limit is hardcoded in `uploadBlob`. That covers full-resolution photos and short videos. The Bluesky app will compress video before uploading the blob, and places its own limits on file sizes. However other apps might upload larger files. Anything larger has to be split, hosted externally, or compressed before upload.
 
-The 10 GB SQLite limit is the ceiling for the repository size. For context, the repository is the metadata — record values, MST nodes, commit log. Blobs are not counted. A heavily-used personal account is in the low hundreds of MB.
+The 10 GB SQLite limit is the ceiling for the repository size. The repository is the metadata — record values, MST nodes, commit log. Blobs are not counted. A heavily-used personal account is in the low hundreds of MB.
 
 ## Soft limits worth knowing
 
