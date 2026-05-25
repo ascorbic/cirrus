@@ -192,7 +192,7 @@ export async function getRecord(
 		return c.json(
 			{
 				error: "RecordNotFound",
-				message: `Record not found: ${collection}/${rkey}`,
+				message: `Could not locate record: at://${repo}/${collection}/${rkey}`,
 			},
 			400,
 		);
