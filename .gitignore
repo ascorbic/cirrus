@@ -27,3 +27,5 @@ pnpm-debug.log*
 
 # Signing key backups (created by pds init)
 signing-key-backup-*.txt
+
+.claude
