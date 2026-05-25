@@ -569,7 +569,7 @@ const getRecordMissing: Check = {
 	category: "repo-read",
 	label: "getRecord returns 400 RecordNotFound for missing record",
 	description:
-		"Matches the reference @atproto PDS, which raises InvalidRequestError (HTTP 400) with error 'RecordNotFound' rather than returning a 404. Clients that probe a record before writing it (for example detaching a quote, which checks app.bsky.feed.postgate first) rely on this.",
+		"Matches the reference @atproto PDS, which raises InvalidRequestError (HTTP 400) with error 'RecordNotFound' rather than returning a 404, and includes the phrase 'Could not locate record:' in the message. Clients probe a record before writing it (for example detaching a quote, which checks app.bsky.feed.postgate first), and the Bluesky social-app does a literal substring match on that phrase to decide whether to create vs. update.",
 	requires: ["pds", "did"],
 	run: async (ctx): Promise<CheckOutcome> => {
 		const pds = ctx.pds!;
@@ -617,9 +617,29 @@ const getRecordMissing: Check = {
 					},
 				};
 			}
+			const message =
+				body && typeof body === "object" && "message" in body
+					? (body as { message: unknown }).message
+					: undefined;
+			if (
+				typeof message !== "string" ||
+				!message.includes("Could not locate record:")
+			) {
+				return {
+					status: "fail",
+					message:
+						"Expected message to include 'Could not locate record:' (Bluesky social-app substring-matches this phrase when detaching a quote)",
+					evidence: {
+						request: { method: "GET", url },
+						response: { status: res.status, body },
+						expected: "Could not locate record: <at-uri>",
+						actual: message,
+					},
+				};
+			}
 			return {
 				status: "pass",
-				message: "400 RecordNotFound",
+				message: "400 RecordNotFound with social-app-compatible message",
 				evidence: {
 					request: { method: "GET", url },
 					response: { status: res.status, body },
