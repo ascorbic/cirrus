@@ -1,5 +1,17 @@
 # @getcirrus/pds
 
+## 0.17.0
+
+### Minor Changes
+
+- [#187](https://github.com/ascorbic/cirrus/pull/187) [`838001e`](https://github.com/ascorbic/cirrus/commit/838001e84b50707958aac2c8383d5a22a13bb7d2) Thanks [@ascorbic](https://github.com/ascorbic)! - Remove `com.atproto.identity.resolveDid`, `com.atproto.identity.resolveIdentity`, and `com.atproto.sync.listReposByCollection` handlers. These lexicons are implemented by the directory and relay layers, not the PDS — the reference @atproto PDS doesn't expose them either. Requests for these methods now fall through to the AppView proxy like any other unknown XRPC call.
+
+### Patch Changes
+
+- [#189](https://github.com/ascorbic/cirrus/pull/189) [`5677603`](https://github.com/ascorbic/cirrus/commit/5677603c90a0e729c8b37b3391cb96239111ff93) Thanks [@ascorbic](https://github.com/ascorbic)! - Align `com.atproto.repo.getRecord` and `com.atproto.repo.deleteRecord` error handling with the reference @atproto PDS:
+  - `getRecord` now returns HTTP 400 (not 404) with `RecordNotFound` when the record is missing. The reference PDS raises `InvalidRequestError`, which maps to 400.
+  - `deleteRecord` on a missing record is now a 200 no-op (returning an empty body with no commit) instead of `RecordNotFound`, matching the reference PDS.
+
 ## 0.16.0
 
 ### Minor Changes
