@@ -87,14 +87,14 @@ describe("CRUD Operations", () => {
 			expect(getResult.data.cid).toBe(createResult.data.cid);
 		});
 
-		it("returns 404 for non-existent record", async () => {
+		it("returns RecordNotFound for non-existent record", async () => {
 			await expect(
 				agent.com.atproto.repo.getRecord({
 					repo: TEST_DID,
 					collection: "app.bsky.feed.post",
 					rkey: "non-existent-rkey-12345",
 				}),
-			).rejects.toThrow();
+			).rejects.toMatchObject({ error: "RecordNotFound", status: 400 });
 		});
 	});
 
@@ -188,16 +188,14 @@ describe("CRUD Operations", () => {
 			).rejects.toThrow();
 		});
 
-		it("throws when deleting non-existent record", async () => {
-			// AT Protocol spec allows this to throw or no-op
-			// Our implementation throws RecordNotFound
-			await expect(
-				agent.com.atproto.repo.deleteRecord({
-					repo: TEST_DID,
-					collection: "app.bsky.feed.post",
-					rkey: "non-existent-rkey-67890",
-				}),
-			).rejects.toThrow();
+		it("treats deleting a non-existent record as a no-op", async () => {
+			const res = await agent.com.atproto.repo.deleteRecord({
+				repo: TEST_DID,
+				collection: "app.bsky.feed.post",
+				rkey: "non-existent-rkey-67890",
+			});
+			expect(res.success).toBe(true);
+			expect(res.data.commit).toBeUndefined();
 		});
 	});
 
