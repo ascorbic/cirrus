@@ -200,9 +200,6 @@ app.get("/xrpc/com.atproto.sync.getBlob", (c) =>
 app.get("/xrpc/com.atproto.sync.listRepos", (c) =>
 	sync.listRepos(c, getAccountDO(c.env)),
 );
-app.get("/xrpc/com.atproto.sync.listReposByCollection", (c) =>
-	sync.listReposByCollection(c, getAccountDO(c.env)),
-);
 app.get("/xrpc/com.atproto.sync.listBlobs", (c) =>
 	sync.listBlobs(c, getAccountDO(c.env)),
 );
@@ -289,15 +286,6 @@ app.use("/xrpc/com.atproto.identity.resolveHandle", async (c, next) => {
 	}
 	await next();
 });
-
-// DID resolution - serve our DID doc for our DID, others fall through to proxy
-app.use("/xrpc/com.atproto.identity.resolveDid", identity.resolveDid);
-
-// Identity resolution - serve our identity for our DID/handle, others fall through
-app.use(
-	"/xrpc/com.atproto.identity.resolveIdentity",
-	identity.resolveIdentity,
-);
 
 // Recommended PLC credentials for inbound migration
 app.get(

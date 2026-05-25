@@ -250,26 +250,6 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * RPC method: Check whether the repo contains any records in a collection.
-	 */
-	async rpcHasRecordsInCollection(collection: string): Promise<boolean> {
-		const repo = await this.getRepo();
-		const storage = await this.getStorage();
-
-		if (!storage.hasCollections() && (await storage.getRoot())) {
-			const seen = new Set<string>();
-			for await (const record of repo.walkRecords()) {
-				if (!seen.has(record.collection)) {
-					seen.add(record.collection);
-					storage.addCollection(record.collection);
-				}
-			}
-		}
-
-		return storage.getCollections().includes(collection);
-	}
-
-	/**
 	 * RPC method: Get a single record
 	 */
 	async rpcGetRecord(

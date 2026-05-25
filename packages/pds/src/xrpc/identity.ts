@@ -16,7 +16,7 @@ import type { Context } from "hono";
 import { Secp256k1Keypair } from "@atproto/crypto";
 import { encode } from "@atcute/cbor";
 import { base64url } from "jose";
-import type { AppEnv, AuthedAppEnv, PDSEnv } from "../types";
+import type { AuthedAppEnv, PDSEnv } from "../types";
 import {
 	createMigrationToken,
 	validateMigrationToken,
@@ -27,8 +27,7 @@ const PLC_DIRECTORY = "https://plc.directory";
 /**
  * Build the DID document for the local account.
  *
- * Shared between /.well-known/did.json and the
- * com.atproto.identity.resolveDid / resolveIdentity endpoints.
+ * Served by /.well-known/did.json.
  */
 export function buildDidDocument(env: PDSEnv) {
 	return {
@@ -55,63 +54,6 @@ export function buildDidDocument(env: PDSEnv) {
 			},
 		],
 	};
-}
-
-/**
- * Resolve a DID to its DID document.
- *
- * For our local DID we serve the document directly. Any other DID is
- * passed through to the next handler (the AppView proxy).
- *
- * Endpoint: GET com.atproto.identity.resolveDid
- */
-export async function resolveDid(
-	c: Context<AppEnv>,
-	next: () => Promise<void>,
-): Promise<Response | void> {
-	const did = c.req.query("did");
-	if (!did) {
-		return c.json(
-			{ error: "InvalidRequest", message: "Missing required parameter: did" },
-			400,
-		);
-	}
-	if (did === c.env.DID) {
-		return c.json({ didDoc: buildDidDocument(c.env) });
-	}
-	await next();
-}
-
-/**
- * Resolve an identifier (handle or DID) to its full identity.
- *
- * For our local handle or DID we serve the response directly. Anything
- * else falls through to the AppView proxy.
- *
- * Endpoint: GET com.atproto.identity.resolveIdentity
- */
-export async function resolveIdentity(
-	c: Context<AppEnv>,
-	next: () => Promise<void>,
-): Promise<Response | void> {
-	const identifier = c.req.query("identifier");
-	if (!identifier) {
-		return c.json(
-			{
-				error: "InvalidRequest",
-				message: "Missing required parameter: identifier",
-			},
-			400,
-		);
-	}
-	if (identifier === c.env.DID || identifier === c.env.HANDLE) {
-		return c.json({
-			did: c.env.DID,
-			handle: c.env.HANDLE,
-			didDoc: buildDidDocument(c.env),
-		});
-	}
-	await next();
 }
 
 /**

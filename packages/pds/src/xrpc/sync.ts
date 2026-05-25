@@ -117,39 +117,6 @@ export async function listRepos(
 	});
 }
 
-export async function listReposByCollection(
-	c: Context<AppEnv>,
-	accountDO: DurableObjectStub<AccountDurableObject>,
-): Promise<Response> {
-	const collection = c.req.query("collection");
-
-	if (!collection) {
-		return c.json(
-			{
-				error: "InvalidRequest",
-				message: "Missing required parameter: collection",
-			},
-			400,
-		);
-	}
-
-	if (!isNsid(collection)) {
-		return c.json(
-			{
-				error: "InvalidRequest",
-				message: "Invalid collection format (must be NSID)",
-			},
-			400,
-		);
-	}
-
-	const hasRecords = await accountDO.rpcHasRecordsInCollection(collection);
-
-	return c.json({
-		repos: hasRecords ? [{ did: c.env.DID }] : [],
-	});
-}
-
 export async function getLatestCommit(
 	c: Context<AppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,

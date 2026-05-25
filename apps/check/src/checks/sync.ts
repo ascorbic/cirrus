@@ -2,24 +2,19 @@ import {
 	ComAtprotoSyncGetBlocks,
 	ComAtprotoSyncGetLatestCommit,
 	ComAtprotoSyncGetRepoStatus,
-	ComAtprotoSyncListReposByCollection,
 } from "@atcute/atproto";
-import type { Did, Nsid } from "@atcute/lexicons/syntax";
+import type { Did } from "@atcute/lexicons/syntax";
 import { publicClient, validateLexicon } from "../lib/xrpc";
 import type { Check, CheckOutcome } from "../types";
 
 let getLatestCommitResponse: ComAtprotoSyncGetLatestCommit.$output | undefined;
 let getRepoStatusResponse: ComAtprotoSyncGetRepoStatus.$output | undefined;
 let getBlocksResponseBytes: Uint8Array | undefined;
-let listReposByCollectionResponse:
-	| ComAtprotoSyncListReposByCollection.$output
-	| undefined;
 
 function reset() {
 	getLatestCommitResponse = undefined;
 	getRepoStatusResponse = undefined;
 	getBlocksResponseBytes = undefined;
-	listReposByCollectionResponse = undefined;
 }
 
 function xrpcUrl(
@@ -241,75 +236,6 @@ const getBlocksValidates: Check = {
 	},
 };
 
-const listReposByCollection: Check = {
-	id: "sync.list-repos-by-collection",
-	category: "sync",
-	label: "listReposByCollection",
-	requires: ["pds", "did"],
-	run: async (ctx): Promise<CheckOutcome> => {
-		const pds = ctx.pds!;
-		const collection = "app.bsky.actor.profile";
-		const url = xrpcUrl(pds, "com.atproto.sync.listReposByCollection", {
-			collection,
-			limit: "5",
-		});
-		try {
-			const res = await publicClient(pds).get(
-				"com.atproto.sync.listReposByCollection",
-				{ params: { collection: collection as Nsid, limit: 5 } },
-			);
-			if (!res.ok) {
-				return {
-					status: "fail",
-					message:
-						`${res.data.error}: ${res.data.message ?? ""}`.trim(),
-					evidence: {
-						request: { method: "GET", url },
-						response: { status: res.status, body: res.data },
-					},
-				};
-			}
-			listReposByCollectionResponse = res.data;
-			return {
-				status: "pass",
-				message: `${res.data.repos.length} repos for ${collection}`,
-				evidence: {
-					request: { method: "GET", url },
-					response: { status: res.status, body: res.data },
-				},
-			};
-		} catch (error) {
-			return {
-				status: "fail",
-				message: error instanceof Error ? error.message : String(error),
-				evidence: {
-					request: { method: "GET", url },
-					error: String(error),
-				},
-			};
-		}
-	},
-};
-
-const listReposByCollectionValidates: Check = {
-	id: "sync.list-repos-by-collection.validates",
-	category: "sync",
-	label: "listReposByCollection response matches lexicon",
-	requires: ["pds", "did"],
-	run: async (): Promise<CheckOutcome> => {
-		if (!listReposByCollectionResponse) {
-			return {
-				status: "skip",
-				message: "listReposByCollection did not succeed",
-			};
-		}
-		return validateLexicon(
-			ComAtprotoSyncListReposByCollection.mainSchema.output.schema,
-			listReposByCollectionResponse,
-		);
-	},
-};
-
 export const syncChecks: Check[] = [
 	getLatestCommit,
 	getLatestCommitValidates,
@@ -317,6 +243,4 @@ export const syncChecks: Check[] = [
 	getRepoStatusValidates,
 	getBlocks,
 	getBlocksValidates,
-	listReposByCollection,
-	listReposByCollectionValidates,
 ];

@@ -1,8 +1,4 @@
-import {
-	ComAtprotoIdentityResolveDid,
-	ComAtprotoIdentityResolveHandle,
-	ComAtprotoIdentityResolveIdentity,
-} from "@atcute/atproto";
+import { ComAtprotoIdentityResolveHandle } from "@atcute/atproto";
 import { getPdsEndpoint } from "@atcute/identity";
 import { isDid, isHandle, type Did, type Handle } from "@atcute/lexicons/syntax";
 import { didDocResolver, handleResolver } from "../lib/resolvers";
@@ -10,8 +6,6 @@ import { publicClient, validateLexicon } from "../lib/xrpc";
 import type { Check, CheckOutcome } from "../types";
 
 let pdsResolveHandleBody: ComAtprotoIdentityResolveHandle.$output | undefined;
-let pdsResolveDidBody: ComAtprotoIdentityResolveDid.$output | undefined;
-let pdsResolveIdentityBody: ComAtprotoIdentityResolveIdentity.$output | undefined;
 
 const parseInput: Check = {
 	id: "identity.parse-input",
@@ -229,103 +223,6 @@ const pdsResolveHandleValidates: Check = {
 	},
 };
 
-const pdsResolveDid: Check = {
-	id: "identity.pds-resolve-did",
-	category: "identity",
-	label: "PDS resolves DID to document",
-	requires: ["pds", "did"],
-	run: async (ctx): Promise<CheckOutcome> => {
-		pdsResolveDidBody = undefined;
-		const client = publicClient(ctx.pds!);
-		const res = await client.get("com.atproto.identity.resolveDid", {
-			params: { did: ctx.did as Did },
-		});
-		if (!res.ok) {
-			return {
-				status: "fail",
-				message: `${res.data.error}: ${res.data.message ?? ""}`.trim(),
-				evidence: { response: { status: res.status, body: res.data } },
-			};
-		}
-		pdsResolveDidBody = res.data;
-		return {
-			status: "pass",
-			message: `didDoc with ${res.data.didDoc ? "didDoc" : "no didDoc"}`,
-			evidence: { response: { body: res.data } },
-		};
-	},
-};
-
-const pdsResolveDidValidates: Check = {
-	id: "identity.pds-resolve-did.validates",
-	category: "identity",
-	label: "PDS resolveDid response matches lexicon",
-	requires: ["pds", "did"],
-	run: async (): Promise<CheckOutcome> => {
-		if (!pdsResolveDidBody) {
-			return { status: "skip", message: "no response to validate" };
-		}
-		return validateLexicon(
-			ComAtprotoIdentityResolveDid.mainSchema.output.schema,
-			pdsResolveDidBody,
-		);
-	},
-};
-
-const pdsResolveIdentity: Check = {
-	id: "identity.pds-resolve-identity",
-	category: "identity",
-	label: "PDS resolves identity (combined)",
-	requires: ["pds"],
-	run: async (ctx): Promise<CheckOutcome> => {
-		pdsResolveIdentityBody = undefined;
-		const identifier = ctx.handle ?? ctx.did;
-		if (!identifier) {
-			return { status: "skip", message: "no handle or DID in context" };
-		}
-		const client = publicClient(ctx.pds!);
-		const res = await client.get("com.atproto.identity.resolveIdentity", {
-			params: { identifier: identifier as Handle | Did },
-		});
-		if (!res.ok) {
-			return {
-				status: "fail",
-				message: `${res.data.error}: ${res.data.message ?? ""}`.trim(),
-				evidence: { response: { status: res.status, body: res.data } },
-			};
-		}
-		pdsResolveIdentityBody = res.data;
-		if (ctx.did && res.data.did !== ctx.did) {
-			return {
-				status: "fail",
-				message: `did mismatch: expected ${ctx.did}, got ${res.data.did}`,
-				evidence: { expected: ctx.did, actual: res.data.did },
-			};
-		}
-		return {
-			status: "pass",
-			message: `${res.data.did}`,
-			evidence: { response: { body: res.data } },
-		};
-	},
-};
-
-const pdsResolveIdentityValidates: Check = {
-	id: "identity.pds-resolve-identity.validates",
-	category: "identity",
-	label: "PDS resolveIdentity response matches lexicon",
-	requires: ["pds"],
-	run: async (): Promise<CheckOutcome> => {
-		if (!pdsResolveIdentityBody) {
-			return { status: "skip", message: "no response to validate" };
-		}
-		return validateLexicon(
-			ComAtprotoIdentityResolveIdentity.mainSchema.output.schema,
-			pdsResolveIdentityBody,
-		);
-	},
-};
-
 export const identityChecks: Check[] = [
 	parseInput,
 	resolveHandle,
@@ -333,8 +230,4 @@ export const identityChecks: Check[] = [
 	extractPdsEndpoint,
 	pdsResolveHandle,
 	pdsResolveHandleValidates,
-	pdsResolveDid,
-	pdsResolveDidValidates,
-	pdsResolveIdentity,
-	pdsResolveIdentityValidates,
 ];
