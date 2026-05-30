@@ -270,6 +270,181 @@ describe("XRPC Service Proxying", () => {
 		});
 	});
 
+	describe("getFeed service auth", () => {
+		const feedUri =
+			"at://did:web:creator.example.com/app.bsky.feed.generator/for-you";
+
+		const appviewDidDoc = {
+			"@context": ["https://www.w3.org/ns/did/v1"],
+			id: "did:web:appview.example.com",
+			service: [
+				{
+					id: "#bsky_appview",
+					type: "BskyAppView",
+					serviceEndpoint: "https://appview.example.com",
+				},
+			],
+		};
+
+		function decodeJwtPayload(authHeader: string | null): any {
+			expect(authHeader).toMatch(/^Bearer /);
+			const payloadB64 = authHeader!.slice(7).split(".")[1]!;
+			return JSON.parse(Buffer.from(payloadB64, "base64url").toString());
+		}
+
+		it("mints the service JWT with aud of the feed generator, not the appview", async () => {
+			let capturedAuth: string | null = null;
+
+			vi.stubGlobal(
+				"fetch",
+				vi.fn((url: string | URL, init?: RequestInit) => {
+					const u = url.toString();
+					if (u === "https://creator.example.com/.well-known/did.json") {
+						return Promise.resolve(
+							new Response(
+								JSON.stringify({
+									"@context": ["https://www.w3.org/ns/did/v1"],
+									id: "did:web:creator.example.com",
+									service: [
+										{
+											id: "#atproto_pds",
+											type: "AtprotoPersonalDataServer",
+											serviceEndpoint: "https://creator-pds.example.com",
+										},
+									],
+								}),
+								{
+									status: 200,
+									headers: { "Content-Type": "application/json" },
+								},
+							),
+						);
+					}
+					if (
+						u.startsWith(
+							"https://creator-pds.example.com/xrpc/com.atproto.repo.getRecord",
+						)
+					) {
+						return Promise.resolve(
+							new Response(
+								JSON.stringify({
+									uri: feedUri,
+									value: {
+										$type: "app.bsky.feed.generator",
+										did: "did:web:feedgen.example.com",
+									},
+								}),
+								{
+									status: 200,
+									headers: { "Content-Type": "application/json" },
+								},
+							),
+						);
+					}
+					if (u === "https://appview.example.com/.well-known/did.json") {
+						return Promise.resolve(
+							new Response(JSON.stringify(appviewDidDoc), {
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							}),
+						);
+					}
+					if (
+						u.startsWith(
+							"https://appview.example.com/xrpc/app.bsky.feed.getFeed",
+						)
+					) {
+						capturedAuth = new Headers(init?.headers).get("Authorization");
+						return Promise.resolve(
+							new Response(JSON.stringify({ feed: [] }), {
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							}),
+						);
+					}
+					return originalFetch(url, init);
+				}),
+			);
+
+			const response = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/app.bsky.feed.getFeed?feed=${encodeURIComponent(feedUri)}&limit=30`,
+					{
+						headers: {
+							"atproto-proxy": "did:web:appview.example.com#bsky_appview",
+							Authorization: `Bearer ${authToken}`,
+						},
+					},
+				),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+			const payload = decodeJwtPayload(capturedAuth);
+			expect(payload.aud).toBe("did:web:feedgen.example.com");
+			expect(payload.lxm).toBe("app.bsky.feed.getFeedSkeleton");
+		});
+
+		it("falls back to the appview aud when the feed record cannot be resolved", async () => {
+			let capturedAuth: string | null = null;
+
+			vi.stubGlobal(
+				"fetch",
+				vi.fn((url: string | URL, init?: RequestInit) => {
+					const u = url.toString();
+					if (u === "https://creator.example.com/.well-known/did.json") {
+						return Promise.resolve(
+							new Response(JSON.stringify({ error: "NotFound" }), {
+								status: 404,
+								headers: { "Content-Type": "application/json" },
+							}),
+						);
+					}
+					if (u === "https://appview.example.com/.well-known/did.json") {
+						return Promise.resolve(
+							new Response(JSON.stringify(appviewDidDoc), {
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							}),
+						);
+					}
+					if (
+						u.startsWith(
+							"https://appview.example.com/xrpc/app.bsky.feed.getFeed",
+						)
+					) {
+						capturedAuth = new Headers(init?.headers).get("Authorization");
+						return Promise.resolve(
+							new Response(JSON.stringify({ feed: [] }), {
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							}),
+						);
+					}
+					return originalFetch(url, init);
+				}),
+			);
+
+			const response = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/app.bsky.feed.getFeed?feed=${encodeURIComponent(feedUri)}&limit=30`,
+					{
+						headers: {
+							"atproto-proxy": "did:web:appview.example.com#bsky_appview",
+							Authorization: `Bearer ${authToken}`,
+						},
+					},
+				),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+			const payload = decodeJwtPayload(capturedAuth);
+			expect(payload.aud).toBe("did:web:appview.example.com");
+			expect(payload.lxm).toBe("app.bsky.feed.getFeed");
+		});
+	});
+
 	describe("Fallback behavior", () => {
 		it("should proxy getRecord with foreign DID to AppView", async () => {
 			vi.stubGlobal(

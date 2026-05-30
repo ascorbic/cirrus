@@ -10,7 +10,7 @@ import { isDid, isHandle } from "@atcute/lexicons/syntax";
 import { requireAuth } from "./middleware/auth";
 import { DidResolver } from "./did-resolver";
 import { WorkersDidCache } from "./did-cache";
-import { handleXrpcProxy } from "./xrpc-proxy";
+import { handleXrpcProxy, handleGetFeedProxy } from "./xrpc-proxy";
 import { createOAuthApp } from "./oauth";
 import * as sync from "./xrpc/sync";
 import * as repo from "./xrpc/repo";
@@ -325,20 +325,14 @@ app.get("/xrpc/com.atproto.server.getSession", (c) =>
 app.post("/xrpc/com.atproto.server.deleteSession", server.deleteSession);
 
 // App passwords
-app.post(
-	"/xrpc/com.atproto.server.createAppPassword",
-	requireAuth,
-	(c) => server.createAppPassword(c, getAccountDO(c.env)),
+app.post("/xrpc/com.atproto.server.createAppPassword", requireAuth, (c) =>
+	server.createAppPassword(c, getAccountDO(c.env)),
 );
-app.get(
-	"/xrpc/com.atproto.server.listAppPasswords",
-	requireAuth,
-	(c) => server.listAppPasswords(c, getAccountDO(c.env)),
+app.get("/xrpc/com.atproto.server.listAppPasswords", requireAuth, (c) =>
+	server.listAppPasswords(c, getAccountDO(c.env)),
 );
-app.post(
-	"/xrpc/com.atproto.server.revokeAppPassword",
-	requireAuth,
-	(c) => server.revokeAppPassword(c, getAccountDO(c.env)),
+app.post("/xrpc/com.atproto.server.revokeAppPassword", requireAuth, (c) =>
+	server.revokeAppPassword(c, getAccountDO(c.env)),
 );
 
 // Account lifecycle
@@ -542,6 +536,12 @@ app.post("/passkey/delete", requireAuth, async (c) => {
 // OAuth 2.1 endpoints for "Login with Bluesky"
 const oauthApp = createOAuthApp(getAccountDO);
 app.route("/", oauthApp);
+
+// getFeed is proxied to the AppView but the service-auth JWT must be addressed
+// to the feed generator, so it needs special handling ahead of the catch-all.
+app.get("/xrpc/app.bsky.feed.getFeed", (c) =>
+	handleGetFeedProxy(c, didResolver, getKeypair),
+);
 
 // Proxy unhandled XRPC requests to services specified via atproto-proxy header
 // or fall back to Bluesky services for backward compatibility

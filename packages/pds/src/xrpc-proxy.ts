@@ -6,11 +6,9 @@
 import type { Context } from "hono";
 import { DidResolver } from "./did-resolver";
 import { getAtprotoServiceEndpoint } from "@atcute/identity";
+import { isDid, parseResourceUri } from "@atcute/lexicons/syntax";
 import { createServiceJwt } from "./service-auth";
-import {
-	ScopeMissingError,
-	permissionsFor,
-} from "@getcirrus/oauth-provider";
+import { ScopeMissingError, permissionsFor } from "@getcirrus/oauth-provider";
 import { verifyAccessToken, TokenExpiredError } from "./session";
 import { getProvider } from "./oauth";
 import type { PDSEnv } from "./types";
@@ -38,6 +36,17 @@ export function parseProxyHeader(
 }
 
 /**
+ * Override the service-auth audience and lexicon method stamped into the
+ * outbound JWT, independently of where the request is routed. Used for
+ * getFeed, where the request is proxied to the AppView but the token must be
+ * addressed to the feed generator so it can authorize the user.
+ */
+export interface ServiceAuthOverride {
+	aud: string;
+	lxm: string;
+}
+
+/**
  * Handle XRPC proxy requests
  * Routes requests to external services based on atproto-proxy header or lexicon namespace
  */
@@ -45,6 +54,7 @@ export async function handleXrpcProxy(
 	c: Context<{ Bindings: PDSEnv }>,
 	didResolver: DidResolver,
 	getKeypair: () => Promise<Secp256k1Keypair>,
+	serviceAuthOverride?: ServiceAuthOverride,
 ): Promise<Response> {
 	// Extract XRPC method name from path (e.g., "app.bsky.feed.getTimeline")
 	const url = new URL(c.req.url);
@@ -144,6 +154,12 @@ export async function handleXrpcProxy(
 		targetUrl = new URL(`/xrpc/${lxm}${url.search}`, endpoint);
 	}
 
+	// The outbound service JWT's audience and method may differ from the
+	// request's routing target (see getFeed: routed to the AppView, addressed
+	// to the feed generator).
+	const serviceAud = serviceAuthOverride?.aud ?? audienceDid;
+	const serviceLxm = serviceAuthOverride?.lxm ?? lxm;
+
 	// Verify auth and create service JWT for target service
 	let headers: Record<string, string> = {};
 	const auth = c.req.header("Authorization");
@@ -159,14 +175,18 @@ export async function handleXrpcProxy(
 			const tokenData = await provider.verifyAccessToken(c.req.raw);
 			if (tokenData) {
 				try {
-					permissionsFor(tokenData.scope).assertRpc({ lxm, aud: audienceDid });
+					const requiredLxms = serviceLxm === lxm ? [lxm] : [lxm, serviceLxm];
+					const permissions = permissionsFor(tokenData.scope);
+					for (const requiredLxm of requiredLxms) {
+						permissions.assertRpc({ lxm: requiredLxm, aud: serviceAud });
+					}
 					userDid = tokenData.sub;
 				} catch (err) {
 					if (err instanceof ScopeMissingError) {
 						return c.json(
 							{
 								error: "InsufficientScope",
-								message: `Token does not grant rpc:${lxm}?aud=${audienceDid}`,
+								message: `Token does not grant rpc for ${lxm} at aud=${serviceAud}`,
 							},
 							403,
 						);
@@ -218,8 +238,8 @@ export async function handleXrpcProxy(
 			const keypair = await getKeypair();
 			const serviceJwt = await createServiceJwt({
 				iss: userDid,
-				aud: audienceDid,
-				lxm,
+				aud: serviceAud,
+				lxm: serviceLxm,
 				keypair,
 			});
 			headers["Authorization"] = `Bearer ${serviceJwt}`;
@@ -265,4 +285,75 @@ export async function handleXrpcProxy(
 	}
 
 	return fetch(targetUrl.toString(), reqInit);
+}
+
+/**
+ * Resolve the service DID a feed generator runs on, given a feed AT-URI.
+ * The feed record lives in the creator's repo and carries a `did` field
+ * pointing at the feedgen service (e.g. did:web:foryou.club). Returns null if
+ * the feed cannot be resolved, so callers can fall back to default proxying.
+ */
+async function resolveFeedGenDid(
+	feed: string,
+	didResolver: DidResolver,
+): Promise<string | null> {
+	const parsed = parseResourceUri(feed);
+	if (!parsed.ok) return null;
+
+	const { repo, collection, rkey } = parsed.value;
+	if (collection !== "app.bsky.feed.generator" || !rkey) return null;
+	if (!isDid(repo)) return null;
+
+	const didDoc = await didResolver.resolve(repo);
+	if (!didDoc) return null;
+
+	const pds = getAtprotoServiceEndpoint(didDoc, {
+		id: "#atproto_pds",
+		type: "AtprotoPersonalDataServer",
+	});
+	if (!pds) return null;
+
+	const recordUrl = new URL("/xrpc/com.atproto.repo.getRecord", pds);
+	recordUrl.searchParams.set("repo", repo);
+	recordUrl.searchParams.set("collection", collection);
+	recordUrl.searchParams.set("rkey", rkey);
+
+	const res = await fetch(recordUrl);
+	if (!res.ok) return null;
+
+	const body = (await res.json()) as { value?: { did?: unknown } };
+	const feedDid = body.value?.did;
+	return typeof feedDid === "string" && isDid(feedDid) ? feedDid : null;
+}
+
+/**
+ * Proxy app.bsky.feed.getFeed.
+ *
+ * getFeed is routed to the AppView like any other read, but the service-auth
+ * JWT must be addressed to the feed generator (aud = feedgen DID, lxm =
+ * getFeedSkeleton) so the generator can authorize the user and record
+ * per-user state. Without this, generators that validate the audience reject
+ * the token and operate in a degraded, stateless mode. If the feed can't be
+ * resolved we fall back to default proxying so the feed still loads.
+ */
+export async function handleGetFeedProxy(
+	c: Context<{ Bindings: PDSEnv }>,
+	didResolver: DidResolver,
+	getKeypair: () => Promise<Secp256k1Keypair>,
+): Promise<Response> {
+	const feed = c.req.query("feed");
+
+	let override: ServiceAuthOverride | undefined;
+	if (feed) {
+		try {
+			const feedDid = await resolveFeedGenDid(feed, didResolver);
+			if (feedDid) {
+				override = { aud: feedDid, lxm: "app.bsky.feed.getFeedSkeleton" };
+			}
+		} catch {
+			// Fall back to default proxying when feed resolution fails.
+		}
+	}
+
+	return handleXrpcProxy(c, didResolver, getKeypair, override);
 }
