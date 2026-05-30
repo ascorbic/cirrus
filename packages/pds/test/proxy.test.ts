@@ -443,6 +443,93 @@ describe("XRPC Service Proxying", () => {
 			expect(payload.aud).toBe("did:web:appview.example.com");
 			expect(payload.lxm).toBe("app.bsky.feed.getFeed");
 		});
+
+		it("does not resolve the feed over a non-HTTPS creator PDS endpoint", async () => {
+			let capturedAuth: string | null = null;
+			let recordFetched = false;
+
+			vi.stubGlobal(
+				"fetch",
+				vi.fn((url: string | URL, init?: RequestInit) => {
+					const u = url.toString();
+					if (u === "https://creator.example.com/.well-known/did.json") {
+						return Promise.resolve(
+							new Response(
+								JSON.stringify({
+									"@context": ["https://www.w3.org/ns/did/v1"],
+									id: "did:web:creator.example.com",
+									service: [
+										{
+											id: "#atproto_pds",
+											type: "AtprotoPersonalDataServer",
+											serviceEndpoint: "http://creator-pds.example.com",
+										},
+									],
+								}),
+								{
+									status: 200,
+									headers: { "Content-Type": "application/json" },
+								},
+							),
+						);
+					}
+					if (u.startsWith("http://creator-pds.example.com")) {
+						recordFetched = true;
+						return Promise.resolve(
+							new Response(
+								JSON.stringify({
+									value: { did: "did:web:feedgen.example.com" },
+								}),
+								{
+									status: 200,
+									headers: { "Content-Type": "application/json" },
+								},
+							),
+						);
+					}
+					if (u === "https://appview.example.com/.well-known/did.json") {
+						return Promise.resolve(
+							new Response(JSON.stringify(appviewDidDoc), {
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							}),
+						);
+					}
+					if (
+						u.startsWith(
+							"https://appview.example.com/xrpc/app.bsky.feed.getFeed",
+						)
+					) {
+						capturedAuth = new Headers(init?.headers).get("Authorization");
+						return Promise.resolve(
+							new Response(JSON.stringify({ feed: [] }), {
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							}),
+						);
+					}
+					return originalFetch(url, init);
+				}),
+			);
+
+			const response = await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/app.bsky.feed.getFeed?feed=${encodeURIComponent(feedUri)}&limit=30`,
+					{
+						headers: {
+							"atproto-proxy": "did:web:appview.example.com#bsky_appview",
+							Authorization: `Bearer ${authToken}`,
+						},
+					},
+				),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+			expect(recordFetched).toBe(false);
+			const payload = decodeJwtPayload(capturedAuth);
+			expect(payload.aud).toBe("did:web:appview.example.com");
+		});
 	});
 
 	describe("Fallback behavior", () => {

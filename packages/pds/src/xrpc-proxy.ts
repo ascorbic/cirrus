@@ -174,11 +174,15 @@ export async function handleXrpcProxy(
 			const provider = getProvider(c.env);
 			const tokenData = await provider.verifyAccessToken(c.req.raw);
 			if (tokenData) {
+				// Scope is asserted against the routing audience (where the client
+				// directed the request), not the override aud on the outbound JWT.
+				// For getFeed that means getFeed + getFeedSkeleton at the AppView,
+				// matching the reference PDS.
+				const requiredLxms = serviceLxm === lxm ? [lxm] : [lxm, serviceLxm];
 				try {
-					const requiredLxms = serviceLxm === lxm ? [lxm] : [lxm, serviceLxm];
 					const permissions = permissionsFor(tokenData.scope);
 					for (const requiredLxm of requiredLxms) {
-						permissions.assertRpc({ lxm: requiredLxm, aud: serviceAud });
+						permissions.assertRpc({ lxm: requiredLxm, aud: audienceDid });
 					}
 					userDid = tokenData.sub;
 				} catch (err) {
@@ -186,7 +190,7 @@ export async function handleXrpcProxy(
 						return c.json(
 							{
 								error: "InsufficientScope",
-								message: `Token does not grant rpc for ${lxm} at aud=${serviceAud}`,
+								message: `Token does not grant rpc for ${requiredLxms.join(", ")} at aud=${audienceDid}`,
 							},
 							403,
 						);
@@ -313,7 +317,16 @@ async function resolveFeedGenDid(
 	});
 	if (!pds) return null;
 
-	const recordUrl = new URL("/xrpc/com.atproto.repo.getRecord", pds);
+	// The endpoint comes from a third-party DID document; only fetch over HTTPS,
+	// matching the proxy-target restriction in handleXrpcProxy.
+	let recordUrl: URL;
+	try {
+		recordUrl = new URL("/xrpc/com.atproto.repo.getRecord", pds);
+	} catch {
+		return null;
+	}
+	if (recordUrl.protocol !== "https:") return null;
+
 	recordUrl.searchParams.set("repo", repo);
 	recordUrl.searchParams.set("collection", collection);
 	recordUrl.searchParams.set("rkey", rkey);
