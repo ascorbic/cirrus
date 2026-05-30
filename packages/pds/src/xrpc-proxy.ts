@@ -339,7 +339,8 @@ async function resolveFeedGenDid(
 	recordUrl.searchParams.set("collection", collection);
 	recordUrl.searchParams.set("rkey", rkey);
 
-	const res = await fetch(recordUrl);
+	const res = await fetch(recordUrl, { redirect: "manual" });
+	if (res.status >= 300 && res.status < 400) return null;
 	if (!res.ok) return null;
 
 	const body = (await res.json()) as { value?: { did?: unknown } };
