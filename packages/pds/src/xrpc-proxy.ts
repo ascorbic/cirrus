@@ -74,6 +74,10 @@ export async function handleXrpcProxy(
 	// Check for atproto-proxy header for explicit service routing
 	const proxyHeader = c.req.header("atproto-proxy");
 	let audienceDid: string;
+	// Audience used for OAuth scope checks: the full `did#service_id` form, since
+	// granular `rpc:` scopes are granted against that (the bare DID never
+	// matches). The outbound service-auth JWT uses the bare DID instead.
+	let scopeAud: string;
 	let targetUrl: URL;
 
 	if (proxyHeader) {
@@ -122,6 +126,7 @@ export async function handleXrpcProxy(
 
 			// Use the resolved service endpoint
 			audienceDid = parsed.did;
+			scopeAud = proxyHeader;
 			targetUrl = new URL(endpoint);
 			if (targetUrl.protocol !== "https:") {
 				return c.json(
@@ -148,6 +153,9 @@ export async function handleXrpcProxy(
 		// These are well-known endpoints that don't require DID resolution
 		const isChat = lxm.startsWith("chat.bsky.");
 		audienceDid = isChat ? "did:web:api.bsky.chat" : "did:web:api.bsky.app";
+		scopeAud = isChat
+			? "did:web:api.bsky.chat#bsky_chat"
+			: "did:web:api.bsky.app#bsky_appview";
 		const endpoint = isChat ? "https://api.bsky.chat" : "https://api.bsky.app";
 
 		// Construct URL safely using URL constructor
@@ -182,7 +190,7 @@ export async function handleXrpcProxy(
 				try {
 					const permissions = permissionsFor(tokenData.scope);
 					for (const requiredLxm of requiredLxms) {
-						permissions.assertRpc({ lxm: requiredLxm, aud: audienceDid });
+						permissions.assertRpc({ lxm: requiredLxm, aud: scopeAud });
 					}
 					userDid = tokenData.sub;
 				} catch (err) {
@@ -190,7 +198,7 @@ export async function handleXrpcProxy(
 						return c.json(
 							{
 								error: "InsufficientScope",
-								message: `Token does not grant rpc for ${requiredLxms.join(", ")} at aud=${audienceDid}`,
+								message: `Token does not grant rpc for ${requiredLxms.join(", ")} at aud=${scopeAud}`,
 							},
 							403,
 						);

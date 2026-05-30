@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, vi, afterEach } from "vitest";
-import { env, worker } from "./helpers";
+import { base64url, calculateJwkThumbprint, SignJWT } from "jose";
+import { env, runInDurableObject, worker } from "./helpers";
+import type { AccountDurableObject } from "../src/account-do";
 
 // Mock DID documents for testing
 // Note: @context is required by @atcute/identity-resolver validation
@@ -751,6 +753,234 @@ describe("XRPC Service Proxying", () => {
 			expect(capturedAuthHeader).toMatch(/^Bearer /);
 			// The forwarded token should be different from the original (it's a service JWT)
 			expect(capturedAuthHeader).not.toBe(`Bearer ${authToken}`);
+		});
+	});
+
+	describe("getFeed OAuth/DPoP scope check", () => {
+		const feedUri =
+			"at://did:web:creator.example.com/app.bsky.feed.generator/for-you";
+		const proxyHeader = "did:web:appview.example.com#bsky_appview";
+
+		const appviewDidDoc = {
+			"@context": ["https://www.w3.org/ns/did/v1"],
+			id: "did:web:appview.example.com",
+			service: [
+				{
+					id: "#bsky_appview",
+					type: "BskyAppView",
+					serviceEndpoint: "https://appview.example.com",
+				},
+			],
+		};
+
+		async function generateEs256() {
+			const kp = (await crypto.subtle.generateKey(
+				{ name: "ECDSA", namedCurve: "P-256" },
+				true,
+				["sign", "verify"],
+			)) as CryptoKeyPair;
+			const publicJwk = (await crypto.subtle.exportKey(
+				"jwk",
+				kp.publicKey,
+			)) as JsonWebKey;
+			delete publicJwk.key_ops;
+			delete publicJwk.ext;
+			return { privateKey: kp.privateKey, publicJwk };
+		}
+
+		async function makeDpopProof(
+			privateKey: CryptoKey,
+			publicJwk: JsonWebKey,
+			accessToken: string,
+			requestUrl: string,
+		): Promise<string> {
+			const u = new URL(requestUrl);
+			const ath = base64url.encode(
+				new Uint8Array(
+					await crypto.subtle.digest(
+						"SHA-256",
+						new TextEncoder().encode(accessToken),
+					),
+				),
+			);
+			return new SignJWT({ htm: "GET", htu: u.origin + u.pathname, ath })
+				.setProtectedHeader({
+					typ: "dpop+jwt",
+					alg: "ES256",
+					jwk: publicJwk as Record<string, unknown>,
+				})
+				.setIssuedAt()
+				.setJti(base64url.encode(crypto.getRandomValues(new Uint8Array(16))))
+				.sign(privateKey);
+		}
+
+		async function storeToken(
+			accessToken: string,
+			scope: string,
+			dpopJkt: string,
+		): Promise<void> {
+			const stub = env.ACCOUNT.get(env.ACCOUNT.idFromName("account"));
+			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+				await instance.rpcSaveTokens({
+					accessToken,
+					refreshToken: `refresh-${accessToken}`,
+					clientId: "did:web:client.example.com",
+					sub: env.DID,
+					scope,
+					dpopJkt,
+					issuedAt: Date.now(),
+					accessExpiresAt: Date.now() + 3600_000,
+					refreshExpiresAt: Date.now() + 90 * 24 * 3600_000,
+				});
+			});
+		}
+
+		function stubFeedFetch(capture: { auth: string | null }): void {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn((url: string | URL, init?: RequestInit) => {
+					const u = url.toString();
+					if (u === "https://creator.example.com/.well-known/did.json") {
+						return Promise.resolve(
+							new Response(
+								JSON.stringify({
+									"@context": ["https://www.w3.org/ns/did/v1"],
+									id: "did:web:creator.example.com",
+									service: [
+										{
+											id: "#atproto_pds",
+											type: "AtprotoPersonalDataServer",
+											serviceEndpoint: "https://creator-pds.example.com",
+										},
+									],
+								}),
+								{
+									status: 200,
+									headers: { "Content-Type": "application/json" },
+								},
+							),
+						);
+					}
+					if (
+						u.startsWith(
+							"https://creator-pds.example.com/xrpc/com.atproto.repo.getRecord",
+						)
+					) {
+						return Promise.resolve(
+							new Response(
+								JSON.stringify({
+									value: { did: "did:web:feedgen.example.com" },
+								}),
+								{
+									status: 200,
+									headers: { "Content-Type": "application/json" },
+								},
+							),
+						);
+					}
+					if (u === "https://appview.example.com/.well-known/did.json") {
+						return Promise.resolve(
+							new Response(JSON.stringify(appviewDidDoc), {
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							}),
+						);
+					}
+					if (
+						u.startsWith(
+							"https://appview.example.com/xrpc/app.bsky.feed.getFeed",
+						)
+					) {
+						capture.auth = new Headers(init?.headers).get("Authorization");
+						return Promise.resolve(
+							new Response(JSON.stringify({ feed: [] }), {
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							}),
+						);
+					}
+					return originalFetch(url, init);
+				}),
+			);
+		}
+
+		async function getFeedRequest(
+			accessToken: string,
+			privateKey: CryptoKey,
+			publicJwk: JsonWebKey,
+		): Promise<Response> {
+			const requestUrl = `http://pds.test/xrpc/app.bsky.feed.getFeed?feed=${encodeURIComponent(feedUri)}&limit=30`;
+			const dpop = await makeDpopProof(
+				privateKey,
+				publicJwk,
+				accessToken,
+				requestUrl,
+			);
+			return worker.fetch(
+				new Request(requestUrl, {
+					headers: {
+						"atproto-proxy": proxyHeader,
+						Authorization: `DPoP ${accessToken}`,
+						DPoP: dpop,
+					},
+				}),
+				env,
+			);
+		}
+
+		it("accepts a token scoped for the AppView audience and addresses the JWT to the feedgen", async () => {
+			const { privateKey, publicJwk } = await generateEs256();
+			const dpopJkt = await calculateJwkThumbprint(
+				publicJwk as Parameters<typeof calculateJwkThumbprint>[0],
+				"sha256",
+			);
+			const accessToken = "tok-getfeed-valid";
+			await storeToken(
+				accessToken,
+				`atproto rpc:app.bsky.feed.getFeed?aud=${proxyHeader} rpc:app.bsky.feed.getFeedSkeleton?aud=${proxyHeader}`,
+				dpopJkt,
+			);
+
+			const capture: { auth: string | null } = { auth: null };
+			stubFeedFetch(capture);
+
+			const response = await getFeedRequest(accessToken, privateKey, publicJwk);
+
+			expect(response.status).toBe(200);
+			expect(capture.auth).toMatch(/^Bearer /);
+			const payload = JSON.parse(
+				Buffer.from(
+					capture.auth!.slice(7).split(".")[1]!,
+					"base64url",
+				).toString(),
+			);
+			expect(payload.aud).toBe("did:web:feedgen.example.com");
+			expect(payload.lxm).toBe("app.bsky.feed.getFeedSkeleton");
+		});
+
+		it("rejects a token scoped only for a different audience", async () => {
+			const { privateKey, publicJwk } = await generateEs256();
+			const dpopJkt = await calculateJwkThumbprint(
+				publicJwk as Parameters<typeof calculateJwkThumbprint>[0],
+				"sha256",
+			);
+			const accessToken = "tok-getfeed-wrong-aud";
+			const otherAud = "did:web:other.example.com#bsky_appview";
+			await storeToken(
+				accessToken,
+				`atproto rpc:app.bsky.feed.getFeed?aud=${otherAud} rpc:app.bsky.feed.getFeedSkeleton?aud=${otherAud}`,
+				dpopJkt,
+			);
+
+			const capture: { auth: string | null } = { auth: null };
+			stubFeedFetch(capture);
+
+			const response = await getFeedRequest(accessToken, privateKey, publicJwk);
+
+			expect(response.status).toBe(403);
+			expect(capture.auth).toBeNull();
+			const body = (await response.json()) as { error: string };
+			expect(body.error).toBe("InsufficientScope");
 		});
 	});
 });
