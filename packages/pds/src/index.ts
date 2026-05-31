@@ -10,7 +10,11 @@ import { isDid, isHandle } from "@atcute/lexicons/syntax";
 import { requireAuth } from "./middleware/auth";
 import { DidResolver } from "./did-resolver";
 import { WorkersDidCache } from "./did-cache";
-import { handleXrpcProxy, handleGetFeedProxy } from "./xrpc-proxy";
+import {
+	handleXrpcProxy,
+	handleGetFeedProxy,
+	handleCreateReportProxy,
+} from "./xrpc-proxy";
 import { createOAuthApp } from "./oauth";
 import * as sync from "./xrpc/sync";
 import * as repo from "./xrpc/repo";
@@ -541,6 +545,12 @@ app.route("/", oauthApp);
 // to the feed generator, so it needs special handling ahead of the catch-all.
 app.get("/xrpc/app.bsky.feed.getFeed", (c) =>
 	handleGetFeedProxy(c, didResolver, getKeypair),
+);
+
+// createReport routes to a moderation labeler, not the AppView. Clients can
+// override the labeler with the atproto-proxy header.
+app.post("/xrpc/com.atproto.moderation.createReport", (c) =>
+	handleCreateReportProxy(c, didResolver, getKeypair),
 );
 
 // Proxy unhandled XRPC requests to services specified via atproto-proxy header
