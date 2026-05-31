@@ -310,6 +310,11 @@ app.post(
 	requireAuth,
 	identity.signPlcOperation,
 );
+app.post(
+	"/xrpc/com.atproto.identity.submitPlcOperation",
+	requireAuth,
+	identity.submitPlcOperation,
+);
 app.get(
 	"/xrpc/gg.mk.experimental.getMigrationToken",
 	requireAuth,
