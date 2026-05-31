@@ -983,4 +983,279 @@ describe("XRPC Service Proxying", () => {
 			expect(body.error).toBe("InsufficientScope");
 		});
 	});
+
+	describe("createReport proxy", () => {
+		const BLUESKY_MOD_SERVICE_DID = "did:plc:ar7c4by46qjdydhdevvrndac";
+
+		function decodeJwtPayload(authHeader: string | null): any {
+			expect(authHeader).toMatch(/^Bearer /);
+			const payloadB64 = authHeader!.slice(7).split(".")[1]!;
+			return JSON.parse(Buffer.from(payloadB64, "base64url").toString());
+		}
+
+		const blueskyModDidDoc = {
+			"@context": ["https://www.w3.org/ns/did/v1"],
+			id: BLUESKY_MOD_SERVICE_DID,
+			service: [
+				{
+					id: "#atproto_labeler",
+					type: "AtprotoLabeler",
+					serviceEndpoint: "https://mod.bsky.app",
+				},
+			],
+		};
+
+		const otherLabelerDidDoc = {
+			"@context": ["https://www.w3.org/ns/did/v1"],
+			id: "did:web:labeler.example.com",
+			service: [
+				{
+					id: "#atproto_labeler",
+					type: "AtprotoLabeler",
+					serviceEndpoint: "https://labeler.example.com",
+				},
+			],
+		};
+
+		const reportBody = JSON.stringify({
+			reasonType: "com.atproto.moderation.defs#reasonSpam",
+			subject: {
+				$type: "com.atproto.admin.defs#repoRef",
+				did: "did:plc:target",
+			},
+		});
+
+		it("routes to Bluesky's moderation service by default and addresses the JWT to it", async () => {
+			let capturedUrl: string | null = null;
+			let capturedAuth: string | null = null;
+
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (url: string | URL, init?: RequestInit) => {
+					const u = url.toString();
+					// PLC DIDs resolve via plc.directory
+					if (
+						u.includes("plc.directory") &&
+						u.includes(BLUESKY_MOD_SERVICE_DID)
+					) {
+						return new Response(JSON.stringify(blueskyModDidDoc), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						});
+					}
+					if (
+						u.startsWith(
+							"https://mod.bsky.app/xrpc/com.atproto.moderation.createReport",
+						)
+					) {
+						capturedUrl = u;
+						capturedAuth = new Headers(init?.headers).get("Authorization");
+						return new Response(
+							JSON.stringify({ id: 1, reportedBy: env.DID }),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+					return originalFetch(url, init);
+				}),
+			);
+
+			const response = await worker.fetch(
+				new Request(
+					"http://pds.test/xrpc/com.atproto.moderation.createReport",
+					{
+						method: "POST",
+						headers: {
+							Authorization: `Bearer ${authToken}`,
+							"Content-Type": "application/json",
+						},
+						body: reportBody,
+					},
+				),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+			expect(capturedUrl).not.toBeNull();
+			expect(new URL(capturedUrl!).host).toBe("mod.bsky.app");
+			const payload = decodeJwtPayload(capturedAuth);
+			expect(payload.aud).toBe(BLUESKY_MOD_SERVICE_DID);
+			expect(payload.lxm).toBe("com.atproto.moderation.createReport");
+		});
+
+		it("honors the atproto-proxy header to override the labeler", async () => {
+			let capturedUrl: string | null = null;
+			let capturedAuth: string | null = null;
+
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (url: string | URL, init?: RequestInit) => {
+					const u = url.toString();
+					if (u === "https://labeler.example.com/.well-known/did.json") {
+						return new Response(JSON.stringify(otherLabelerDidDoc), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						});
+					}
+					if (
+						u.startsWith(
+							"https://labeler.example.com/xrpc/com.atproto.moderation.createReport",
+						)
+					) {
+						capturedUrl = u;
+						capturedAuth = new Headers(init?.headers).get("Authorization");
+						return new Response(JSON.stringify({ id: 7 }), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						});
+					}
+					return originalFetch(url, init);
+				}),
+			);
+
+			const response = await worker.fetch(
+				new Request(
+					"http://pds.test/xrpc/com.atproto.moderation.createReport",
+					{
+						method: "POST",
+						headers: {
+							Authorization: `Bearer ${authToken}`,
+							"Content-Type": "application/json",
+							"atproto-proxy": "did:web:labeler.example.com#atproto_labeler",
+						},
+						body: reportBody,
+					},
+				),
+				env,
+			);
+
+			expect(response.status).toBe(200);
+			expect(capturedUrl).not.toBeNull();
+			expect(new URL(capturedUrl!).host).toBe("labeler.example.com");
+			const payload = decodeJwtPayload(capturedAuth);
+			expect(payload.aud).toBe("did:web:labeler.example.com");
+			expect(payload.lxm).toBe("com.atproto.moderation.createReport");
+		});
+
+		it("rejects a DPoP token without rpc scope for createReport at the labeler", async () => {
+			async function generateEs256() {
+				const kp = (await crypto.subtle.generateKey(
+					{ name: "ECDSA", namedCurve: "P-256" },
+					true,
+					["sign", "verify"],
+				)) as CryptoKeyPair;
+				const publicJwk = (await crypto.subtle.exportKey(
+					"jwk",
+					kp.publicKey,
+				)) as JsonWebKey;
+				delete publicJwk.key_ops;
+				delete publicJwk.ext;
+				return { privateKey: kp.privateKey, publicJwk };
+			}
+
+			async function makeDpopProof(
+				privateKey: CryptoKey,
+				publicJwk: JsonWebKey,
+				accessToken: string,
+				requestUrl: string,
+				method: string,
+			): Promise<string> {
+				const u = new URL(requestUrl);
+				const ath = base64url.encode(
+					new Uint8Array(
+						await crypto.subtle.digest(
+							"SHA-256",
+							new TextEncoder().encode(accessToken),
+						),
+					),
+				);
+				return new SignJWT({
+					htm: method,
+					htu: u.origin + u.pathname,
+					ath,
+				})
+					.setProtectedHeader({
+						typ: "dpop+jwt",
+						alg: "ES256",
+						jwk: publicJwk as Record<string, unknown>,
+					})
+					.setIssuedAt()
+					.setJti(base64url.encode(crypto.getRandomValues(new Uint8Array(16))))
+					.sign(privateKey);
+			}
+
+			const { privateKey, publicJwk } = await generateEs256();
+			const dpopJkt = await calculateJwkThumbprint(
+				publicJwk as Parameters<typeof calculateJwkThumbprint>[0],
+				"sha256",
+			);
+			const accessToken = "tok-createreport-wrong-scope";
+
+			const stub = env.ACCOUNT.get(env.ACCOUNT.idFromName("account"));
+			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+				await instance.rpcSaveTokens({
+					accessToken,
+					refreshToken: `refresh-${accessToken}`,
+					clientId: "did:web:client.example.com",
+					sub: env.DID,
+					scope: `atproto rpc:com.atproto.moderation.createReport?aud=did:web:other.example.com#atproto_labeler`,
+					dpopJkt,
+					issuedAt: Date.now(),
+					accessExpiresAt: Date.now() + 3600_000,
+					refreshExpiresAt: Date.now() + 90 * 24 * 3600_000,
+				});
+			});
+
+			let labelerCalled = false;
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async (url: string | URL, init?: RequestInit) => {
+					const u = url.toString();
+					if (
+						u.includes("plc.directory") &&
+						u.includes(BLUESKY_MOD_SERVICE_DID)
+					) {
+						return new Response(JSON.stringify(blueskyModDidDoc), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						});
+					}
+					if (u.startsWith("https://mod.bsky.app/")) {
+						labelerCalled = true;
+					}
+					return originalFetch(url, init);
+				}),
+			);
+
+			const requestUrl =
+				"http://pds.test/xrpc/com.atproto.moderation.createReport";
+			const dpop = await makeDpopProof(
+				privateKey,
+				publicJwk,
+				accessToken,
+				requestUrl,
+				"POST",
+			);
+
+			const response = await worker.fetch(
+				new Request(requestUrl, {
+					method: "POST",
+					headers: {
+						Authorization: `DPoP ${accessToken}`,
+						DPoP: dpop,
+						"Content-Type": "application/json",
+					},
+					body: reportBody,
+				}),
+				env,
+			);
+
+			expect(response.status).toBe(403);
+			expect(labelerCalled).toBe(false);
+			const body = (await response.json()) as { error: string };
+			expect(body.error).toBe("InsufficientScope");
+		});
+	});
 });

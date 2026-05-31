@@ -14,6 +14,8 @@ import { getProvider } from "./oauth";
 import type { PDSEnv } from "./types";
 import type { Secp256k1Keypair } from "@atproto/crypto";
 
+const BLUESKY_MOD_SERVICE_DID = "did:plc:ar7c4by46qjdydhdevvrndac";
+
 /**
  * Parse atproto-proxy header value
  * Format: "did:web:example.com#service_id"
@@ -47,6 +49,16 @@ export interface ServiceAuthOverride {
 }
 
 /**
+ * Override the default fallback route when no atproto-proxy header is present.
+ * Resolved via the DID document like a header-driven route. Used for
+ * createReport, which targets a moderation labeler rather than the AppView.
+ */
+export interface DefaultRoute {
+	proxyDid: string;
+	serviceId: string;
+}
+
+/**
  * Handle XRPC proxy requests
  * Routes requests to external services based on atproto-proxy header or lexicon namespace
  */
@@ -55,6 +67,7 @@ export async function handleXrpcProxy(
 	didResolver: DidResolver,
 	getKeypair: () => Promise<Secp256k1Keypair>,
 	serviceAuthOverride?: ServiceAuthOverride,
+	defaultRoute?: DefaultRoute,
 ): Promise<Response> {
 	// Extract XRPC method name from path (e.g., "app.bsky.feed.getTimeline")
 	const url = new URL(c.req.url);
@@ -80,36 +93,40 @@ export async function handleXrpcProxy(
 	let scopeAud: string;
 	let targetUrl: URL;
 
-	if (proxyHeader) {
-		// Parse proxy header: "did:web:example.com#service_id"
-		const parsed = parseProxyHeader(proxyHeader);
-		if (!parsed) {
-			return c.json(
-				{
-					error: "InvalidRequest",
-					message: `Invalid atproto-proxy header format: ${proxyHeader}`,
-				},
-				400,
-			);
-		}
+	const resolvedRoute = proxyHeader
+		? parseProxyHeader(proxyHeader)
+		: defaultRoute
+			? { did: defaultRoute.proxyDid, serviceId: defaultRoute.serviceId }
+			: null;
 
+	if (proxyHeader && !resolvedRoute) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: `Invalid atproto-proxy header format: ${proxyHeader}`,
+			},
+			400,
+		);
+	}
+
+	if (resolvedRoute) {
 		try {
 			// Resolve DID document to get service endpoint (with caching)
-			const didDoc = await didResolver.resolve(parsed.did);
+			const didDoc = await didResolver.resolve(resolvedRoute.did);
 			if (!didDoc) {
 				return c.json(
 					{
 						error: "InvalidRequest",
-						message: `DID not found: ${parsed.did}`,
+						message: `DID not found: ${resolvedRoute.did}`,
 					},
 					400,
 				);
 			}
 
 			// getServiceEndpoint expects the ID to start with #
-			const serviceId = parsed.serviceId.startsWith("#")
-				? parsed.serviceId
-				: `#${parsed.serviceId}`;
+			const serviceId = resolvedRoute.serviceId.startsWith("#")
+				? resolvedRoute.serviceId
+				: `#${resolvedRoute.serviceId}`;
 			const endpoint = getAtprotoServiceEndpoint(didDoc, {
 				id: serviceId as `#${string}`,
 			});
@@ -118,15 +135,15 @@ export async function handleXrpcProxy(
 				return c.json(
 					{
 						error: "InvalidRequest",
-						message: `Service not found in DID document: ${parsed.serviceId}`,
+						message: `Service not found in DID document: ${resolvedRoute.serviceId}`,
 					},
 					400,
 				);
 			}
 
 			// Use the resolved service endpoint
-			audienceDid = parsed.did;
-			scopeAud = proxyHeader;
+			audienceDid = resolvedRoute.did;
+			scopeAud = `${resolvedRoute.did}#${resolvedRoute.serviceId.replace(/^#/, "")}`;
 			targetUrl = new URL(endpoint);
 			if (targetUrl.protocol !== "https:") {
 				return c.json(
@@ -378,4 +395,28 @@ export async function handleGetFeedProxy(
 	}
 
 	return handleXrpcProxy(c, didResolver, getKeypair, override);
+}
+
+/**
+ * Proxy com.atproto.moderation.createReport.
+ *
+ * Reports are routed to a moderation labeler rather than the AppView. If the
+ * client sets an atproto-proxy header (e.g. to pick a different labeler),
+ * routing follows the header. Otherwise reports go to Bluesky's default
+ * moderation service. The outbound service-auth JWT's aud matches the chosen
+ * labeler so it can authorize the user.
+ */
+export async function handleCreateReportProxy(
+	c: Context<{ Bindings: PDSEnv }>,
+	didResolver: DidResolver,
+	getKeypair: () => Promise<Secp256k1Keypair>,
+): Promise<Response> {
+	if (c.req.header("atproto-proxy")) {
+		return handleXrpcProxy(c, didResolver, getKeypair);
+	}
+
+	return handleXrpcProxy(c, didResolver, getKeypair, undefined, {
+		proxyDid: BLUESKY_MOD_SERVICE_DID,
+		serviceId: "atproto_labeler",
+	});
 }
