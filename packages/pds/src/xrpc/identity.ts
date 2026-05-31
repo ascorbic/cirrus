@@ -249,6 +249,55 @@ async function signOperation(
 }
 
 /**
+ * Submit a signed PLC operation to the PLC directory.
+ *
+ * Forwards an already-signed operation (e.g. one produced by
+ * signPlcOperation) to plc.directory on the user's behalf, so
+ * migration clients don't have to talk to the directory themselves.
+ *
+ * Endpoint: POST com.atproto.identity.submitPlcOperation
+ */
+export async function submitPlcOperation(
+	c: Context<AuthedAppEnv>,
+): Promise<Response> {
+	const body = await c.req.json<{ operation?: SignedPlcOperation }>();
+
+	const { operation } = body;
+
+	if (!operation) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required parameter: operation",
+			},
+			400,
+		);
+	}
+
+	const res = await fetch(`${PLC_DIRECTORY}/${c.env.DID}`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(operation),
+	});
+
+	if (!res.ok) {
+		const message = await res.text();
+		return new Response(
+			JSON.stringify({
+				error: "PlcDirectoryError",
+				message: message || `PLC directory responded with ${res.status}`,
+			}),
+			{
+				status: res.status,
+				headers: { "Content-Type": "application/json" },
+			},
+		);
+	}
+
+	return new Response(null, { status: 200 });
+}
+
+/**
  * Generate a migration token for the CLI.
  *
  * This endpoint allows the CLI to generate a token that can be used
