@@ -1,5 +1,19 @@
 # @getcirrus/pds
 
+## 0.18.0
+
+### Minor Changes
+
+- [#196](https://github.com/ascorbic/cirrus/pull/196) [`c560f2e`](https://github.com/ascorbic/cirrus/commit/c560f2e666a97bba305806c5d98e49bcbd88d47c) Thanks [@ascorbic](https://github.com/ascorbic)! - Proxy `com.atproto.moderation.createReport` so the Bluesky app's "Report" button works. Reports default to Bluesky's moderation service (`did:plc:ar7c4by46qjdydhdevvrndac#atproto_labeler`) with a service-auth JWT addressed to that labeler. Clients can override the target by setting the `atproto-proxy` header to a different labeler's `did#service_id`, in which case the request is routed to the resolved endpoint and the JWT is addressed there instead. Previously these reports fell through to the generic AppView proxy and were silently rejected.
+
+- [#195](https://github.com/ascorbic/cirrus/pull/195) [`3008f88`](https://github.com/ascorbic/cirrus/commit/3008f88982269eaa655b6a726c163260a3320756) Thanks [@ascorbic](https://github.com/ascorbic)! - Implement `com.atproto.identity.submitPlcOperation`. The endpoint forwards an already-signed PLC operation to `plc.directory` on the user's behalf, so migration clients can complete an outbound move without talking to the PLC directory themselves. Pairs with the existing `com.atproto.identity.signPlcOperation` to match the reference PDS migration flow.
+
+### Patch Changes
+
+- [#193](https://github.com/ascorbic/cirrus/pull/193) [`be57325`](https://github.com/ascorbic/cirrus/commit/be57325cde6cf0ccd5f6d5b900777da81e6b3c46) Thanks [@ascorbic](https://github.com/ascorbic)! - Address the service-auth JWT for `app.bsky.feed.getFeed` to the feed generator rather than the AppView. The token is now stamped with `aud` set to the generator's service DID (resolved from the feed record) and `lxm` set to `app.bsky.feed.getFeedSkeleton`, matching the reference PDS implementation. Previously the token carried `aud: did:web:api.bsky.app`, so generators that validate the audience (such as the Bluesky "For You" feed) rejected it and ran in a degraded, stateless mode — feeds appeared stuck because per-user "seen" state was never recorded. If the feed record can't be resolved, the request falls back to ordinary AppView proxying so the feed still loads.
+
+- [#193](https://github.com/ascorbic/cirrus/pull/193) [`be57325`](https://github.com/ascorbic/cirrus/commit/be57325cde6cf0ccd5f6d5b900777da81e6b3c46) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix OAuth scope checking when proxying XRPC requests. Granular `rpc:` scopes are granted against the full `did#service_id` audience, but the proxy was checking them against the bare DID, so any granular (non-`aud=*`) scope was rejected. Proxied requests now check scope against the full service audience, while the outbound service-auth JWT continues to use the bare DID.
+
 ## 0.17.1
 
 ### Patch Changes
