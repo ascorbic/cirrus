@@ -84,7 +84,16 @@ app.use(
 	cors({
 		origin: "*",
 		allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-		allowHeaders: ["*"],
+		// `Authorization` must be listed explicitly: a `*` wildcard in
+		// Access-Control-Allow-Headers doesn't cover `Authorization`,
+		// so browsers block authed XRPC calls (e.g. PDS Moover).
+		allowHeaders: [
+			"Authorization",
+			"Content-Type",
+			"DPoP",
+			"atproto-proxy",
+			"atproto-accept-labelers",
+		],
 		exposeHeaders: ["Content-Type"],
 		maxAge: 86400,
 	}),
