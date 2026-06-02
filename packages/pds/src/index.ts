@@ -84,16 +84,12 @@ app.use(
 	cors({
 		origin: "*",
 		allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-		// `Authorization` must be listed explicitly: a `*` wildcard in
-		// Access-Control-Allow-Headers doesn't cover `Authorization`,
-		// so browsers block authed XRPC calls (e.g. PDS Moover).
-		allowHeaders: [
-			"Authorization",
-			"Content-Type",
-			"DPoP",
-			"atproto-proxy",
-			"atproto-accept-labelers",
-		],
+		// Omit allowHeaders: Hono reflects the browser's
+		// Access-Control-Request-Headers back, matching the reference
+		// atproto PDS (`cors({ maxAge })`). This allows Authorization
+		// (a `*` wildcard wouldn't), DPoP, atproto-proxy,
+		// atproto-accept-labelers, accept-language, x-bsky-topics and
+		// any future header automatically.
 		exposeHeaders: ["Content-Type"],
 		maxAge: 86400,
 	}),
