@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { env, runInDurableObject } from "./helpers";
 import { CID } from "@atproto/lex-data";
 import { encode, cidForCbor, type LexValue } from "@atproto/lex-cbor";
-import { BlockMap, CidSet } from "@atproto/repo";
+import { BlockMap, CidSet, Repo } from "@atproto/repo";
+import { Secp256k1Keypair } from "@atproto/crypto";
 import { AccountDurableObject } from "../src/account-do";
 import { SqliteRepoStorage } from "../src/storage";
 import { SqliteOAuthStorage } from "../src/oauth-storage";
@@ -521,6 +522,30 @@ describe("AccountDurableObject", () => {
 			expect(repo.cid.toString()).toBe(firstRepoCid);
 			expect(repo.did).toBe(env.DID);
 		});
+	});
+
+	it("throws when the stored repo DID does not match the configured DID", async () => {
+		const id = env.ACCOUNT.newUniqueId();
+		const stub = env.ACCOUNT.get(id);
+		const mismatchedDid = "did:plc:exampletestmismatch";
+		expect(mismatchedDid).not.toBe(env.DID);
+
+		// Setup: simulate a repo created under a different DID (e.g. the did:web
+		// init default) before the account was migrated to a did:plc identity.
+		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+			const storage = await instance.getStorage();
+			const keypair = await Secp256k1Keypair.import(env.SIGNING_KEY);
+			await Repo.create(storage, mismatchedDid, keypair);
+		});
+
+		// Loading the repo must fail loudly rather than silently serve a repo
+		// whose commits the relay rejects at verifyRepoRoot. The guard throws
+		// inside blockConcurrencyWhile, so the error surfaces from getRepo().
+		await expect(
+			runInDurableObject(stub, async (instance: AccountDurableObject) => {
+				await instance.getRepo();
+			}),
+		).rejects.toThrow(/Repo DID mismatch/);
 	});
 });
 

@@ -143,6 +143,20 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 				const root = await this.storage!.getRoot();
 				if (root) {
 					this.repo = await Repo.load(this.storage!, root);
+					// Guard: the stored repo must be keyed to the configured DID. A
+					// mismatch happens when the repo was created under an earlier DID
+					// (e.g. the did:web init default) and DID was later changed to a
+					// migrated did:plc. Serving such a repo produces commits whose
+					// commit.did the relay rejects at verifyRepoRoot, silently leaving
+					// the account un-federatable. Fail loudly instead. Do NOT destroy
+					// storage here: this is read context and runs on every request.
+					if (this.repo.did !== this.env.DID) {
+						throw new Error(
+							`Repo DID mismatch: stored repo is ${this.repo.did} but configured DID is ${this.env.DID}. ` +
+								`The repo was created before DID was changed (e.g. did:web default → migrated did:plc). ` +
+								`Deactivate the account and call gg.mk.experimental.resetMigration to rebuild the repo under the correct DID.`,
+						);
+					}
 				} else {
 					this.repo = await Repo.create(
 						this.storage!,

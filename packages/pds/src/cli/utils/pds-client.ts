@@ -42,6 +42,8 @@ export interface MigrationStatus {
 	activated: boolean;
 	active: boolean;
 	validDid: boolean;
+	/** The DID the stored repo is actually keyed to (`null` if no repo exists yet). */
+	did: string | null;
 	repoCommit: string | null;
 	repoRev: string | null;
 	repoBlocks: number;

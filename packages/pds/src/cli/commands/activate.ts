@@ -19,6 +19,7 @@ import {
 	checkHandleResolution,
 	checkDidDocument,
 	checkRepoComplete,
+	checkRepoDidMatches,
 	type CheckResult,
 } from "../utils/checks.js";
 
@@ -54,6 +55,11 @@ async function runChecks(
 	p.log.step("Checking repo status...");
 	const repoResult = checkRepoComplete(status);
 	checks.push({ name: "Repo", ...repoResult });
+
+	// Check 4: Repo DID matches the configured account DID. Catches a stale
+	// did:web repo left over from `pds init` when migrating to a did:plc.
+	const repoDidResult = checkRepoDidMatches(status, did);
+	checks.push({ name: "Repo DID", ...repoDidResult });
 
 	return checks;
 }
