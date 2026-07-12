@@ -952,7 +952,7 @@ describe("OAuth Flow", () => {
 			);
 		});
 
-		it("PAR rejects malformed granular scope", async () => {
+		it("PAR silently drops unsupported scopes", async () => {
 			const verifier = generateCodeVerifier();
 			const challenge = await generateCodeChallenge(verifier);
 			const parBody = new URLSearchParams({
@@ -971,9 +971,7 @@ describe("OAuth Flow", () => {
 					body: parBody.toString(),
 				}),
 			);
-			expect(response.status).toBe(400);
-			const json = (await response.json()) as { error: string };
-			expect(json.error).toBe("invalid_scope");
+			expect(response.status).toBe(201);
 		});
 	});
 });

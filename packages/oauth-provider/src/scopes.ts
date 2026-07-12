@@ -10,12 +10,8 @@
 
 import type { Nsid as AtcuteNsid } from "@atcute/lexicons/syntax";
 import {
-	AccountPermission,
-	BlobPermission,
-	IdentityPermission,
 	IncludeScope,
-	RepoPermission,
-	RpcPermission,
+	isAtprotoOauthScope,
 	ScopeMissingError,
 	ScopePermissionsTransition,
 	ScopesSet,
@@ -64,17 +60,6 @@ export class ScopeParseError extends Error {
 	}
 }
 
-const STRUCTURAL_PARSERS: Record<
-	(typeof GRANULAR_RESOURCES)[number],
-	(s: string) => unknown
-> = {
-	repo: (s) => RepoPermission.fromString(s),
-	rpc: (s) => RpcPermission.fromString(s),
-	blob: (s) => BlobPermission.fromString(s),
-	account: (s) => AccountPermission.fromString(s),
-	identity: (s) => IdentityPermission.fromString(s),
-};
-
 export interface ParseScopeOptions {
 	/**
 	 * When true, `include:` scopes are accepted (and structurally validated)
@@ -97,7 +82,13 @@ export function parseScope(
 	input: string | undefined | null,
 	{ allowIncludes = false }: ParseScopeOptions = {},
 ): ScopesSet {
-	const set = ScopesSet.fromString(input ?? "");
+	const filtered =
+		(input ?? "")
+			.split(" ")
+			.filter(Boolean)
+			.filter(isAtprotoOauthScope)
+			.join(" ") || undefined;
+	const set = ScopesSet.fromString(filtered);
 
 	if (!set.has(ATPROTO_SCOPE)) {
 		throw new ScopeParseError(
@@ -109,34 +100,11 @@ export function parseScope(
 	for (const scope of set) {
 		if (scope === ATPROTO_SCOPE) continue;
 		if ((TRANSITION_SCOPES as readonly string[]).includes(scope)) continue;
-
-		if (scope.startsWith("include:")) {
-			if (!IncludeScope.fromString(scope)) {
-				throw new ScopeParseError(`Malformed include scope: ${scope}`, scope);
-			}
-			if (!allowIncludes) {
-				throw new ScopeParseError(
-					`Permission sets cannot be requested in this context: ${scope}`,
-					scope,
-				);
-			}
-			continue;
-		}
-
-		const colon = scope.indexOf(":");
-		const question = scope.indexOf("?");
-		const end =
-			colon === -1 ? question : question === -1 ? colon : Math.min(colon, question);
-		const resource = end === -1 ? scope : scope.slice(0, end);
-		const parser =
-			STRUCTURAL_PARSERS[
-				resource as (typeof GRANULAR_RESOURCES)[number]
-			];
-		if (!parser) {
-			throw new ScopeParseError(`Unknown scope resource: ${scope}`, scope);
-		}
-		if (!parser(scope)) {
-			throw new ScopeParseError(`Malformed scope: ${scope}`, scope);
+		if (scope.startsWith("include:") && !allowIncludes) {
+			throw new ScopeParseError(
+				`Permission sets cannot be requested in this context: ${scope}`,
+				scope,
+			);
 		}
 	}
 

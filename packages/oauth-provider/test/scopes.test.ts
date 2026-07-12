@@ -47,17 +47,27 @@ describe("parseScope", () => {
 		expect(set.size).toBe(4);
 	});
 
-	it("rejects malformed granular scopes", () => {
-		expect(() => parseScope("atproto repo:not a real nsid")).toThrow(
-			ScopeParseError,
-		);
-		expect(() =>
-			parseScope("atproto rpc:app.bsky.feed.getTimeline"), // missing aud
-		).toThrow(ScopeParseError);
+	it("silently drops malformed scope tokens", () => {
+		const set = parseScope("atproto repo:not a real nsid");
+		expect(set.has("atproto")).toBe(true);
+		expect(set.size).toBe(1);
 	});
 
-	it("rejects unknown resources", () => {
-		expect(() => parseScope("atproto madeup:thing")).toThrow(ScopeParseError);
+	it("silently drops scopes with unsupported actions", () => {
+		const set = parseScope(
+			"atproto repo:com.example.post?action=read repo:com.example.post?action=create",
+		);
+		expect(set.has("atproto")).toBe(true);
+		expect(set.has("repo:com.example.post?action=read")).toBe(false);
+		expect(set.has("repo:com.example.post?action=create")).toBe(true);
+		expect(set.has("repo:com.example.post")).toBe(false);
+		expect(set.size).toBe(2);
+	});
+
+	it("silently drops unknown scope resources", () => {
+		const set = parseScope("atproto madeup:thing");
+		expect(set.has("atproto")).toBe(true);
+		expect(set.size).toBe(1);
 	});
 
 	it("accepts repo scopes in query-only form (no positional)", () => {
