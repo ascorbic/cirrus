@@ -33,6 +33,7 @@ const MAP: Record<string, string> = {
 	"repo-read.list-records-cursor": `${LEX}/com/atproto/repo/listRecords.json`,
 	"repo-read.get-repo-car": `${LEX}/com/atproto/sync/getRepo.json`,
 	"repo-read.get-repo-car.validates": "https://ipld.io/specs/transport/car/carv1/",
+	"repo-read.verify-commit-signature.validates":"https://atproto.com/specs/repository#commit-objects",
 
 	// sync
 	"sync.get-latest-commit": `${LEX}/com/atproto/sync/getLatestCommit.json`,
