@@ -732,7 +732,7 @@ const getRepoCarVerifyCommitSignature: Check = {
 		if (!repoCarBytes) {
 			return { status: "skip", message: "no CAR bytes to parse" };
 		}
-		let result = await verifyCar(repoCarBytes,didDoc)
+		const result = await verifyCar(repoCarBytes,didDoc)
 		if (result.ok) {
 			return {
 				status: "pass",
