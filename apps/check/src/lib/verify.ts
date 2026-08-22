@@ -4,29 +4,12 @@ import type { Bytes } from '@atcute/cbor';
 import { fromBytes as unwrapBytes } from '@atcute/cbor';
 import * as CID from '@atcute/cid';
 import { getPublicKeyFromDidController, verifySig } from '@atcute/crypto';
-import {
-	CompositeDidDocumentResolver,
-	PlcDidDocumentResolver,
-	WebDidDocumentResolver,
-} from '@atcute/identity-resolver';
-import { getAtprotoVerificationMaterial, isAtprotoDid, isPlcDid, isWebDid, webDidToDocumentUrl } from '@atcute/identity';
+import { getAtprotoVerificationMaterial, isAtprotoDid, isPlcDid, isWebDid, webDidToDocumentUrl, type DidDocument } from '@atcute/identity';
 
-import { isWellFormedCommit } from './types.ts';
+import { isWellFormedCommit } from './types';
 
 export interface VerifyOk {
 	ok: true;
-	/** the deserialized commit object, for debug display (may carry unexpected fields) */
-	commit: Record<string, unknown>;
-	/** the signing key actually resolved for the commit's DID */
-	publicKey: { type: string; jwtAlg: string; publicKeyMultibase: string };
-	/** did the signature verify against the resolved key? */
-	signatureValid: boolean;
-	/** the commit's DID, for the link-out */
-	did: string;
-	/** a human-viewable URL for the DID document the key was resolved from */
-	didDocUrl: string;
-	/** raw bytes of the commit block (as stored in the CAR), for copying to a CBOR debugger */
-	commitBytes: Uint8Array;
 }
 
 /** shape we surface to the UI: material from the DID doc + jwtAlg from the parsed key */
@@ -41,18 +24,10 @@ export interface VerifyErr {
 	/** stage that failed, for a faithful error report */
 	stage: 'parse' | 'resolve' | 'verify' | 'unknown';
 	message: string;
-	/** the deserialized commit, if we got far enough to decode it (always offered to the debug view) */
-	commit?: Record<string, unknown>;
 }
 
 export type VerifyResult = VerifyOk | VerifyErr;
 
-const didResolver = new CompositeDidDocumentResolver({
-	methods: {
-		plc: new PlcDidDocumentResolver(),
-		web: new WebDidDocumentResolver(),
-	},
-});
 
 /**
  * extract the root commit from a CAR, resolve its DID to a public key, and verify
@@ -67,7 +42,7 @@ const didResolver = new CompositeDidDocumentResolver({
  * on failure the decoded commit is still returned (when available) so the debug
  * view can show what was in it.
  */
-export const verifyCar = async (carBytes: Uint8Array): Promise<VerifyResult> => {
+export const verifyCar = async (carBytes: Uint8Array, didDoc: DidDocument): Promise<VerifyResult> => {
 	let commit: Record<string, unknown>;
 	let commitBytes: Uint8Array;
 	try {
@@ -86,33 +61,29 @@ export const verifyCar = async (carBytes: Uint8Array): Promise<VerifyResult> => 
 	// distinct, faithful report rather than a generic "verification failed".
 	let publicKey;
 	try {
-		publicKey = await resolveKey(commit);
+		publicKey = await resolveKey(commit, didDoc);
 	} catch (err) {
 		return {
 			ok: false,
 			stage: 'resolve',
 			message: err instanceof Error ? err.message : String(err),
-			commit,
 		};
 	}
 
 	try {
 		const valid = await verifyCommitSignature(commit, publicKey.found);
-		return {
-			ok: true,
-			commit,
-			publicKey: publicKey.resolved,
-			signatureValid: valid,
-			did: publicKey.did,
-			didDocUrl: publicKey.didDocUrl,
-			commitBytes,
-		};
+		if (valid) {
+			return {
+				ok: true,
+			};
+		} else {
+			throw new Error(`Commit signature is invalid`);
+		}
 	} catch (err) {
 		return {
 			ok: false,
 			stage: 'verify',
 			message: err instanceof Error ? err.message : String(err),
-			commit,
 		};
 	}
 };
@@ -129,6 +100,10 @@ const extractCommit = (carBytes: Uint8Array): { commit: Record<string, unknown>;
 	const blocks = new Map<string, Uint8Array>();
 	for (const entry of reader) {
 		blocks.set(CID.toString(entry.cid), entry.bytes);
+	}
+
+	if (roots.length == 0 || roots[0] === undefined) {
+		throw new Error(`car contains no roots`)
 	}
 
 	const rootCid = roots[0].$link;
@@ -157,7 +132,7 @@ const didDocUrlFor = (did: string): string => {
 };
 
 /** resolve the commit's DID to a public key plus the material we display */
-const resolveKey = async (commit: Record<string, unknown>): Promise<{
+const resolveKey = async (commit: Record<string, unknown>, didDoc: DidDocument): Promise<{
 	found: ReturnType<typeof getPublicKeyFromDidController>;
 	resolved: ResolvedKey;
 	did: string;
@@ -171,8 +146,11 @@ const resolveKey = async (commit: Record<string, unknown>): Promise<{
 		throw new Error(`commit 'did' is not a supported atproto DID: ${did}`);
 	}
 
-	const doc = await didResolver.resolve(did);
-	const material = getAtprotoVerificationMaterial(doc);
+	if (did != didDoc.id) {
+		throw new Error(`commit 'did' ${did} is not equal to repo 'did' ${didDoc.id} `);
+	}
+
+	const material = getAtprotoVerificationMaterial(didDoc);
 	if (material === undefined) {
 		throw new Error(`DID document has no #atproto verification method`);
 	}

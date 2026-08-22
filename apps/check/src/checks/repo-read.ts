@@ -727,11 +727,12 @@ const getRepoCarVerifyCommitSignature: Check = {
 	category: "repo-read",
 	label: "CAR file commit signature validates",
 	requires: ["pds", "did"],
-	run: async (): Promise<CheckOutcome> => {
+	run: async (ctx): Promise<CheckOutcome> => {
+		const didDoc = ctx.didDoc!
 		if (!repoCarBytes) {
 			return { status: "skip", message: "no CAR bytes to parse" };
 		}
-		let result = await verifyCar(repoCarBytes)
+		let result = await verifyCar(repoCarBytes,didDoc)
 		if (result.ok) {
 			return {
 				status: "pass",

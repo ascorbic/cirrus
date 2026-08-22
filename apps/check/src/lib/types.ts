@@ -20,9 +20,6 @@ export interface Commit {
 	prev: CidLink | null;
 }
 
-/** loose shape we accept for decoding: we render any extra fields, but warn about them */
-export type DecodedCommit = Record<string, unknown>;
-
 /** is `value` a well-formed commit with all six expected fields present? */
 export const isWellFormedCommit = (value: unknown): value is Commit => {
 	if (value === null || typeof value !== 'object') return false;
