@@ -84,12 +84,7 @@ app.use(
 	cors({
 		origin: "*",
 		allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-		// Omit allowHeaders: Hono reflects the browser's
-		// Access-Control-Request-Headers back, matching the reference
-		// atproto PDS (`cors({ maxAge })`). This allows Authorization
-		// (a `*` wildcard wouldn't), DPoP, atproto-proxy,
-		// atproto-accept-labelers, accept-language, x-bsky-topics and
-		// any future header automatically.
+		// Note: No allowHeaders; using "*" wildcard doesn't cover Authorization, so let Hono reflect the requested headers instead
 		exposeHeaders: ["Content-Type"],
 		maxAge: 86400,
 	}),
