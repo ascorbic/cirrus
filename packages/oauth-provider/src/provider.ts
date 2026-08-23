@@ -23,11 +23,7 @@ import {
 	isTokenValid,
 	AUTH_CODE_TTL,
 } from "./tokens.js";
-import {
-	renderConsentUI,
-	renderErrorPage,
-	getConsentUiCsp,
-} from "./ui.js";
+import { renderConsentUI, renderErrorPage, getConsentUiCsp } from "./ui.js";
 import type { PermissionSetBundle } from "./ui.js";
 import { IncludeScope } from "@atproto/oauth-scopes";
 import { authenticateClient, ClientAuthError } from "./client-auth.js";
@@ -380,10 +376,9 @@ export class ATProtoOAuthProvider {
 		// expanded later, at code-issuance time, so the consent UI can show
 		// bundle titles in their original include form.
 		const scope = params.scope ?? ATPROTO_SCOPE;
-		params.scope = scope;
 		const allowIncludes = !!this.permissionSetResolver;
 		try {
-			parseScope(scope, { allowIncludes });
+			params.scope = parseScope(scope, { allowIncludes });
 		} catch (e) {
 			if (e instanceof ScopeParseError) {
 				return await this.renderError("invalid_scope", e.message);
@@ -523,13 +518,13 @@ export class ATProtoOAuthProvider {
 		// stored scope contains only concrete granular permissions.
 		const requestedScope = params.scope ?? ATPROTO_SCOPE;
 		let scope = requestedScope;
-		if (
-			this.permissionSetResolver &&
-			requestedScope.includes("include:")
-		) {
+		if (this.permissionSetResolver && requestedScope.includes("include:")) {
 			try {
-				scope = await expandScope(requestedScope, this.permissionSetResolver);
-				parseScope(scope);
+				const expandedScope = await expandScope(
+					requestedScope,
+					this.permissionSetResolver,
+				);
+				scope = parseScope(expandedScope);
 			} catch (e) {
 				if (e instanceof ScopeParseError) {
 					const errorUrl = new URL(redirectUri);
@@ -970,9 +965,7 @@ export class ATProtoOAuthProvider {
 	 */
 	async verifyAccessToken(
 		request: Request,
-		check?:
-			| string
-			| ((perms: ScopePermissionsTransition) => void),
+		check?: string | ((perms: ScopePermissionsTransition) => void),
 	): Promise<TokenData | null> {
 		// Extract token from Authorization header
 		const tokenInfo = extractAccessToken(request);
@@ -1123,10 +1116,13 @@ export class ATProtoOAuthProvider {
 		const allowIncludes = !!this.permissionSetResolver;
 		let scope = requestedScope;
 		try {
-			parseScope(requestedScope, { allowIncludes });
+			scope = parseScope(requestedScope, { allowIncludes });
 			if (allowIncludes && requestedScope.includes("include:")) {
-				scope = await expandScope(requestedScope, this.permissionSetResolver);
-				parseScope(scope);
+				const expandedScope = await expandScope(
+					requestedScope,
+					this.permissionSetResolver,
+				);
+				scope = parseScope(expandedScope);
 			}
 		} catch (e) {
 			if (e instanceof ScopeParseError) {

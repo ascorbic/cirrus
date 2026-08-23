@@ -1,11 +1,12 @@
 /**
  * Scope parsing and matching, built on @atproto/oauth-scopes.
  *
- * Granular scopes (`repo:`, `rpc:`, `blob:`, `account:`, `identity:`) are
- * parsed structurally. Permission-set includes (`include:NSID?aud=...`) are
- * resolved at authorize-time via an injected {@link PermissionSetResolver}
- * and expanded into concrete granular scopes inline before the auth code is
- * stored — so resource-server checks never need network access.
+ * Unsupported or malformed scope tokens are filtered out (via
+ * `isAtprotoOauthScope`) rather than rejected. Permission-set includes
+ * (`include:NSID?aud=...`) are resolved at authorize-time via an injected
+ * {@link PermissionSetResolver} and expanded into concrete granular scopes
+ * inline before the auth code is stored — so resource-server checks never
+ * need network access.
  */
 
 import type { Nsid as AtcuteNsid } from "@atcute/lexicons/syntax";
@@ -18,7 +19,12 @@ import {
 } from "@atproto/oauth-scopes";
 import type { PermissionSetResolver } from "./permission-sets.js";
 
-export { IncludeScope, ScopeMissingError, ScopePermissionsTransition, ScopesSet };
+export {
+	IncludeScope,
+	ScopeMissingError,
+	ScopePermissionsTransition,
+	ScopesSet,
+};
 
 /**
  * Resources known to the spec. Used in OAuth metadata advertisement and to
@@ -62,10 +68,10 @@ export class ScopeParseError extends Error {
 
 export interface ParseScopeOptions {
 	/**
-	 * When true, `include:` scopes are accepted (and structurally validated)
-	 * but not expanded — the returned ScopesSet may still contain them.
-	 * Use this at authorize-time, then call {@link expandScope} to resolve
-	 * the includes before storing.
+	 * When true, `include:` scopes are accepted but not expanded — the
+	 * returned scope string may still contain them. Use this at
+	 * authorize-time, then call {@link expandScope} to resolve the includes
+	 * before storing.
 	 *
 	 * When false (default), `include:` scopes throw a ScopeParseError. Use
 	 * this on already-expanded scope strings (e.g. when re-validating a
@@ -75,13 +81,15 @@ export interface ParseScopeOptions {
 }
 
 /**
- * Validate a space-separated scope string. Returns the parsed ScopesSet on
- * success.
+ * Filter and validate a space-separated scope string, returning the cleaned
+ * scope string on success. Tokens not recognized by `isAtprotoOauthScope`
+ * are silently dropped; a missing "atproto" base scope or a disallowed
+ * `include:` scope throws a {@link ScopeParseError}.
  */
 export function parseScope(
 	input: string | undefined | null,
 	{ allowIncludes = false }: ParseScopeOptions = {},
-): ScopesSet {
+): string {
 	const filtered =
 		(input ?? "")
 			.split(" ")
@@ -108,7 +116,7 @@ export function parseScope(
 		}
 	}
 
-	return set;
+	return Array.from(set).join(" ");
 }
 
 /**

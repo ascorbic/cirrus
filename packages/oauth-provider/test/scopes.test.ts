@@ -4,29 +4,43 @@ import {
 	ATPROTO_SCOPE,
 	ScopeMissingError,
 	ScopeParseError,
+	ScopesSet,
 	expandScope,
 	parseScope,
 	permissionsFor,
+	type ParseScopeOptions,
 } from "../src/scopes.js";
+
+function parsedScopesSet(
+	scopes: string,
+	options?: ParseScopeOptions,
+): ScopesSet {
+	const parsed = parseScope(scopes, options);
+	return ScopesSet.fromString(parsed);
+}
 
 describe("parseScope", () => {
 	it("accepts the bare atproto scope", () => {
-		const set = parseScope("atproto");
+		const set = parsedScopesSet("atproto");
 		expect(set.has("atproto")).toBe(true);
 	});
 
 	it("requires the atproto scope to be present", () => {
-		expect(() => parseScope("")).toThrow(ScopeParseError);
-		expect(() => parseScope("transition:generic")).toThrow(ScopeParseError);
+		expect(() => parsedScopesSet("")).toThrow(ScopeParseError);
+		expect(() => parsedScopesSet("transition:generic")).toThrow(
+			ScopeParseError,
+		);
 	});
 
 	it("accepts transitional scopes alongside atproto", () => {
-		const set = parseScope("atproto transition:generic transition:chat.bsky");
+		const set = parsedScopesSet(
+			"atproto transition:generic transition:chat.bsky",
+		);
 		expect(set.size).toBe(3);
 	});
 
 	it("accepts granular repo scopes", () => {
-		const set = parseScope(
+		const set = parsedScopesSet(
 			"atproto repo:app.bsky.feed.post repo:*?action=delete",
 		);
 		expect(set.has("repo:app.bsky.feed.post")).toBe(true);
@@ -34,27 +48,27 @@ describe("parseScope", () => {
 	});
 
 	it("accepts granular rpc scopes with audience", () => {
-		const set = parseScope(
+		const set = parsedScopesSet(
 			"atproto rpc:app.bsky.feed.getTimeline?aud=did:web:api.bsky.app%23bsky_appview",
 		);
 		expect(set.size).toBe(2);
 	});
 
 	it("accepts blob, account, identity scopes", () => {
-		const set = parseScope(
+		const set = parsedScopesSet(
 			"atproto blob:image/* account:email?action=manage identity:handle",
 		);
 		expect(set.size).toBe(4);
 	});
 
 	it("silently drops malformed scope tokens", () => {
-		const set = parseScope("atproto repo:not a real nsid");
+		const set = parsedScopesSet("atproto repo:not a real nsid");
 		expect(set.has("atproto")).toBe(true);
 		expect(set.size).toBe(1);
 	});
 
 	it("silently drops scopes with unsupported actions", () => {
-		const set = parseScope(
+		const set = parsedScopesSet(
 			"atproto repo:com.example.post?action=read repo:com.example.post?action=create",
 		);
 		expect(set.has("atproto")).toBe(true);
@@ -65,13 +79,13 @@ describe("parseScope", () => {
 	});
 
 	it("silently drops unknown scope resources", () => {
-		const set = parseScope("atproto madeup:thing");
+		const set = parsedScopesSet("atproto madeup:thing");
 		expect(set.has("atproto")).toBe(true);
 		expect(set.size).toBe(1);
 	});
 
 	it("accepts repo scopes in query-only form (no positional)", () => {
-		const set = parseScope("atproto repo?collection=app.bsky.feed.post");
+		const set = parsedScopesSet("atproto repo?collection=app.bsky.feed.post");
 		expect(set.has("repo?collection=app.bsky.feed.post")).toBe(true);
 	});
 
@@ -81,18 +95,20 @@ describe("parseScope", () => {
 			"&collection=site.standard.graph.recommend" +
 			"&collection=site.standard.graph.subscription" +
 			"&collection=site.standard.publication";
-		const set = parseScope(`atproto ${scope}`);
+		const set = parsedScopesSet(`atproto ${scope}`);
 		expect(set.has(scope)).toBe(true);
 	});
 
 	it("rejects include: scopes by default (strict mode)", () => {
 		expect(() =>
-			parseScope("atproto include:com.example.basic?aud=did:web:foo%23svc"),
+			parsedScopesSet(
+				"atproto include:com.example.basic?aud=did:web:foo%23svc",
+			),
 		).toThrow(/Permission sets cannot be requested/);
 	});
 
 	it("accepts include: scopes when allowIncludes is true", () => {
-		const set = parseScope(
+		const set = parsedScopesSet(
 			"atproto include:com.example.basic?aud=did:web:foo%23svc",
 			{ allowIncludes: true },
 		);
@@ -115,7 +131,9 @@ describe("permissionsFor", () => {
 	});
 
 	it("scopes the action when ?action= is given", () => {
-		const perms = permissionsFor("atproto repo:app.bsky.feed.post?action=create");
+		const perms = permissionsFor(
+			"atproto repo:app.bsky.feed.post?action=create",
+		);
 		expect(
 			perms.allowsRepo({ collection: "app.bsky.feed.post", action: "create" }),
 		).toBe(true);
@@ -134,18 +152,14 @@ describe("permissionsFor", () => {
 
 	it("transition:generic does NOT grant account perms", () => {
 		const perms = permissionsFor("atproto transition:generic");
-		expect(
-			perms.allowsAccount({ attr: "email", action: "manage" }),
-		).toBe(false);
+		expect(perms.allowsAccount({ attr: "email", action: "manage" })).toBe(
+			false,
+		);
 	});
 
 	it("transition:email grants account:email", () => {
-		const perms = permissionsFor(
-			"atproto transition:generic transition:email",
-		);
-		expect(
-			perms.allowsAccount({ attr: "email", action: "read" }),
-		).toBe(true);
+		const perms = permissionsFor("atproto transition:generic transition:email");
+		expect(perms.allowsAccount({ attr: "email", action: "read" })).toBe(true);
 	});
 
 	it("assertRepo throws ScopeMissingError when not granted", () => {
