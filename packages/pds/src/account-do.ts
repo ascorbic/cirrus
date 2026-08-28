@@ -1056,9 +1056,14 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		cid: string,
 		size: number,
 		mimeType: string,
-	): Promise<void> {
+	): Promise<{ referenced: boolean }> {
 		const storage = await this.getStorage();
 		storage.trackImportedBlob(cid, size, mimeType);
+		// Report whether an existing record already references this CID so
+		// the Worker can promote the staged upload immediately (migration
+		// uploads arrive after their referencing records were imported, so
+		// no later record write will do it).
+		return { referenced: storage.isBlobReferenced(cid) };
 	}
 
 	/**

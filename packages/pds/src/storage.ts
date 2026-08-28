@@ -455,6 +455,16 @@ export class SqliteRepoStorage
 	}
 
 	/**
+	 * Check if any record references a blob CID.
+	 */
+	isBlobReferenced(cid: string): boolean {
+		const rows = this.sql
+			.exec("SELECT 1 FROM record_blob WHERE blobCid = ? LIMIT 1", cid)
+			.toArray();
+		return rows.length > 0;
+	}
+
+	/**
 	 * Check if a blob has been imported.
 	 */
 	isBlobImported(cid: string): boolean {

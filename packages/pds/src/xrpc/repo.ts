@@ -10,8 +10,30 @@ import {
 	type ValidationStatus,
 } from "../validation.js";
 import { detectContentType } from "../format.js";
-import { BlobStore } from "../blobs.js";
+import { BlobStore, extractJsonBlobCids } from "../blobs.js";
 import { buildScopeChecker, requireScope } from "../middleware/auth.js";
+
+/**
+ * Promote any staged blobs referenced by the given records to their public
+ * serving key. Runs in the Worker before the DO applies the commit, so a
+ * relay or AppView reacting to the commit never sees a 404 for a
+ * just-referenced blob. Idempotent per CID; unknown CIDs are skipped.
+ */
+async function promoteRecordBlobs(
+	c: Context<AuthedAppEnv>,
+	records: unknown[],
+): Promise<void> {
+	if (!c.env.BLOBS) return;
+	const cids = new Set<string>();
+	for (const record of records) {
+		for (const cid of extractJsonBlobCids(record)) {
+			cids.add(cid);
+		}
+	}
+	if (cids.size === 0) return;
+	const blobStore = new BlobStore(c.env.BLOBS, c.env.DID);
+	await blobStore.promoteBlobs(Array.from(cids));
+}
 
 function invalidRecordError(
 	c: Context<AuthedAppEnv>,
@@ -319,6 +341,8 @@ export async function createRecord(
 		throw err;
 	}
 
+	await promoteRecordBlobs(c, [validated.record]);
+
 	try {
 		const result = await accountDO.rpcCreateRecord(
 			collection,
@@ -431,6 +455,8 @@ export async function putRecord(
 		if (err instanceof InvalidRecordError) return invalidRecordError(c, err);
 		throw err;
 	}
+
+	await promoteRecordBlobs(c, [validated.record]);
 
 	try {
 		const result = await accountDO.rpcPutRecord(
@@ -589,6 +615,11 @@ export async function applyWrites(
 		}
 	}
 
+	await promoteRecordBlobs(
+		c,
+		preparedWrites.filter((w) => w.value !== undefined).map((w) => w.value),
+	);
+
 	try {
 		const result = await accountDO.rpcApplyWrites(preparedWrites);
 		return c.json(result);
@@ -669,13 +700,21 @@ export async function uploadBlob(
 	// input gate, and Cloudflare resets the object when a storage op times
 	// out, dropping the firehose and desyncing the relay. The DO only
 	// records the tracking metadata. This mirrors sync.getBlob.
+	//
+	// Uploads land in `staged/` and are promoted when a record write
+	// references them. During migration the referencing records were already
+	// imported, so no later write will promote — rpcTrackBlob reports
+	// whether the CID is referenced and we promote here in that case.
 	const blobStore = new BlobStore(c.env.BLOBS, c.env.DID);
 	const blobRef = await blobStore.putBlob(bytes, contentType);
-	await accountDO.rpcTrackBlob(
+	const { referenced } = await accountDO.rpcTrackBlob(
 		blobRef.ref.$link,
 		blobRef.size,
 		blobRef.mimeType,
 	);
+	if (referenced) {
+		await blobStore.promoteBlob(blobRef.ref.$link);
+	}
 	return c.json({ blob: blobRef });
 }
 
