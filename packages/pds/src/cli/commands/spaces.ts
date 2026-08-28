@@ -282,7 +282,7 @@ const membersCommand = defineCommand({
 				did: { type: "positional", description: "Member DID", required: true },
 			},
 			async run({ args }) {
-				const ctx = loadContext(args.dev);
+				const ctx = loadContext(Boolean(args.dev));
 				await xrpc(ctx, "POST", "com.atproto.simplespace.addMember", {
 					body: { space: args.space, did: args.did },
 				});
@@ -297,7 +297,7 @@ const membersCommand = defineCommand({
 				did: { type: "positional", description: "Member DID", required: true },
 			},
 			async run({ args }) {
-				const ctx = loadContext(args.dev);
+				const ctx = loadContext(Boolean(args.dev));
 				await xrpc(ctx, "POST", "com.atproto.simplespace.removeMember", {
 					body: { space: args.space, did: args.did },
 				});
@@ -311,12 +311,12 @@ const membersCommand = defineCommand({
 				space: { type: "positional", description: "Space URI", required: true },
 			},
 			async run({ args }) {
-				const ctx = loadContext(args.dev);
+				const ctx = loadContext(Boolean(args.dev));
 				const result = await xrpc<{ members: Array<{ did: string }> }>(
 					ctx,
 					"GET",
 					"com.atproto.simplespace.listMembers",
-					{ params: { space: args.space, limit: "1000" } },
+					{ params: { space: String(args.space), limit: "1000" } },
 				);
 				if (result.members.length === 0) {
 					console.log(pc.dim("No members."));
