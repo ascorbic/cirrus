@@ -85,15 +85,21 @@ export function parseSpaceErrorCode(
 		return { code: err.code, message: err.detail };
 	}
 	if (err instanceof Error) {
-		const colon = err.message.indexOf(": ");
-		if (colon > 0) {
-			const code = err.message.slice(0, colon);
+		// Durable Object RPC re-throws errors with the class name folded into
+		// the message ("SpaceError: RecordNotFound: ..."), so scan the first
+		// few prefix segments for a known code.
+		let message = err.message;
+		for (let hop = 0; hop < 3; hop++) {
+			const colon = message.indexOf(": ");
+			if (colon <= 0) break;
+			const code = message.slice(0, colon);
 			if (CODE_SET.has(code)) {
 				return {
 					code: code as SpaceErrorCode,
-					message: err.message.slice(colon + 2),
+					message: message.slice(colon + 2),
 				};
 			}
+			message = message.slice(colon + 2);
 		}
 	}
 	return null;

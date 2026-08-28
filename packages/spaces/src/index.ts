@@ -32,7 +32,32 @@ export {
 	spaceBlobKeyForUri,
 	spaceBlobPrefix,
 	spaceBlobRootPrefix,
+	stagedBlobKey,
 } from "./blob-keys.js";
+
+export { createSpaceRoutes } from "./routes.js";
+export type {
+	SpaceRoutesHost,
+	SpaceScopeMatch,
+	SpaceSessionAuth,
+	SpaceStub,
+	SpaceIndexStub,
+} from "./routes.js";
+
+export {
+	isSpaceCredentialAuth,
+	unverifiedJwtTyp,
+	verifyDelegationAuth,
+	verifySpaceCredentialAuth,
+} from "./auth.js";
+export type { CheckReplay, GetSigningKey } from "./auth.js";
+
+export { verifyClientAttestation } from "./attestation.js";
+
+export { signCommit, commitToJson, bytesToJson } from "./commit.js";
+
+export { prepareRecord, recordBytesToJson } from "./records.js";
+export type { PreparedRecord } from "./records.js";
 
 export {
 	SPACE_SCHEMA_VERSION,

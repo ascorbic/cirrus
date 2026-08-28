@@ -8,5 +8,6 @@ declare global {
 	interface Env {
 		SPACES: DurableObjectNamespace<TestSpaceDurableObject>;
 		SPACES_INDEX: DurableObjectNamespace<TestSpaceIndexDurableObject>;
+		BLOBS: R2Bucket;
 	}
 }
