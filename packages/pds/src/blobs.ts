@@ -25,11 +25,11 @@ export interface BlobRef {
  * 404. Keys never move back: promotion is idempotent and `staged/` copies
  * are left for the lifecycle rule to reap.
  */
-export function stagedBlobKey(did: string, cid: string): string {
+function stagedBlobKey(did: string, cid: string): string {
 	return `${did}/staged/${cid}`;
 }
 
-export function publicBlobKey(did: string, cid: string): string {
+function publicBlobKey(did: string, cid: string): string {
 	return `${did}/${cid}`;
 }
 
