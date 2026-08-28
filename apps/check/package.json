@@ -14,9 +14,11 @@
 	},
 	"dependencies": {
 		"@atcute/atproto": "^4.0.0",
+		"@atcute/car": "^6.0.2",
 		"@atcute/cbor": "^2.3.3",
 		"@atcute/cid": "^2.4.1",
 		"@atcute/client": "^5.0.0",
+		"@atcute/crypto": "^2.4.4",
 		"@atcute/identity": "^2.0.0",
 		"@atcute/identity-resolver": "^2.0.0",
 		"@atcute/lexicons": "^2.0.0",
