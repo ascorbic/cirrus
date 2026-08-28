@@ -62,11 +62,11 @@ export interface SpacesAppDeps {
 }
 
 /** Data-location-aware stub creation, matching getAccountDO's handling. */
-export function getSpaceDO(env: PDSEnv, uri: string): SpaceStub {
+function getSpaceDO(env: PDSEnv, uri: string): SpaceStub {
 	return locatedStub(env, env.SPACES!, uri);
 }
 
-export function getSpaceIndexDO(env: PDSEnv): SpaceIndexStub {
+function getSpaceIndexDO(env: PDSEnv): SpaceIndexStub {
 	return locatedStub(env, env.SPACES_INDEX!, "spaces");
 }
 
