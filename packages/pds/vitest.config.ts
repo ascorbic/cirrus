@@ -32,6 +32,9 @@ export default defineConfig({
 	},
 	test: {
 		globals: true,
+		// Several proxy tests hit the live AppView; its latency regularly
+		// pushes past vitest's 5s default and flakes CI.
+		testTimeout: 15000,
 		// Vitest 4: singleWorker is now maxWorkers: 1, isolate: false
 		maxWorkers: 1,
 		isolate: false,
