@@ -224,6 +224,63 @@ describe("spaces integration", () => {
 		);
 	});
 
+	it("reports spaces status and resets all space data (S7)", async () => {
+		const space = await createSpace();
+		await post("/xrpc/com.atproto.space.createRecord", {
+			space,
+			repo: env.DID,
+			collection: "test.cirrus.note",
+			record: { $type: "test.cirrus.note", text: "doomed" },
+		});
+
+		// Status requires the operator token.
+		const anonStatus = await get("/xrpc/gg.mk.experimental.getSpacesStatus");
+		expect(anonStatus.status).toBe(401);
+
+		const status = await get("/xrpc/gg.mk.experimental.getSpacesStatus", {
+			Authorization: `Bearer ${env.AUTH_TOKEN}`,
+		});
+		expect(status.status).toBe(200);
+		const statusBody = (await status.json()) as {
+			enabled: boolean;
+			schemaVersion: number;
+			spaces: Array<{ uri: string; role: string; recordCount: number }>;
+		};
+		expect(statusBody.enabled).toBe(true);
+		expect(statusBody.schemaVersion).toBeGreaterThanOrEqual(1);
+		const entry = statusBody.spaces.find((s) => s.uri === space);
+		expect(entry).toMatchObject({ role: "authority", recordCount: 1 });
+
+		// The public repo head before the reset.
+		const beforeReset = await (
+			await get(`/xrpc/com.atproto.sync.getLatestCommit?did=${env.DID}`)
+		).json();
+
+		const reset = await post("/xrpc/gg.mk.experimental.spacesReset", {});
+		expect(reset.status).toBe(200);
+		const resetBody = (await reset.json()) as { spacesDeleted: number };
+		expect(resetBody.spacesDeleted).toBeGreaterThan(0);
+
+		// Clean state: nothing listed, reads say RepoNotFound.
+		const listed = await get("/xrpc/com.atproto.space.listSpaces", {
+			Authorization: `Bearer ${env.AUTH_TOKEN}`,
+		});
+		expect(((await listed.json()) as { spaces: unknown[] }).spaces).toEqual(
+			[],
+		);
+		const read = await get(
+			`/xrpc/com.atproto.space.getRecord?space=${encodeURIComponent(space)}&repo=${env.DID}&collection=test.cirrus.note&rkey=x`,
+			{ Authorization: `Bearer ${env.AUTH_TOKEN}` },
+		);
+		expect(read.status).toBe(404);
+
+		// The public repo is untouched.
+		const afterReset = await (
+			await get(`/xrpc/com.atproto.sync.getLatestCommit?did=${env.DID}`)
+		).json();
+		expect(afterReset).toEqual(beforeReset);
+	});
+
 	it("keeps the firehose and public repo untouched by space writes", async () => {
 		const space = await createSpace();
 		const before = await (

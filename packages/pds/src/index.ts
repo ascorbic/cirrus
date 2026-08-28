@@ -29,7 +29,7 @@ import {
 	PASSKEY_ERROR_CSP,
 } from "./passkey-ui";
 import { renderDashboard } from "./dashboard";
-import { createSpacesApp } from "./spaces";
+import { createSpacesApp, createSpacesAdminApp } from "./spaces";
 import type { PDSEnv } from "./types";
 
 import { version } from "../package.json" with { type: "json" };
@@ -183,6 +183,7 @@ app.get("/status", (c) => {
 			handle: c.env.HANDLE,
 			did: c.env.DID,
 			version,
+			spacesEnabled: c.env.SPACES_ENABLED === "true",
 		}),
 	);
 });
@@ -556,6 +557,12 @@ if (env.SPACES_ENABLED === "true") {
 		"/",
 		createSpacesApp({ env, didResolver, getKeypair }),
 	);
+}
+// The operator-only admin surface (spaces status and reset) mounts
+// whenever the bindings exist, so `pds spaces reset` still works with the
+// flag off or the space DOs in their schema-refusing state.
+if (env.SPACES && env.SPACES_INDEX) {
+	app.route("/", createSpacesAdminApp({ env, didResolver, getKeypair }));
 }
 
 // getFeed is proxied to the AppView but the service-auth JWT must be addressed
