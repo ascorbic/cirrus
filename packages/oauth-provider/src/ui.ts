@@ -12,7 +12,8 @@ import {
 	RpcPermission,
 } from "@atproto/oauth-scopes";
 import type { ClientMetadata } from "./storage.js";
-import { ATPROTO_SCOPE, ScopesSet } from "./scopes.js";
+import { ATPROTO_SCOPE, ScopesSet, parseSpaceScope } from "./scopes.js";
+import type { SpacePermissionType } from "./scopes.js";
 
 /**
  * The passkey authentication script (static, can be hashed).
@@ -222,6 +223,23 @@ export interface PermissionSetBundle {
 }
 
 /**
+ * Display metadata for a `space:` scope in the consent UI. The space type's
+ * lexicon declaration supplies the human `name`; a failed resolution falls
+ * back to the raw NSID with a warning (unlike permission-set bundles, the
+ * scope string itself fully describes the grant, so consent stays possible).
+ */
+export interface SpaceScopeInfo {
+	/** The space type NSID, or `*` for a wildcard grant. */
+	type: string;
+	/** The authority parameter: `self`, a DID, or `*`. */
+	authority: string;
+	/** Human-readable name from the space type's lexicon declaration. */
+	name?: string;
+	/** Set when the space type declaration could not be resolved. */
+	error?: string;
+}
+
+/**
  * A consent-UI permission line. Either a single string or a "summary +
  * collapsible items" pair. The latter renders as a `<details>` disclosure so
  * apps requesting many granular scopes (e.g. tangled.org with 21 `repo:` and
@@ -266,9 +284,66 @@ function commonNsidPrefix(nsids: readonly string[]): string | null {
  * `bundles`, when supplied, lets us render `include:` scopes as the bundle's
  * human title rather than just its NSID.
  */
+/**
+ * Describe one `space:` permission for the consent UI. Wildcards on the
+ * space type or authority get a prominent warning per the proposal, and an
+ * unresolved space type falls back to the raw NSID with a warning.
+ */
+function describeSpaceScope(
+	p: SpacePermissionType,
+	info: SpaceScopeInfo | undefined,
+): string[] {
+	const out: string[] = [];
+
+	const typeLabel =
+		p.type === "*"
+			? "spaces of ANY type"
+			: info?.name
+				? `"${info.name}" spaces (${p.type})`
+				: `${p.type} spaces`;
+
+	const authorityLabel =
+		p.authority === "self"
+			? "your own"
+			: p.authority === "*"
+				? "ANY account's"
+				: `${p.authority}'s`;
+
+	const canRead = p.action.includes("read") || p.action.includes("read_self");
+	const canWrite =
+		p.action.includes("create") ||
+		p.action.includes("update") ||
+		p.action.includes("delete");
+	const verb =
+		canRead && canWrite ? "Read and write" : canWrite ? "Write" : "Read";
+	const skeySuffix = p.skey === "*" ? "" : ` (space "${p.skey}")`;
+
+	let line = `${verb} private data in ${authorityLabel} ${typeLabel}${skeySuffix}`;
+	if (p.type === "*" || p.authority === "*") {
+		line = `⚠️ ${line}`;
+	}
+	out.push(line);
+
+	if (p.manage.length > 0) {
+		const ops = p.manage.join(", ");
+		out.push(
+			`Manage (${ops}) ${authorityLabel} ${typeLabel}, including membership`,
+		);
+	}
+
+	if (info?.error) {
+		out.push(
+			`⚠️ ${p.type} — could not resolve space type declaration: ${info.error}`,
+		);
+	}
+
+	return out;
+}
+
 function getScopeDescriptions(
 	scope: string,
 	bundles?: readonly PermissionSetBundle[],
+	spaces?: readonly SpaceScopeInfo[],
 ): ScopeDescription[] {
 	const set = ScopesSet.fromString(scope);
 	const out: ScopeDescription[] = [];
@@ -293,8 +368,16 @@ function getScopeDescriptions(
 	const accounts: AccountPermission[] = [];
 	const identities: IdentityPermission[] = [];
 	const includes: IncludeScope[] = [];
+	const spacePerms: SpacePermissionType[] = [];
 
 	for (const s of set) {
+		// Space scopes may use the `space?type=...` form with no colon, so
+		// they get a dedicated parse ahead of the colon-keyed dispatch.
+		const spacePerm = parseSpaceScope(s);
+		if (spacePerm) {
+			spacePerms.push(spacePerm);
+			continue;
+		}
 		const colon = s.indexOf(":");
 		if (colon === -1) continue;
 		const resource = s.slice(0, colon);
@@ -409,6 +492,12 @@ function getScopeDescriptions(
 	for (const p of identities) {
 		out.push(`Manage your ${p.attr === "*" ? "identity" : p.attr}`);
 	}
+	for (const p of spacePerms) {
+		const info = spaces?.find(
+			(s) => s.type === p.type && s.authority === p.authority,
+		);
+		out.push(...describeSpaceScope(p, info));
+	}
 	for (const inc of includes) {
 		const bundle = bundles?.find((b) => b.nsid === inc.nsid);
 		if (bundle?.error) {
@@ -461,6 +550,12 @@ export interface ConsentUIOptions {
 	 * instead of the bare NSID.
 	 */
 	bundles?: readonly PermissionSetBundle[];
+	/**
+	 * Resolved display metadata for any `space:` scopes in the request. The
+	 * consent UI uses this to show the space type's human name; a failed
+	 * resolution falls back to the raw NSID with a warning.
+	 */
+	spaces?: readonly SpaceScopeInfo[];
 }
 
 /**
@@ -482,7 +577,11 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 	} = options;
 
 	const clientName = escapeHtml(client.clientName);
-	const scopeDescriptions = getScopeDescriptions(scope, options.bundles);
+	const scopeDescriptions = getScopeDescriptions(
+		scope,
+		options.bundles,
+		options.spaces,
+	);
 	const hasResolutionFailure = !!options.bundles?.some((b) => b.error);
 	const logoHtml = client.logoUri
 		? `<img src="${escapeHtml(client.logoUri)}" alt="${clientName} logo" class="app-logo" />`
