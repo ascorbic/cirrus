@@ -15,6 +15,10 @@
 			"ignore": ["scripts/**", "test/fixtures/**", "e2e/fixture/**"],
 			"ignoreDependencies": ["tsx", "vite", "@cloudflare/vite-plugin"]
 		},
+		"packages/spaces": {
+			"ignore": ["test/fixtures/**"],
+			"ignoreDependencies": ["wrangler"]
+		},
 		"packages/create-pds": {
 			"ignore": ["templates/**"]
 		}
