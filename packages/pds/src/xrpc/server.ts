@@ -82,6 +82,7 @@ export async function createSession(
 	}
 
 	// Try app password first if it matches the format
+	let usedAppPassword = false;
 	if (isAppPassword(password)) {
 		const appPasswords = await accountDO.rpcGetAppPasswordHashes();
 		let matched = false;
@@ -101,6 +102,7 @@ export async function createSession(
 				401,
 			);
 		}
+		usedAppPassword = true;
 	} else {
 		// Verify account password
 		const passwordValid = await verifyPassword(
@@ -120,15 +122,18 @@ export async function createSession(
 
 	// Create tokens
 	const serviceDid = `did:web:${c.env.PDS_HOSTNAME}`;
+	const tokenOptions = { appPassword: usedAppPassword };
 	const accessJwt = await createAccessToken(
 		c.env.JWT_SECRET,
 		c.env.DID,
 		serviceDid,
+		tokenOptions,
 	);
 	const refreshJwt = await createRefreshToken(
 		c.env.JWT_SECRET,
 		c.env.DID,
 		serviceDid,
+		tokenOptions,
 	);
 
 	const { email: storedEmail } = await accountDO.rpcGetEmail();
@@ -185,16 +190,19 @@ export async function refreshSession(
 			);
 		}
 
-		// Create new tokens
+		// Create new tokens, preserving the app-password marker.
+		const tokenOptions = { appPassword: payload.apf === true };
 		const accessJwt = await createAccessToken(
 			c.env.JWT_SECRET,
 			c.env.DID,
 			serviceDid,
+			tokenOptions,
 		);
 		const refreshJwt = await createRefreshToken(
 			c.env.JWT_SECRET,
 			c.env.DID,
 			serviceDid,
+			tokenOptions,
 		);
 
 		const { email: storedEmail } = await accountDO.rpcGetEmail();

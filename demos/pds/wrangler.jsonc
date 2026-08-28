@@ -13,15 +13,30 @@
 			{
 				"name": "ACCOUNT",
 				"class_name": "AccountDurableObject"
+			},
+			{
+				"name": "SPACES",
+				"class_name": "SpaceDurableObject"
+			},
+			{
+				"name": "SPACES_INDEX",
+				"class_name": "SpaceIndexDurableObject"
 			}
 		]
 	},
-	// Enable SQLite for the Durable Object
+	// Enable SQLite for the Durable Objects
 	"migrations": [
 		{
 			"tag": "v1",
 			"new_sqlite_classes": [
 				"AccountDurableObject"
+			]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": [
+				"SpaceDurableObject",
+				"SpaceIndexDurableObject"
 			]
 		}
 	],
