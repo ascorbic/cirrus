@@ -3,3 +3,12 @@ packages:
   - "demos/*"
   - "apps/*"
   - "docs"
+
+allowBuilds:
+  "@atcute/time-ms": false
+  core-js: false
+  esbuild: false
+  sharp: false
+  workerd: false
+
+linkWorkspacePackages: true

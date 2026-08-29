@@ -29,7 +29,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup PNPM
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -43,10 +43,6 @@ jobs:
       - name: Build Packages
         run: pnpm run build
       - run: pnpm run check
-
-      # Update npm to latest version so that OIDC works correctly
-      - name: Update npm
-        run: npm install -g npm@latest
 
       - name: Create Release Pull Request or Publish to npm
         id: changesets
