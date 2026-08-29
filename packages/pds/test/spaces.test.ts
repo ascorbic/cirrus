@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { env, worker, runInDurableObject } from "./helpers";
+import { createSpacesUnavailableApp } from "../src/spaces";
 
 const authed = {
 	"Content-Type": "application/json",
@@ -334,6 +335,28 @@ describe("spaces integration", () => {
 		const reset = await post("/xrpc/gg.mk.experimental.spacesReset", {});
 		expect(reset.status).toBe(200);
 		expect(await stub.rpcGetMeta()).toBe(null);
+	});
+
+	it("degrades to 503 when the flag is set without bindings", async () => {
+		// The fallback app mounted when SPACES / SPACES_INDEX are absent:
+		// space and simplespace methods answer 503, everything else falls
+		// through to later routes (the proxy).
+		const app = createSpacesUnavailableApp();
+		const space = await app.request(
+			"/xrpc/com.atproto.space.getRecord?space=x",
+		);
+		expect(space.status).toBe(503);
+		expect(((await space.json()) as { error: string }).error).toBe(
+			"ServiceUnavailable",
+		);
+		const simplespace = await app.request(
+			"/xrpc/com.atproto.simplespace.createSpace",
+			{ method: "POST" },
+		);
+		expect(simplespace.status).toBe(503);
+		// Non-space methods are untouched.
+		const other = await app.request("/xrpc/com.atproto.repo.getRecord");
+		expect(other.status).toBe(404);
 	});
 
 	it("keeps the firehose and public repo untouched by space writes", async () => {

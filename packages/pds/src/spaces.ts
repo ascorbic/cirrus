@@ -95,17 +95,47 @@ function locatedStub<T extends Rpc.DurableObjectBranded | undefined>(
 const SESSION_KID_ALLOWED = new Set(["#atproto", "#atproto_space"]);
 
 /**
+ * Fallback app mounted when SPACES_ENABLED is set but the SPACES /
+ * SPACES_INDEX Durable Object bindings are absent: every space and
+ * simplespace method answers 503 with a pointer at the fix, and
+ * everything else falls through.
+ *
+ * Nothing in this module may throw for a missing binding at module scope:
+ * Cloudflare's deploy-time startup validation evaluates the Worker with
+ * vars visible but Durable Object bindings not yet materialized, so a
+ * startup throw fails every deploy with the flag set — and a genuine
+ * misconfiguration should degrade the spaces surface, never take the
+ * public repo path down with it.
+ */
+export function createSpacesUnavailableApp(): Hono {
+	const app = new Hono();
+	app.all("/xrpc/:method", async (c, next) => {
+		const method = c.req.param("method");
+		if (
+			!method.startsWith("com.atproto.space.") &&
+			!method.startsWith("com.atproto.simplespace.")
+		) {
+			return next();
+		}
+		return c.json(
+			{
+				error: "ServiceUnavailable",
+				message:
+					"SPACES_ENABLED is set but the SPACES / SPACES_INDEX Durable Object bindings are missing. Add them to wrangler.jsonc (migration v2).",
+			},
+			503,
+		);
+	});
+	return app;
+}
+
+/**
  * Build the host adapter and the complete spaces Hono app: the engine's
  * space/simplespace routes plus the PDS-level getDelegationToken and
  * listSpaces.
  */
 export function createSpacesApp(deps: SpacesAppDeps): Hono {
 	const { env, didResolver, getKeypair } = deps;
-	if (!env.SPACES || !env.SPACES_INDEX) {
-		throw new Error(
-			"SPACES_ENABLED is set but the SPACES / SPACES_INDEX Durable Object bindings are missing. Add them to wrangler.jsonc (migration v2).",
-		);
-	}
 
 	/**
 	 * Resolve a DID's signing key to a did:key string, honouring the
