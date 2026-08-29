@@ -25,11 +25,10 @@
 			]
 		}
 	],
-	// R2 bucket for blob storage (optional - create via Cloudflare dashboard)
+	// R2 bucket for blob storage (optional - auto-created on first deploy)
 	"r2_buckets": [
 		{
-			"binding": "BLOBS",
-			"bucket_name": "pds-blobs"
+			"binding": "BLOBS"
 		}
 	],
 	// Environment variables (public config)
