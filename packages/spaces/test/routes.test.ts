@@ -560,7 +560,7 @@ describe("space routes: credentials (S5)", () => {
 	it("gates on the app allowList with client attestations", async () => {
 		const clientId = "https://app.test/client-metadata.json";
 		const clientKey = await JoseKey.generate(["ES256"], "client-key-1");
-		const { host: attHost, setOutboundResponse } = makeHost();
+		const { host: attHost, outbound, setOutboundResponse } = makeHost();
 		// Publish a clean JWKS entry (kty/crv/x/y/kid/alg): key_ops from the
 		// generated key would be rejected by workerd's ECDSA import.
 		const clientJwk = {
@@ -650,7 +650,9 @@ describe("space routes: credentials (S5)", () => {
 		const granted = await requestCredential(await makeAttestation(clientId));
 		expect(granted.status).toBe(200);
 
-		// An attested client that is not on the list is refused.
+		// An attested client that is not on the list is refused before any
+		// network I/O for it happens — the unverified client_id must never
+		// become an outbound-fetch target.
 		const otherId = "https://other.test/client-metadata.json";
 		setOutboundResponse((url) =>
 			url === otherId || url === clientId
@@ -664,6 +666,16 @@ describe("space routes: credentials (S5)", () => {
 		expect(((await wrongClient.json()) as { error: string }).error).toBe(
 			"AppNotAuthorized",
 		);
+		expect(outbound.some((o) => o.url.startsWith(otherId))).toBe(false);
+
+		// A non-https client_id is rejected outright, also without a fetch.
+		const httpId = "http://evil.internal/metadata.json";
+		const badScheme = await requestCredential(await makeAttestation(httpId));
+		expect(badScheme.status).toBe(401);
+		expect(((await badScheme.json()) as { error: string }).error).toBe(
+			"InvalidClientAttestation",
+		);
+		expect(outbound.some((o) => o.url.startsWith(httpId))).toBe(false);
 	});
 
 	it("consults the managing app and denies on failure", async () => {
@@ -873,6 +885,141 @@ describe("space routes: sync (S2-S4)", () => {
 		const dids = reposBody.repos.map((r) => r.did);
 		expect(dids).toContain(BOB);
 		expect(dids).toContain(OPERATOR);
+	});
+
+	it("ignores stale notifyWrite revisions and does not fan them out", async () => {
+		const space = await createSpace({
+			$type: "com.atproto.simplespace.defs#publicPolicy",
+		});
+		await createRecord(space, { $type: "app.bsky.feed.post", text: "s" }, "st");
+
+		const serviceJwt = (iss: string, lxm: string) => {
+			const enc = (o: unknown) =>
+				btoa(JSON.stringify(o))
+					.replace(/\+/g, "-")
+					.replace(/\//g, "_")
+					.replace(/=+$/, "");
+			return `${enc({ alg: "ES256K", typ: "JWT" })}.${enc({ iss, aud: OPERATOR, lxm })}.sig`;
+		};
+		const notify = async (rev: string, fill: number) =>
+			app.request("/xrpc/com.atproto.space.notifyWrite", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${serviceJwt(BOB, "com.atproto.space.notifyWrite")}`,
+				},
+				body: JSON.stringify({
+					space,
+					repo: BOB,
+					rev,
+					hash: {
+						$bytes: btoa(
+							String.fromCharCode(...new Uint8Array(32).fill(fill)),
+						),
+					},
+				}),
+			});
+
+		// A syncer registration to fan out to (bob is the sender and is
+		// excluded, so this is the only target).
+		const granted = await obtainCredential(space, bobKeypair, BOB);
+		expect(granted.status).toBe(200);
+		const regProof = await createDpopProof(granted.dpopKey, {
+			htm: "POST",
+			htu: `${ORIGIN}/xrpc/com.atproto.space.registerNotify`,
+			credential: granted.credential,
+		});
+		const registered = await app.request(
+			"/xrpc/com.atproto.space.registerNotify",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `DPoP ${granted.credential}`,
+					DPoP: regProof,
+				},
+				body: JSON.stringify({ space, service: "did:web:syncer.test" }),
+			},
+		);
+		expect(registered.status).toBe(200);
+
+		const stub = env.SPACES.get(env.SPACES.idFromName(space));
+		const queuedBefore = (await stub.rpcStatus()).queuedNotifications;
+
+		expect((await notify("3kzzzzzzzzzz2", 1)).status).toBe(200);
+		const afterFresh = await stub.rpcStatus();
+		expect(afterFresh.queuedNotifications).toBe(queuedBefore + 1);
+
+		// An older (delayed or replayed) revision succeeds quietly, but
+		// neither regresses the writer set nor enqueues fan-out.
+		expect((await notify("3kaaaaaaaaaa2", 2)).status).toBe(200);
+		const afterStale = await stub.rpcStatus();
+		expect(afterStale.queuedNotifications).toBe(afterFresh.queuedNotifications);
+
+		const writers = await stub.rpcListWriters({ limit: 10 });
+		const bob = writers.repos.find((r) => r.did === BOB);
+		expect(bob?.rev).toBe("3kzzzzzzzzzz2");
+		expect(new Uint8Array(bob!.hash)).toEqual(new Uint8Array(32).fill(1));
+	});
+
+	it("requires notifySpaceDeleted to be addressed to this service", async () => {
+		const authority = "did:web:elsewhere.test";
+		const foreignSpace = `at://${authority}/space/app.bsky.group/deleteme`;
+		const { host: fHost } = makeHost();
+		const fApp = createSpaceRoutes(fHost);
+
+		// Hold a repo in the foreign space.
+		const write = await fApp.request("/xrpc/com.atproto.space.createRecord", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer operator-session",
+			},
+			body: JSON.stringify({
+				space: foreignSpace,
+				repo: OPERATOR,
+				collection: "app.bsky.feed.post",
+				rkey: "keepme",
+				record: { $type: "app.bsky.feed.post", text: "x" },
+			}),
+		});
+		expect(write.status).toBe(200);
+
+		const enc = (o: unknown) =>
+			btoa(JSON.stringify(o))
+				.replace(/\+/g, "-")
+				.replace(/\//g, "_")
+				.replace(/=+$/, "");
+		const notifyDeleted = async (aud: string) =>
+			fApp.request("/xrpc/com.atproto.space.notifySpaceDeleted", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${enc({ alg: "ES256K", typ: "JWT" })}.${enc({
+						iss: authority,
+						aud,
+						lxm: "com.atproto.space.notifySpaceDeleted",
+					})}.sig`,
+				},
+				body: JSON.stringify({ space: foreignSpace }),
+			});
+
+		const readRecord = () =>
+			fApp.request(
+				`/xrpc/com.atproto.space.getRecord?space=${encodeURIComponent(foreignSpace)}&repo=${OPERATOR}&collection=app.bsky.feed.post&rkey=keepme`,
+				{ headers: { Authorization: "Bearer operator-session" } },
+			);
+
+		// A token the authority minted for some other service must not
+		// tombstone our copy.
+		const misdirected = await notifyDeleted("did:web:someone-else.test");
+		expect(misdirected.status).toBe(403);
+		expect((await readRecord()).status).toBe(200);
+
+		// Addressed to us (service-identifier form): the copy is dropped.
+		const addressed = await notifyDeleted(`${OPERATOR}#atproto_pds`);
+		expect(addressed.status).toBe(200);
+		expect((await readRecord()).status).toBe(404);
 	});
 
 	it("sends one best-effort notifyWrite for writes into foreign spaces (S3)", async () => {

@@ -366,7 +366,14 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 		hash: Uint8Array,
 	): Promise<void> {
 		if (ref.authority === host.operatorDid) {
-			await stub.rpcRecordWriter(host.operatorDid, rev, hash);
+			const { advanced } = await stub.rpcRecordWriter(
+				host.operatorDid,
+				rev,
+				hash,
+			);
+			// Own writes always advance in practice; guard anyway so a
+			// re-ordered background task never fans out stale state.
+			if (!advanced) return;
 			const registrations = await stub.rpcGetActiveRegistrations();
 			if (registrations.length === 0) return;
 			const body = {
@@ -925,13 +932,62 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 
 			const stub = host.getSpaceDO(ref.uri);
 			await requireRepoExists(stub, ref);
-			const state = await stub.rpcGetRepoState();
-			if (!state) {
-				throw new SpaceError(
-					"RepoNotFound",
-					`Could not find repo for space: ${ref.uri}`,
+
+			// The commit signs one revision, so every record page must belong
+			// to it: each page reports the rev it was read at, and a page from
+			// a different rev restarts the export. Records are collected
+			// before signing (serializeRepo buffers anyway — see spec open
+			// questions), so the CAR always matches its commit.
+			let state: Awaited<ReturnType<typeof stub.rpcGetRepoState>> = null;
+			let records: SerializedRecord[] | null = null;
+			for (let attempt = 0; attempt < 3 && !records; attempt++) {
+				state = await stub.rpcGetRepoState();
+				if (!state) {
+					throw new SpaceError(
+						"RepoNotFound",
+						`Could not find repo for space: ${ref.uri}`,
+					);
+				}
+				const collected: SerializedRecord[] = [];
+				let after: { collection: string; rkey: string } | undefined;
+				let fenced = true;
+				for (;;) {
+					const page = await stub.rpcListRecords({
+						limit: 500,
+						after,
+						reverse: true, // ascending
+						excludeValues: false,
+					});
+					if (page.rev !== state.rev) {
+						// A write landed mid-export; retry from a fresh head.
+						fenced = false;
+						break;
+					}
+					for (const record of page.records) {
+						collected.push({
+							collection: record.collection,
+							rkey: record.rkey,
+							cid: parseCid(record.cid),
+							bytes: new Uint8Array(record.bytes!),
+						});
+					}
+					const last = page.records[page.records.length - 1];
+					if (!page.hasMore || !last) break;
+					after = { collection: last.collection, rkey: last.rkey };
+				}
+				if (fenced) records = collected;
+			}
+			if (!records || !state) {
+				return c.json(
+					{
+						error: "ConcurrentModification",
+						message:
+							"The repo changed repeatedly during export; retry getRepo",
+					},
+					409,
 				);
 			}
+
 			const keypair = await host.getKeypair();
 			const commit = await signCommit(
 				{
@@ -945,33 +1001,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 				keypair,
 			);
 
-			// Records are pulled from the DO in pages. serializeRepo collects
-			// them before writing, so the whole repo passes through Worker
-			// memory — acceptable for the alpha (see spec open questions).
-			async function* records(): AsyncIterable<SerializedRecord> {
-				let after: { collection: string; rkey: string } | undefined;
-				for (;;) {
-					const page = await stub.rpcListRecords({
-						limit: 500,
-						after,
-						reverse: true, // ascending
-						excludeValues: false,
-					});
-					for (const record of page.records) {
-						yield {
-							collection: record.collection,
-							rkey: record.rkey,
-							cid: parseCid(record.cid),
-							bytes: new Uint8Array(record.bytes!),
-						};
-					}
-					const last = page.records[page.records.length - 1];
-					if (!page.hasMore || !last) return;
-					after = { collection: last.collection, rkey: last.rkey };
-				}
-			}
-
-			const car = serializeRepo(commit, records(), { excludeValues });
+			const car = serializeRepo(commit, records, { excludeValues });
 			const stream = new ReadableStream<Uint8Array>({
 				async start(controller) {
 					try {
@@ -1113,6 +1143,9 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 				}
 				clientId = await verifyClientAttestation(body.clientAttestation, {
 					expectedAud: spaceHostAud(ref.authority),
+					// Checked pre-verification inside so a non-allowlisted
+					// client never triggers network I/O.
+					allowedClientIds: config.appAccess.allowed,
 					checkReplay: replayChecker(stub),
 					fetch: host.outboundFetch,
 				});
@@ -1328,7 +1361,16 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			}
 
 			const hash = fromBase64(body.hash.$bytes);
-			await stub.rpcRecordWriter(body.repo!, body.rev!, hash);
+			const { advanced } = await stub.rpcRecordWriter(
+				body.repo!,
+				body.rev!,
+				hash,
+			);
+			// A delayed or replayed notification carrying an older rev did not
+			// change the writer set; do not fan stale state out again.
+			if (!advanced) {
+				return c.json({});
+			}
 
 			// Fan out to every registration except the sender.
 			const registrations = await stub.rpcGetActiveRegistrations();
@@ -1383,6 +1425,23 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 					{
 						error: "Forbidden",
 						message: "notifySpaceDeleted iss is not the space authority",
+					},
+					403,
+				);
+			}
+			// And only when the notification was addressed to us: without the
+			// audience check, an authority-signed token minted for a different
+			// service could be replayed here to tombstone our repo and delete
+			// its blobs. Registrations use service identifiers, so accept the
+			// bare DID or any of our own #fragment forms.
+			if (
+				serviceAuth.aud !== host.operatorDid &&
+				!serviceAuth.aud.startsWith(`${host.operatorDid}#`)
+			) {
+				return c.json(
+					{
+						error: "Forbidden",
+						message: "notifySpaceDeleted aud does not match this service",
 					},
 					403,
 				);

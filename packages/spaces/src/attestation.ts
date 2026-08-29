@@ -3,16 +3,33 @@
  * access). The attestation is a short-lived JWT signed by the OAuth
  * client's published JWKS key, with `iss` = `sub` = client_id and `aud`
  * the space host. Verified against the client's `client-metadata.json`.
+ *
+ * The client_id in the payload is attacker-controlled until the signature
+ * verifies, so nothing is fetched before it has been validated as an
+ * https client-metadata URL and checked against the caller's allow-list —
+ * a space gated on an allow-list never performs network I/O for a client
+ * that could not be authorized anyway. All fetches are bounded by a
+ * timeout.
  */
 
-import { createLocalJWKSet, createRemoteJWKSet, jwtVerify } from "jose";
+import { createLocalJWKSet, jwtVerify } from "jose";
 import { SPACE_TOKEN_TYPES, parseSpaceToken } from "@atproto/space";
 import { SpaceError } from "./errors.js";
 import type { CheckReplay } from "./auth.js";
 
+/** Upper bound for each outbound metadata/JWKS fetch. */
+const FETCH_TIMEOUT_MS = 5000;
+
 export interface VerifyAttestationOpts {
 	/** Expected audience: `spaceHostAud(authorityDid)`. */
 	expectedAud: string;
+	/**
+	 * When set, an (unverified) client_id outside this list is rejected
+	 * before any network I/O. The membership check runs regardless of
+	 * signature state because the caller re-derives authorization from the
+	 * returned client_id after full verification.
+	 */
+	allowedClientIds?: readonly string[];
 	checkReplay: CheckReplay;
 	/** Fetch override for tests. */
 	fetch?: typeof fetch;
@@ -40,16 +57,47 @@ export async function verifyClientAttestation(
 		);
 	}
 
-	const doFetch = opts.fetch ?? fetch;
-	let metadata: { jwks?: unknown; jwks_uri?: string };
+	// Everything below this point costs network I/O, so gate on what can be
+	// decided statically first: the client_id must be a plausible https
+	// client-metadata URL, and must be one the space could authorize at all.
+	let clientUrl: URL;
 	try {
-		const res = await doFetch(clientId, {
+		clientUrl = new URL(clientId);
+	} catch {
+		throw new SpaceError(
+			"InvalidClientAttestation",
+			"Attestation client_id is not a URL",
+		);
+	}
+	if (clientUrl.protocol !== "https:" || clientUrl.username || clientUrl.password) {
+		throw new SpaceError(
+			"InvalidClientAttestation",
+			"Attestation client_id must be a plain https URL",
+		);
+	}
+	if (opts.allowedClientIds && !opts.allowedClientIds.includes(clientId)) {
+		throw new SpaceError(
+			"AppNotAuthorized",
+			"App is not authorized for this space",
+		);
+	}
+
+	const doFetch = opts.fetch ?? fetch;
+	const boundedJson = async (url: string): Promise<unknown> => {
+		const res = await doFetch(url, {
 			headers: { Accept: "application/json" },
+			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+			redirect: "error",
 		});
 		if (!res.ok) {
-			throw new Error(`client metadata fetch returned ${res.status}`);
+			throw new Error(`fetch of ${url} returned ${res.status}`);
 		}
-		metadata = (await res.json()) as typeof metadata;
+		return res.json();
+	};
+
+	let metadata: { jwks?: unknown; jwks_uri?: string };
+	try {
+		metadata = (await boundedJson(clientId)) as typeof metadata;
 	} catch {
 		throw new SpaceError(
 			"InvalidClientAttestation",
@@ -57,14 +105,30 @@ export async function verifyClientAttestation(
 		);
 	}
 
-	const keySet = metadata.jwks
-		? createLocalJWKSet(metadata.jwks as Parameters<typeof createLocalJWKSet>[0])
-		: metadata.jwks_uri
-			? createRemoteJWKSet(new URL(metadata.jwks_uri), {
-					[Symbol.for("jose.jwks.fetch")]: doFetch,
-				} as never)
-			: null;
-	if (!keySet) {
+	let jwks = metadata.jwks;
+	if (!jwks && typeof metadata.jwks_uri === "string") {
+		let jwksUrl: URL;
+		try {
+			jwksUrl = new URL(metadata.jwks_uri);
+		} catch {
+			jwksUrl = null as never;
+		}
+		if (!jwksUrl || jwksUrl.protocol !== "https:") {
+			throw new SpaceError(
+				"InvalidClientAttestation",
+				"Client metadata jwks_uri must be an https URL",
+			);
+		}
+		try {
+			jwks = await boundedJson(metadata.jwks_uri);
+		} catch {
+			throw new SpaceError(
+				"InvalidClientAttestation",
+				"Could not resolve client JWKS",
+			);
+		}
+	}
+	if (!jwks) {
 		throw new SpaceError(
 			"InvalidClientAttestation",
 			"Client metadata declares no JWKS",
@@ -72,6 +136,9 @@ export async function verifyClientAttestation(
 	}
 
 	try {
+		const keySet = createLocalJWKSet(
+			jwks as Parameters<typeof createLocalJWKSet>[0],
+		);
 		await jwtVerify(attestation, keySet, {
 			issuer: clientId,
 			subject: clientId,
