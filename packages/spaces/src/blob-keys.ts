@@ -10,6 +10,15 @@
 
 import { spaceId } from "./space-uri.js";
 
+/**
+ * Key for a staged (uploaded, not yet referenced) blob. Must match the
+ * host's public blob layout: uploads land here and are promoted to their
+ * serving key when a record write references them.
+ */
+export function stagedBlobKey(did: string, cid: string): string {
+	return `${did}/staged/${cid}`;
+}
+
 /** Prefix holding every space blob for the account. */
 export function spaceBlobRootPrefix(did: string): string {
 	return `${did}/space/`;

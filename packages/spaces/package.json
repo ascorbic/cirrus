@@ -1,7 +1,7 @@
 {
 	"name": "@getcirrus/spaces",
 	"version": "0.1.0",
-	"description": "Atproto spaces engine (alpha) for Cloudflare Workers \u2013 permissioned repos, space hosting and credentials",
+	"description": "Atproto spaces engine (alpha) for Cloudflare Workers – permissioned repos, space hosting and credentials",
 	"type": "module",
 	"main": "dist/index.js",
 	"files": [
@@ -17,16 +17,22 @@
 		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm"
 	},
 	"dependencies": {
+		"@atcute/cid": "^2.3.0",
 		"@atproto/crypto": "^0.4.5",
 		"@atproto/lex-cbor": "^0.1.6",
+		"@atproto/lex-data": "^0.1.7",
+		"@atproto/lex-json": "^0.1.6",
 		"@atproto/space": "0.0.0-spaces-alpha-20260818163953",
 		"@atcute/tid": "^1.1.1",
-		"@atcute/lexicons": "^1.2.6"
+		"hono": "^4.11.3",
+		"@atcute/lexicons": "^1.2.6",
+		"jose": "^5.2.0"
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
 		"@cloudflare/vitest-pool-workers": "^0.16.9",
 		"@cloudflare/workers-types": "^4.20260524.1",
+		"@atproto/jwk-jose": "^0.2.1",
 		"publint": "^0.3.16",
 		"tsdown": "^0.18.3",
 		"typescript": "^5.9.3",
