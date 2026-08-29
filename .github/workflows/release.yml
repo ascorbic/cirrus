@@ -44,9 +44,11 @@ jobs:
         run: pnpm run build
       - run: pnpm run check
 
-      # Update npm to latest version so that OIDC works correctly
+      # npm >=11.5.1 is needed for OIDC trusted publishing, but npm 12 breaks
+      # changesets' published-version check when publishing with pnpm
+      # (changesets/changesets#2274) — keep this on 11 until that's fixed
       - name: Update npm
-        run: npm install -g npm@latest
+        run: npm install -g npm@11
 
       - name: Create Release Pull Request or Publish to npm
         id: changesets
