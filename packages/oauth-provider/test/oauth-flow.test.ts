@@ -286,6 +286,50 @@ describe("OAuth Flow", () => {
 			expect(json.expires_in).toBeGreaterThan(0);
 		});
 
+		it("reports the code's stored scope in the token response", async () => {
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+			const keyPair = await generateDpopKeyPair("ES256");
+
+			const code = "test-code-scope-reporting";
+			await storage.saveAuthCode(code, {
+				clientId: testClient.clientId,
+				redirectUri: testClient.redirectUris[0]!,
+				codeChallenge: challenge,
+				codeChallengeMethod: "S256",
+				scope: "atproto repo:app.bsky.feed.post",
+				sub: testUser.sub,
+				expiresAt: Date.now() + 60_000,
+			});
+
+			const dpopProof = await createDpopProof(
+				keyPair.privateKey,
+				keyPair.publicJwk,
+				{ htm: "POST", htu: "https://pds.example.com/oauth/token" },
+				"ES256",
+			);
+			const response = await provider.handleToken(
+				new Request("https://pds.example.com/oauth/token", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/x-www-form-urlencoded",
+						DPoP: dpopProof,
+					},
+					body: new URLSearchParams({
+						grant_type: "authorization_code",
+						code,
+						client_id: testClient.clientId,
+						redirect_uri: testClient.redirectUris[0]!,
+						code_verifier: verifier,
+					}).toString(),
+				}),
+			);
+			expect(response.status).toBe(200);
+
+			const json = (await response.json()) as { scope?: string };
+			expect(json.scope).toBe("atproto repo:app.bsky.feed.post");
+		});
+
 		it("rejects invalid PKCE verifier", async () => {
 			const verifier = generateCodeVerifier();
 			const { code } = await getAuthCode(verifier);
@@ -653,9 +697,10 @@ describe("OAuth Flow", () => {
 	});
 
 	describe("Granular Scopes", () => {
-		async function authorizeAndToken(
-			scope: string,
-		): Promise<{ accessToken: string; keyPair: Awaited<ReturnType<typeof generateDpopKeyPair>> }> {
+		async function authorizeAndToken(scope: string): Promise<{
+			accessToken: string;
+			keyPair: Awaited<ReturnType<typeof generateDpopKeyPair>>;
+		}> {
 			const verifier = generateCodeVerifier();
 			const challenge = await generateCodeChallenge(verifier);
 			const keyPair = await generateDpopKeyPair("ES256");
@@ -802,8 +847,7 @@ describe("OAuth Flow", () => {
 				code_challenge: challenge,
 				code_challenge_method: "S256",
 				state: "test-state",
-				scope:
-					"atproto include:com.example.basic?aud=did:web:foo%23svc",
+				scope: "atproto include:com.example.basic?aud=did:web:foo%23svc",
 			});
 			const response = await provider.handlePAR(
 				new Request("https://pds.example.com/oauth/par", {
@@ -950,30 +994,6 @@ describe("OAuth Flow", () => {
 			expect(location.searchParams.get("error_description")).toMatch(
 				/com\.example\.missing/,
 			);
-		});
-
-		it("PAR rejects malformed granular scope", async () => {
-			const verifier = generateCodeVerifier();
-			const challenge = await generateCodeChallenge(verifier);
-			const parBody = new URLSearchParams({
-				client_id: testClient.clientId,
-				redirect_uri: testClient.redirectUris[0]!,
-				response_type: "code",
-				code_challenge: challenge,
-				code_challenge_method: "S256",
-				state: "test-state",
-				scope: "atproto repo:not a real nsid",
-			});
-			const response = await provider.handlePAR(
-				new Request("https://pds.example.com/oauth/par", {
-					method: "POST",
-					headers: { "Content-Type": "application/x-www-form-urlencoded" },
-					body: parBody.toString(),
-				}),
-			);
-			expect(response.status).toBe(400);
-			const json = (await response.json()) as { error: string };
-			expect(json.error).toBe("invalid_scope");
 		});
 	});
 });

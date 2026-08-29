@@ -187,7 +187,7 @@ export class PARHandler {
 		params.scope = scope;
 		const allowIncludes = !!this.permissionSetResolver;
 		try {
-			parseScope(scope, { allowIncludes });
+			params.scope = parseScope(scope, { allowIncludes });
 			// Eagerly resolve every `include:<nsid>` against the lexicon so a
 			// nonexistent permission set fails fast with invalid_scope here
 			// rather than dead-ending at the consent UI. Matches reference

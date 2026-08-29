@@ -1,28 +1,30 @@
 /**
  * Scope parsing and matching, built on @atproto/oauth-scopes.
  *
- * Granular scopes (`repo:`, `rpc:`, `blob:`, `account:`, `identity:`) are
- * parsed structurally. Permission-set includes (`include:NSID?aud=...`) are
- * resolved at authorize-time via an injected {@link PermissionSetResolver}
- * and expanded into concrete granular scopes inline before the auth code is
- * stored — so resource-server checks never need network access.
+ * Unsupported or malformed scope tokens are filtered out (via
+ * `isAtprotoOauthScope`) rather than rejected. Permission-set includes
+ * (`include:NSID?aud=...`) are resolved at authorize-time via an injected
+ * {@link PermissionSetResolver} and expanded into concrete granular scopes
+ * inline before the auth code is stored — so resource-server checks never
+ * need network access.
  */
 
 import type { Nsid as AtcuteNsid } from "@atcute/lexicons/syntax";
 import {
-	AccountPermission,
-	BlobPermission,
-	IdentityPermission,
 	IncludeScope,
-	RepoPermission,
-	RpcPermission,
+	isAtprotoOauthScope,
 	ScopeMissingError,
 	ScopePermissionsTransition,
 	ScopesSet,
 } from "@atproto/oauth-scopes";
 import type { PermissionSetResolver } from "./permission-sets.js";
 
-export { IncludeScope, ScopeMissingError, ScopePermissionsTransition, ScopesSet };
+export {
+	IncludeScope,
+	ScopeMissingError,
+	ScopePermissionsTransition,
+	ScopesSet,
+};
 
 /**
  * Resources known to the spec. Used in OAuth metadata advertisement and to
@@ -64,23 +66,12 @@ export class ScopeParseError extends Error {
 	}
 }
 
-const STRUCTURAL_PARSERS: Record<
-	(typeof GRANULAR_RESOURCES)[number],
-	(s: string) => unknown
-> = {
-	repo: (s) => RepoPermission.fromString(s),
-	rpc: (s) => RpcPermission.fromString(s),
-	blob: (s) => BlobPermission.fromString(s),
-	account: (s) => AccountPermission.fromString(s),
-	identity: (s) => IdentityPermission.fromString(s),
-};
-
 export interface ParseScopeOptions {
 	/**
-	 * When true, `include:` scopes are accepted (and structurally validated)
-	 * but not expanded — the returned ScopesSet may still contain them.
-	 * Use this at authorize-time, then call {@link expandScope} to resolve
-	 * the includes before storing.
+	 * When true, `include:` scopes are accepted but not expanded — the
+	 * returned scope string may still contain them. Use this at
+	 * authorize-time, then call {@link expandScope} to resolve the includes
+	 * before storing.
 	 *
 	 * When false (default), `include:` scopes throw a ScopeParseError. Use
 	 * this on already-expanded scope strings (e.g. when re-validating a
@@ -90,14 +81,22 @@ export interface ParseScopeOptions {
 }
 
 /**
- * Validate a space-separated scope string. Returns the parsed ScopesSet on
- * success.
+ * Filter and validate a space-separated scope string, returning the cleaned
+ * scope string on success. Tokens not recognized by `isAtprotoOauthScope`
+ * are silently dropped; a missing "atproto" base scope or a disallowed
+ * `include:` scope throws a {@link ScopeParseError}.
  */
 export function parseScope(
 	input: string | undefined | null,
 	{ allowIncludes = false }: ParseScopeOptions = {},
-): ScopesSet {
-	const set = ScopesSet.fromString(input ?? "");
+): string {
+	const filtered =
+		(input ?? "")
+			.split(" ")
+			.filter(Boolean)
+			.filter(isAtprotoOauthScope)
+			.join(" ") || undefined;
+	const set = ScopesSet.fromString(filtered);
 
 	if (!set.has(ATPROTO_SCOPE)) {
 		throw new ScopeParseError(
@@ -109,38 +108,15 @@ export function parseScope(
 	for (const scope of set) {
 		if (scope === ATPROTO_SCOPE) continue;
 		if ((TRANSITION_SCOPES as readonly string[]).includes(scope)) continue;
-
-		if (scope.startsWith("include:")) {
-			if (!IncludeScope.fromString(scope)) {
-				throw new ScopeParseError(`Malformed include scope: ${scope}`, scope);
-			}
-			if (!allowIncludes) {
-				throw new ScopeParseError(
-					`Permission sets cannot be requested in this context: ${scope}`,
-					scope,
-				);
-			}
-			continue;
-		}
-
-		const colon = scope.indexOf(":");
-		const question = scope.indexOf("?");
-		const end =
-			colon === -1 ? question : question === -1 ? colon : Math.min(colon, question);
-		const resource = end === -1 ? scope : scope.slice(0, end);
-		const parser =
-			STRUCTURAL_PARSERS[
-				resource as (typeof GRANULAR_RESOURCES)[number]
-			];
-		if (!parser) {
-			throw new ScopeParseError(`Unknown scope resource: ${scope}`, scope);
-		}
-		if (!parser(scope)) {
-			throw new ScopeParseError(`Malformed scope: ${scope}`, scope);
+		if (scope.startsWith("include:") && !allowIncludes) {
+			throw new ScopeParseError(
+				`Permission sets cannot be requested in this context: ${scope}`,
+				scope,
+			);
 		}
 	}
 
-	return set;
+	return Array.from(set).join(" ");
 }
 
 /**
