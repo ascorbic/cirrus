@@ -1,5 +1,15 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
 	"extends": ["github>unjs/renovate-config", ":widenPeerDependencies"],
-	"packageRules": []
+	"packageRules": [
+		{
+			"description": "Spaces-alpha packages are pinned to exact alpha builds and re-verified manually against each upstream build before bumping",
+			"matchPackageNames": [
+				"@atproto/oauth-scopes",
+				"@atproto/space",
+				"@atproto/syntax"
+			],
+			"enabled": false
+		}
+	]
 }

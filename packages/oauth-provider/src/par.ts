@@ -64,6 +64,7 @@ export class PARHandler {
 	private issuer: string;
 	private expiresIn: number;
 	private permissionSetResolver?: PermissionSetResolver;
+	private allowSpaceScopes: boolean;
 
 	/**
 	 * Create a PAR handler
@@ -85,12 +86,14 @@ export class PARHandler {
 		issuer: string,
 		expiresIn: number = DEFAULT_EXPIRES_IN,
 		permissionSetResolver?: PermissionSetResolver,
+		options?: { allowSpaceScopes?: boolean },
 	) {
 		this.storage = storage;
 		this.clientResolver = clientResolver;
 		this.issuer = issuer;
 		this.expiresIn = expiresIn;
 		this.permissionSetResolver = permissionSetResolver;
+		this.allowSpaceScopes = options?.allowSpaceScopes ?? false;
 	}
 
 	/**
@@ -187,7 +190,10 @@ export class PARHandler {
 		params.scope = scope;
 		const allowIncludes = !!this.permissionSetResolver;
 		try {
-			parseScope(scope, { allowIncludes });
+			parseScope(scope, {
+				allowIncludes,
+				allowSpaceScopes: this.allowSpaceScopes,
+			});
 			// Eagerly resolve every `include:<nsid>` against the lexicon so a
 			// nonexistent permission set fails fast with invalid_scope here
 			// rather than dead-ending at the consent UI. Matches reference

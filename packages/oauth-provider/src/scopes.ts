@@ -20,9 +20,24 @@ import {
 	ScopePermissionsTransition,
 	ScopesSet,
 } from "@atproto/oauth-scopes";
+import * as oauthScopes from "@atproto/oauth-scopes";
 import type { PermissionSetResolver } from "./permission-sets.js";
 
 export { IncludeScope, ScopeMissingError, ScopePermissionsTransition, ScopesSet };
+
+/**
+ * `SpacePermission` is only present in the `spaces-alpha` builds of
+ * `@atproto/oauth-scopes`. Accessed via the namespace so a build without it
+ * rejects `space:` scopes outright instead of accepting an approximation.
+ */
+const SpacePermission = (
+	oauthScopes as {
+		SpacePermission?: typeof import("@atproto/oauth-scopes").SpacePermission;
+	}
+).SpacePermission;
+
+export type SpacePermissionType =
+	import("@atproto/oauth-scopes").SpacePermission;
 
 /**
  * Resources known to the spec. Used in OAuth metadata advertisement and to
@@ -34,6 +49,7 @@ export const GRANULAR_RESOURCES = [
 	"blob",
 	"account",
 	"identity",
+	"space",
 ] as const;
 
 /**
@@ -73,6 +89,7 @@ const STRUCTURAL_PARSERS: Record<
 	blob: (s) => BlobPermission.fromString(s),
 	account: (s) => AccountPermission.fromString(s),
 	identity: (s) => IdentityPermission.fromString(s),
+	space: (s) => (SpacePermission ? SpacePermission.fromString(s) : null),
 };
 
 export interface ParseScopeOptions {
@@ -87,6 +104,12 @@ export interface ParseScopeOptions {
 	 * stored token's scope).
 	 */
 	allowIncludes?: boolean;
+	/**
+	 * When true, `space:` scopes are accepted (structurally validated with
+	 * `SpacePermission`). When false (default), any `space:` scope throws a
+	 * ScopeParseError — the host has not enabled atproto spaces.
+	 */
+	allowSpaceScopes?: boolean;
 }
 
 /**
@@ -95,7 +118,7 @@ export interface ParseScopeOptions {
  */
 export function parseScope(
 	input: string | undefined | null,
-	{ allowIncludes = false }: ParseScopeOptions = {},
+	{ allowIncludes = false, allowSpaceScopes = false }: ParseScopeOptions = {},
 ): ScopesSet {
 	const set = ScopesSet.fromString(input ?? "");
 
@@ -128,6 +151,12 @@ export function parseScope(
 		const end =
 			colon === -1 ? question : question === -1 ? colon : Math.min(colon, question);
 		const resource = end === -1 ? scope : scope.slice(0, end);
+		if (resource === "space" && !allowSpaceScopes) {
+			throw new ScopeParseError(
+				`Space scopes are not enabled on this server: ${scope}`,
+				scope,
+			);
+		}
 		const parser =
 			STRUCTURAL_PARSERS[
 				resource as (typeof GRANULAR_RESOURCES)[number]
@@ -204,6 +233,96 @@ export async function expandScope(
 	}
 
 	return Array.from(out).join(" ");
+}
+
+/**
+ * Parse a scope token as a space permission. Returns null for non-space
+ * tokens, malformed space scopes, or builds of `@atproto/oauth-scopes`
+ * without `SpacePermission`.
+ */
+export function parseSpaceScope(token: string): SpacePermissionType | null {
+	if (
+		token !== "space" &&
+		!token.startsWith("space:") &&
+		!token.startsWith("space?")
+	) {
+		return null;
+	}
+	return SpacePermission ? SpacePermission.fromString(token) : null;
+}
+
+export interface FinalizeSpaceScopesOptions {
+	/** The authenticated user's DID; replaces `authority=self`. */
+	userDid: string;
+	/**
+	 * Resolve a space type NSID to its lexicon space declaration's
+	 * `collections` list, used as the default write collections when the
+	 * grant names none. Absent or failing resolution leaves the scope
+	 * without default collections (reads unaffected, writes constrained to
+	 * the explicitly requested collections).
+	 */
+	resolveSpaceCollections?: (
+		nsid: string,
+	) => Promise<readonly string[] | null>;
+}
+
+/**
+ * Rewrite the `space:` tokens of an expanded scope string into their stored
+ * form, per the proposal's grant-time requirements:
+ *
+ * - `authority=self` is resolved to the authenticated user's DID, so a
+ *   stored grant never contains `self`.
+ * - A grant with no explicit collections inherits the space type
+ *   declaration's `collections` as its default write set.
+ *
+ * Call at code-issuance time, after `include:` expansion and before the
+ * scope is stored.
+ */
+export async function finalizeSpaceScopes(
+	scope: string,
+	{ userDid, resolveSpaceCollections }: FinalizeSpaceScopesOptions,
+): Promise<string> {
+	const tokens = scope.split(" ").filter(Boolean);
+	const out: string[] = [];
+
+	for (const token of tokens) {
+		let perm = parseSpaceScope(token);
+		if (!perm) {
+			out.push(token);
+			continue;
+		}
+
+		if (perm.isSelfAuthority) {
+			perm = perm.withResolvedAuthority(
+				userDid as `did:${string}:${string}`,
+			);
+		}
+
+		if (
+			!perm.hasCollections &&
+			perm.type !== "*" &&
+			resolveSpaceCollections
+		) {
+			try {
+				const collections = await resolveSpaceCollections(perm.type);
+				if (collections && collections.length > 0) {
+					perm = perm.withDefaultCollections(
+						collections as readonly (
+							| "*"
+							| `${string}.${string}.${string}`
+						)[],
+					);
+				}
+			} catch {
+				// Leave the scope without default collections; the grant still
+				// covers reads and any explicitly requested collections.
+			}
+		}
+
+		out.push(perm.toString());
+	}
+
+	return out.join(" ");
 }
 
 /**

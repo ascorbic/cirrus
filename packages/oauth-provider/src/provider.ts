@@ -28,7 +28,7 @@ import {
 	renderErrorPage,
 	getConsentUiCsp,
 } from "./ui.js";
-import type { PermissionSetBundle } from "./ui.js";
+import type { PermissionSetBundle, SpaceScopeInfo } from "./ui.js";
 import { IncludeScope } from "@atproto/oauth-scopes";
 import { authenticateClient, ClientAuthError } from "./client-auth.js";
 import {
@@ -36,7 +36,9 @@ import {
 	ScopeMissingError,
 	ScopeParseError,
 	expandScope,
+	finalizeSpaceScopes,
 	parseScope,
+	parseSpaceScope,
 	permissionsFor,
 } from "./scopes.js";
 import type { ScopePermissionsTransition } from "./scopes.js";
@@ -75,6 +77,12 @@ export interface OAuthProviderConfig {
 	 * are rejected with `invalid_scope`.
 	 */
 	permissionSetResolver?: PermissionSetResolver;
+	/**
+	 * Whether `space:` scopes are accepted (atproto spaces, alpha). When
+	 * false (default), any request carrying a `space:` scope fails at
+	 * authorization with `invalid_scope`.
+	 */
+	spacesEnabled?: boolean;
 }
 
 /**
@@ -167,6 +175,7 @@ export class ATProtoOAuthProvider {
 		challenge: string,
 	) => Promise<{ sub: string; handle: string } | null>;
 	private permissionSetResolver?: PermissionSetResolver;
+	private spacesEnabled: boolean;
 
 	/**
 	 * Resolve metadata for any `include:` scopes in the given scope string so
@@ -210,6 +219,82 @@ export class ATProtoOAuthProvider {
 		return bundles;
 	}
 
+	/**
+	 * Resolve display metadata for any `space:` scopes so the consent UI can
+	 * show the space type's human name and flag wildcards. Resolution
+	 * failures fall back to the raw NSID with a warning rather than blocking
+	 * consent — unlike permission sets, the scope's meaning is fully carried
+	 * by the scope string itself.
+	 */
+	private async resolveSpaceMetadata(
+		scope: string,
+	): Promise<SpaceScopeInfo[]> {
+		if (!this.spacesEnabled) return [];
+		const spaces: SpaceScopeInfo[] = [];
+		for (const token of scope.split(" ")) {
+			const perm = parseSpaceScope(token);
+			if (!perm) continue;
+			const info: SpaceScopeInfo = {
+				type: perm.type,
+				authority: perm.authority,
+			};
+			if (
+				perm.type !== "*" &&
+				this.permissionSetResolver?.resolveSpaceDeclaration
+			) {
+				try {
+					const decl =
+						await this.permissionSetResolver.resolveSpaceDeclaration(
+							perm.type as Parameters<
+								NonNullable<
+									PermissionSetResolver["resolveSpaceDeclaration"]
+								>
+							>[0],
+						);
+					if (decl?.name) {
+						info.name = decl.name;
+					} else {
+						info.error = "Space type declaration was not found";
+					}
+				} catch (e) {
+					info.error =
+						e instanceof Error ? e.message : "Resolution failed";
+				}
+			}
+			spaces.push(info);
+		}
+		return spaces;
+	}
+
+	/**
+	 * Rewrite the scope string into its stored (grant) form: resolve
+	 * `authority=self` on space scopes to the authenticated user's DID and
+	 * default their write collections from the space type declaration. No-op
+	 * when spaces are disabled (space scopes were already rejected).
+	 */
+	private async finalizeScopeForGrant(
+		scope: string,
+		userDid: string,
+	): Promise<string> {
+		if (!this.spacesEnabled) return scope;
+		const resolver = this.permissionSetResolver;
+		return finalizeSpaceScopes(scope, {
+			userDid,
+			resolveSpaceCollections: resolver?.resolveSpaceDeclaration
+				? async (nsid) => {
+						const decl = await resolver.resolveSpaceDeclaration!(
+							nsid as Parameters<
+								NonNullable<
+									PermissionSetResolver["resolveSpaceDeclaration"]
+								>
+							>[0],
+						);
+						return decl?.collections ?? null;
+					}
+				: undefined,
+		});
+	}
+
 	constructor(config: OAuthProviderConfig) {
 		this.storage = config.storage;
 		this.issuer = config.issuer;
@@ -217,12 +302,14 @@ export class ATProtoOAuthProvider {
 		this.enablePAR = config.enablePAR ?? true;
 		this.clientResolver =
 			config.clientResolver ?? new ClientResolver({ storage: config.storage });
+		this.spacesEnabled = config.spacesEnabled ?? false;
 		this.parHandler = new PARHandler(
 			config.storage,
 			this.clientResolver,
 			config.issuer,
 			undefined,
 			config.permissionSetResolver,
+			{ allowSpaceScopes: this.spacesEnabled },
 		);
 		this.verifyUser = config.verifyUser;
 		this.getCurrentUser = config.getCurrentUser;
@@ -382,8 +469,9 @@ export class ATProtoOAuthProvider {
 		const scope = params.scope ?? ATPROTO_SCOPE;
 		params.scope = scope;
 		const allowIncludes = !!this.permissionSetResolver;
+		const allowSpaceScopes = this.spacesEnabled;
 		try {
-			parseScope(scope, { allowIncludes });
+			parseScope(scope, { allowIncludes, allowSpaceScopes });
 		} catch (e) {
 			if (e instanceof ScopeParseError) {
 				return await this.renderError("invalid_scope", e.message);
@@ -410,6 +498,7 @@ export class ATProtoOAuthProvider {
 
 		const passkeyAvailable = !user && !!passkeyOptions;
 		const bundles = await this.resolveBundleMetadata(scope);
+		const spaces = await this.resolveSpaceMetadata(scope);
 		const html = renderConsentUI({
 			client,
 			scope,
@@ -421,6 +510,7 @@ export class ATProtoOAuthProvider {
 			passkeyAvailable,
 			passkeyOptions: passkeyOptions ?? undefined,
 			bundles,
+			spaces,
 		});
 
 		const csp = await getConsentUiCsp(passkeyAvailable);
@@ -529,7 +619,7 @@ export class ATProtoOAuthProvider {
 		) {
 			try {
 				scope = await expandScope(requestedScope, this.permissionSetResolver);
-				parseScope(scope);
+				parseScope(scope, { allowSpaceScopes: this.spacesEnabled });
 			} catch (e) {
 				if (e instanceof ScopeParseError) {
 					const errorUrl = new URL(redirectUri);
@@ -551,6 +641,7 @@ export class ATProtoOAuthProvider {
 				throw e;
 			}
 		}
+		scope = await this.finalizeScopeForGrant(scope, user.sub);
 		const code = generateAuthCode();
 
 		const authCodeData: AuthCodeData = {
@@ -1123,10 +1214,13 @@ export class ATProtoOAuthProvider {
 		const allowIncludes = !!this.permissionSetResolver;
 		let scope = requestedScope;
 		try {
-			parseScope(requestedScope, { allowIncludes });
+			parseScope(requestedScope, {
+				allowIncludes,
+				allowSpaceScopes: this.spacesEnabled,
+			});
 			if (allowIncludes && requestedScope.includes("include:")) {
 				scope = await expandScope(requestedScope, this.permissionSetResolver);
-				parseScope(scope);
+				parseScope(scope, { allowSpaceScopes: this.spacesEnabled });
 			}
 		} catch (e) {
 			if (e instanceof ScopeParseError) {
@@ -1137,6 +1231,8 @@ export class ATProtoOAuthProvider {
 			}
 			throw e;
 		}
+
+		scope = await this.finalizeScopeForGrant(scope, user.sub);
 
 		const authCodeData: AuthCodeData = {
 			clientId: oauthParams.client_id!,
