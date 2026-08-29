@@ -1,6 +1,45 @@
 import { describe, expect, it } from "vitest";
+import { createDpopProof } from "@atproto/space";
 import { env, worker, runInDurableObject } from "./helpers";
 import { createSpacesUnavailableApp } from "../src/spaces";
+
+/**
+ * Minimal WebCrypto-backed DPoP key satisfying the `Key` surface
+ * `createDpopProof` uses (`bareJwk`, `algorithms`, `createJwt`). Avoids
+ * @atproto/jwk-jose, whose bundled jose resolves to its Node build under
+ * the vitest workers pool and fails to sign.
+ */
+async function makeDpopKey() {
+	const pair = await crypto.subtle.generateKey(
+		{ name: "ECDSA", namedCurve: "P-256" },
+		true,
+		["sign"],
+	);
+	const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+	const bareJwk = { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y };
+	const b64url = (bytes: Uint8Array) =>
+		btoa(String.fromCharCode(...bytes))
+			.replace(/\+/g, "-")
+			.replace(/\//g, "_")
+			.replace(/=+$/, "");
+	const encode = (obj: unknown) =>
+		b64url(new TextEncoder().encode(JSON.stringify(obj)));
+	return {
+		bareJwk,
+		algorithms: ["ES256"] as const,
+		async createJwt(header: unknown, payload: unknown) {
+			const input = `${encode(header)}.${encode(payload)}`;
+			const sig = new Uint8Array(
+				await crypto.subtle.sign(
+					{ name: "ECDSA", hash: "SHA-256" },
+					pair.privateKey,
+					new TextEncoder().encode(input),
+				),
+			);
+			return `${input}.${b64url(sig)}`;
+		},
+	} as never;
+}
 
 const authed = {
 	"Content-Type": "application/json",
@@ -160,6 +199,64 @@ describe("spaces integration", () => {
 			sub: space,
 			aud: `${authority}#atproto_space_host`,
 		});
+	});
+
+	it("round-trips delegation to credential to read on one PDS (bulletin flow)", async () => {
+		// The exact flow bulletin.my runs against a self-hosted board: mint
+		// a delegation for the operator's own space, exchange it for a
+		// credential, read with it. Verification must not require resolving
+		// the operator's own DID document — a Worker cannot fetch its own
+		// hostname.
+		const space = await createSpace();
+		await post("/xrpc/com.atproto.space.createRecord", {
+			space,
+			repo: env.DID,
+			collection: "test.cirrus.note",
+			rkey: "roundtrip",
+			record: { $type: "test.cirrus.note", text: "note" },
+		});
+		// The operator is always authorized for their own space, so
+		// member-list policy passes without adding a member.
+
+		const delegationRes = await get(
+			`/xrpc/com.atproto.space.getDelegationToken?space=${encodeURIComponent(space)}`,
+			{ Authorization: `Bearer ${env.AUTH_TOKEN}` },
+		);
+		expect(delegationRes.status).toBe(200);
+		const { token } = (await delegationRes.json()) as { token: string };
+
+		const dpopKey = await makeDpopKey();
+		const exchangeProof = await createDpopProof(dpopKey, {
+			htm: "POST",
+			htu: `https://${env.PDS_HOSTNAME}/xrpc/com.atproto.space.getSpaceCredential`,
+		});
+		const credentialRes = await post(
+			"/xrpc/com.atproto.space.getSpaceCredential",
+			{ space },
+			{
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				DPoP: exchangeProof,
+			},
+		);
+		expect(credentialRes.status).toBe(200);
+		const { credential } = (await credentialRes.json()) as {
+			credential: string;
+		};
+
+		const readProof = await createDpopProof(dpopKey, {
+			htm: "GET",
+			htu: `https://${env.PDS_HOSTNAME}/xrpc/com.atproto.space.getRecord`,
+			credential,
+		});
+		const read = await get(
+			`/xrpc/com.atproto.space.getRecord?space=${encodeURIComponent(space)}&repo=${env.DID}&collection=test.cirrus.note&rkey=roundtrip`,
+			{ Authorization: `DPoP ${credential}`, DPoP: readProof },
+		);
+		expect(read.status).toBe(200);
+		expect(
+			((await read.json()) as { value: { text: string } }).value.text,
+		).toBe("note");
 	});
 
 	it("lists spaces from the index", async () => {

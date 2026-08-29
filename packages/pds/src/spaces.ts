@@ -149,6 +149,13 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 		if (kid && !SESSION_KID_ALLOWED.has(kid)) {
 			throw new Error(`Unsupported signing key id: ${kid}`);
 		}
+		// The operator's own key never goes through resolution: a Worker
+		// cannot fetch its own hostname (same-zone subrequests are blocked),
+		// and the delegation-for-own-space flow verifies tokens this Worker
+		// minted seconds earlier. The public key is already in the env.
+		if (iss === env.DID) {
+			return `did:key:${env.SIGNING_KEY_PUBLIC}`;
+		}
 		const doc = await didResolver.resolve(iss, { forceRefresh });
 		if (!doc) throw new Error(`Could not resolve DID: ${iss}`);
 		const methods = (doc.verificationMethod ?? []) as Array<{

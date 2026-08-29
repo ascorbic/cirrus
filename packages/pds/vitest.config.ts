@@ -1,8 +1,37 @@
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { defineConfig } from "vitest/config";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
+// @atproto/space (and @atproto/jwk-jose) depend on jose@5, whose Node build
+// cannot sign or verify under workerd's nodejs_compat in the vitest pool;
+// production builds pick jose's `workerd` condition (the WebCrypto build).
+// Redirect only THOSE importers to the browser build — the PDS's own
+// session code uses jose@6 and must keep resolving normally.
+const spaceRequire = createRequire(
+	createRequire(import.meta.url).resolve("@atproto/space"),
+);
+const jose5Browser = join(
+	dirname(spaceRequire.resolve("jose/package.json")),
+	"dist/browser/index.js",
+);
+
 export default defineConfig({
 	plugins: [
+		{
+			name: "jose5-workerd-build",
+			enforce: "pre",
+			resolveId(source, importer) {
+				if (
+					source === "jose" &&
+					importer &&
+					/@atproto[+/](space|jwk)/.test(importer)
+				) {
+					return jose5Browser;
+				}
+				return null;
+			},
+		},
 		cloudflareTest({
 			wrangler: { configPath: "./test/fixtures/pds-worker/wrangler.jsonc" },
 			miniflare: {
