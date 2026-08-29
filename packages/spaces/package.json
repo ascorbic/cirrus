@@ -1,6 +1,6 @@
 {
 	"name": "@getcirrus/spaces",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Atproto spaces engine (alpha) for Cloudflare Workers – permissioned repos, space hosting and credentials",
 	"type": "module",
 	"main": "dist/index.js",
