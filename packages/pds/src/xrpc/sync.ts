@@ -206,13 +206,16 @@ export async function listBlobs(
 		return c.json({ cids: [] });
 	}
 
-	// List blobs from R2 with prefix
+	// List blobs from R2 with prefix. The delimiter keeps nested key
+	// namespaces (`${did}/staged/`, `${did}/space/…`) out of the public
+	// listing — only promoted blobs at `${did}/${cid}` are enumerable.
 	const prefix = `${did}/`;
 	const cursor = c.req.query("cursor");
 	const limit = Math.min(Number(c.req.query("limit")) || 500, 1000);
 
 	const listed = await c.env.BLOBS.list({
 		prefix,
+		delimiter: "/",
 		limit,
 		cursor: cursor || undefined,
 	});
