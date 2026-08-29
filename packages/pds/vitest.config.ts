@@ -20,6 +20,8 @@ export default defineConfig({
 						"$2b$10$B6MKXNJ33Co3RoIVYAAvvO3jImuMiqL1T1YnFDN7E.hTZLtbB4SW6",
 					// Start accounts active by default in tests
 					INITIAL_ACTIVE: "true",
+					// Exercise the spaces alpha in tests
+					SPACES_ENABLED: "true",
 				},
 			},
 		}),

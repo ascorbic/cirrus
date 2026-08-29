@@ -180,6 +180,11 @@ function createCachedPermissionSetResolver(
 			}
 			return fetchAndStore(nsid);
 		},
+		// Space type declarations resolve at consent and grant time only —
+		// low volume, so no DO cache layer.
+		resolveSpaceDeclaration: network.resolveSpaceDeclaration
+			? (nsid) => network.resolveSpaceDeclaration!(nsid)
+			: undefined,
 	};
 }
 
@@ -230,6 +235,8 @@ export function getProvider(env: PDSEnv): ATProtoOAuthProvider {
 		},
 		// DO-SQLite-cached permission-set resolver for `include:` scopes.
 		permissionSetResolver: createCachedPermissionSetResolver(accountDO),
+		// space: scopes parse and grant only when the spaces alpha is on.
+		spacesEnabled: env.SPACES_ENABLED === "true",
 	});
 }
 

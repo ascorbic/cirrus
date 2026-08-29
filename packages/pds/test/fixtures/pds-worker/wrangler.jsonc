@@ -10,12 +10,24 @@
 				"name": "ACCOUNT",
 				"class_name": "AccountDurableObject",
 			},
+			{
+				"name": "SPACES",
+				"class_name": "SpaceDurableObject",
+			},
+			{
+				"name": "SPACES_INDEX",
+				"class_name": "SpaceIndexDurableObject",
+			},
 		],
 	},
 	"migrations": [
 		{
 			"tag": "v1",
 			"new_sqlite_classes": ["AccountDurableObject"],
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["SpaceDurableObject", "SpaceIndexDurableObject"],
 		},
 	],
 	"r2_buckets": [

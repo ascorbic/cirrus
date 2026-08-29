@@ -13,15 +13,31 @@
 			{
 				"name": "ACCOUNT",
 				"class_name": "AccountDurableObject"
+			},
+			{
+				"name": "SPACES",
+				"class_name": "SpaceDurableObject"
+			},
+			{
+				"name": "SPACES_INDEX",
+				"class_name": "SpaceIndexDurableObject"
 			}
 		]
 	},
-	// Enable SQLite for the Durable Object
+	// Enable SQLite for the Durable Objects. Adding the space classes (v2)
+	// is an additive migration and safe regardless of SPACES_ENABLED.
 	"migrations": [
 		{
 			"tag": "v1",
 			"new_sqlite_classes": [
 				"AccountDurableObject"
+			]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": [
+				"SpaceDurableObject",
+				"SpaceIndexDurableObject"
 			]
 		}
 	],
@@ -48,6 +64,11 @@
 		// ⚠️  WARNING: This CANNOT be changed after deployment!
 		// ⚠️  Changing this value after your PDS is live will break your installation.
 		"DATA_LOCATION": ""
+		// Atproto spaces (ALPHA). Set to "true" to enable the space and
+		// simplespace endpoints. Everything is alpha: a breaking upstream
+		// change is absorbed by `pds spaces reset`, which wipes space data
+		// and nothing else.
+		// "SPACES_ENABLED": "true"
 	},
 	// Secrets (set via `pds init` or `pds secret <name>`):
 	// - AUTH_TOKEN: Bearer token for API write operations

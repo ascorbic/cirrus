@@ -1,5 +1,6 @@
 // Public API
 export { AccountDurableObject } from "./account-do";
+export { SpaceDurableObject, SpaceIndexDurableObject } from "./spaces";
 export type { PDSEnv, DataLocation } from "./types";
 
 import { Hono } from "hono";
@@ -28,6 +29,7 @@ import {
 	PASSKEY_ERROR_CSP,
 } from "./passkey-ui";
 import { renderDashboard } from "./dashboard";
+import { createSpacesApp } from "./spaces";
 import type { PDSEnv } from "./types";
 
 import { version } from "../package.json" with { type: "json" };
@@ -545,6 +547,16 @@ app.post("/passkey/delete", requireAuth, async (c) => {
 // OAuth 2.1 endpoints for "Login with Bluesky"
 const oauthApp = createOAuthApp(getAccountDO);
 app.route("/", oauthApp);
+
+// Atproto spaces (alpha). When the flag is off none of the space or
+// simplespace routes are registered, so they fall through to the proxy
+// like any unknown method, and the DID document says nothing about spaces.
+if (env.SPACES_ENABLED === "true") {
+	app.route(
+		"/",
+		createSpacesApp({ env, didResolver, getKeypair }),
+	);
+}
 
 // getFeed is proxied to the AppView but the service-auth JWT must be addressed
 // to the feed generator, so it needs special handling ahead of the catch-all.

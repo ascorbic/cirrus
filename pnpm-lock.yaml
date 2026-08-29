@@ -240,12 +240,18 @@ importers:
       '@atproto/repo':
         specifier: ^0.8.12
         version: 0.8.12
+      '@atproto/space':
+        specifier: 0.0.0-spaces-alpha-20260818163953
+        version: 0.0.0-spaces-alpha-20260818163953
       '@clack/prompts':
         specifier: ^0.11.0
         version: 0.11.0
       '@getcirrus/oauth-provider':
         specifier: workspace:*
         version: link:../oauth-provider
+      '@getcirrus/spaces':
+        specifier: workspace:*
+        version: link:../spaces
       '@simplewebauthn/server':
         specifier: ^13.2.2
         version: 13.2.2

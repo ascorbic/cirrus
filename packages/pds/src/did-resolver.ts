@@ -56,9 +56,13 @@ export class DidResolver {
 		});
 	}
 
-	async resolve(did: string): Promise<DidDocument | null> {
-		// Check cache first
-		if (this.cache) {
+	async resolve(
+		did: string,
+		opts: { forceRefresh?: boolean } = {},
+	): Promise<DidDocument | null> {
+		// Check cache first (skipped on forceRefresh, e.g. after a signature
+		// failure that may indicate key rotation)
+		if (this.cache && !opts.forceRefresh) {
 			const cached = await this.cache.checkCache(did);
 			if (cached && !cached.expired) {
 				// Trigger background refresh if stale
