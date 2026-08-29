@@ -207,10 +207,13 @@ export async function verifyDelegationAuth(
 }
 
 function invalidCredential(err: unknown): SpaceError {
+	// Server-side detail for operators; clients get the generic message.
+	console.warn("space credential verification failed:", err);
 	return new SpaceError("InvalidCredential", authErrorMessage(err));
 }
 
 function invalidDelegation(err: unknown): SpaceError {
+	console.warn("delegation token verification failed:", err);
 	return new SpaceError("InvalidDelegationToken", authErrorMessage(err));
 }
 

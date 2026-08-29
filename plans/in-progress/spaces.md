@@ -47,10 +47,11 @@ User stories S1–S9 all have automated coverage (54 engine/protocol tests,
 
 ## Not done / next
 
-- **Interop runs** against the reference alpha Docker image, rsky and
-  bulletin.my (spec's acceptance tests). Nothing has been exercised
-  against a real foreign PDS yet — only against `@atproto/space`'s own
-  verifier primitives.
+- **Interop runs** against the reference alpha Docker image and rsky.
+  bulletin.my's S1 flow is verified live against pds.mk.gg (2026-08-29):
+  OAuth with space: scopes, board space creation, delegation →
+  credential exchange, reads, registerNotify and listRepos all work.
+  Cross-PDS (S2–S4) remains unexercised against a real foreign PDS.
 - **R2 lifecycle rule** must be applied per-install
   (`wrangler r2 bucket lifecycle add pds-blobs --prefix "<did>/staged/" --expire-days 7`);
   `pds init` doesn't automate it yet.

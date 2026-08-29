@@ -29,7 +29,11 @@ import {
 	PASSKEY_ERROR_CSP,
 } from "./passkey-ui";
 import { renderDashboard } from "./dashboard";
-import { createSpacesApp, createSpacesAdminApp } from "./spaces";
+import {
+	createSpacesApp,
+	createSpacesAdminApp,
+	createSpacesUnavailableApp,
+} from "./spaces";
 import type { PDSEnv } from "./types";
 
 import { version } from "../package.json" with { type: "json" };
@@ -552,11 +556,20 @@ app.route("/", oauthApp);
 // Atproto spaces (alpha). When the flag is off none of the space or
 // simplespace routes are registered, so they fall through to the proxy
 // like any unknown method, and the DID document says nothing about spaces.
+//
+// The bindings check must not throw: deploy-time startup validation
+// evaluates this scope with vars visible but Durable Object bindings not
+// yet materialized, and a real misconfiguration should degrade spaces to
+// 503s rather than fail worker startup.
 if (env.SPACES_ENABLED === "true") {
-	app.route(
-		"/",
-		createSpacesApp({ env, didResolver, getKeypair }),
-	);
+	if (env.SPACES && env.SPACES_INDEX) {
+		app.route("/", createSpacesApp({ env, didResolver, getKeypair }));
+	} else {
+		console.error(
+			"SPACES_ENABLED is set but the SPACES / SPACES_INDEX Durable Object bindings are missing. Space endpoints will return 503.",
+		);
+		app.route("/", createSpacesUnavailableApp());
+	}
 }
 // The operator-only admin surface (spaces status and reset) mounts
 // whenever the bindings exist, so `pds spaces reset` still works with the
