@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { env, worker } from "./helpers";
+import { env, worker, runInDurableObject } from "./helpers";
 
 const authed = {
 	"Content-Type": "application/json",
@@ -222,6 +222,118 @@ describe("spaces integration", () => {
 		expect(((await spaceWrite.json()) as { message: string }).message).toMatch(
 			/App password/i,
 		);
+	});
+
+	it("reports spaces status and resets all space data (S7)", async () => {
+		const space = await createSpace();
+		await post("/xrpc/com.atproto.space.createRecord", {
+			space,
+			repo: env.DID,
+			collection: "test.cirrus.note",
+			record: { $type: "test.cirrus.note", text: "doomed" },
+		});
+
+		// Status requires the operator token.
+		const anonStatus = await get("/xrpc/gg.mk.experimental.getSpacesStatus");
+		expect(anonStatus.status).toBe(401);
+
+		const status = await get("/xrpc/gg.mk.experimental.getSpacesStatus", {
+			Authorization: `Bearer ${env.AUTH_TOKEN}`,
+		});
+		expect(status.status).toBe(200);
+		const statusBody = (await status.json()) as {
+			enabled: boolean;
+			schemaVersion: number;
+			spaces: Array<{ uri: string; role: string; recordCount: number }>;
+		};
+		expect(statusBody.enabled).toBe(true);
+		expect(statusBody.schemaVersion).toBeGreaterThanOrEqual(1);
+		const entry = statusBody.spaces.find((s) => s.uri === space);
+		expect(entry).toMatchObject({ role: "authority", recordCount: 1 });
+
+		// The public repo head before the reset.
+		const beforeReset = await (
+			await get(`/xrpc/com.atproto.sync.getLatestCommit?did=${env.DID}`)
+		).json();
+
+		const reset = await post("/xrpc/gg.mk.experimental.spacesReset", {});
+		expect(reset.status).toBe(200);
+		const resetBody = (await reset.json()) as { spacesDeleted: number };
+		expect(resetBody.spacesDeleted).toBeGreaterThan(0);
+
+		// Clean state: nothing listed, reads say RepoNotFound.
+		const listed = await get("/xrpc/com.atproto.space.listSpaces", {
+			Authorization: `Bearer ${env.AUTH_TOKEN}`,
+		});
+		expect(((await listed.json()) as { spaces: unknown[] }).spaces).toEqual(
+			[],
+		);
+		const read = await get(
+			`/xrpc/com.atproto.space.getRecord?space=${encodeURIComponent(space)}&repo=${env.DID}&collection=test.cirrus.note&rkey=x`,
+			{ Authorization: `Bearer ${env.AUTH_TOKEN}` },
+		);
+		expect(read.status).toBe(404);
+
+		// The public repo is untouched.
+		const afterReset = await (
+			await get(`/xrpc/com.atproto.sync.getLatestCommit?did=${env.DID}`)
+		).json();
+		expect(afterReset).toEqual(beforeReset);
+	});
+
+	it("reset destroys a space DO orphaned in the pending state", async () => {
+		// Simulate the two-step creation crashing between the space DO's
+		// initialisation and the index activation: a pending entry with a
+		// live, never-activated DO behind it.
+		const uri = `at://${env.DID}/space/app.bsky.group/orphaned1`;
+		const index = env.SPACES_INDEX!.get(
+			env.SPACES_INDEX!.idFromName("spaces"),
+		);
+		await index.rpcRegister({
+			uri,
+			authority: env.DID,
+			type: "app.bsky.group",
+			skey: "orphaned1",
+			isAuthority: true,
+		});
+		const stub = env.SPACES!.get(env.SPACES!.idFromName(uri));
+		await stub.rpcInit({
+			uri,
+			authority: env.DID,
+			type: "app.bsky.group",
+			skey: "orphaned1",
+			isAuthority: true,
+			config: {
+				policy: { kind: "public" },
+				appAccess: { kind: "open" },
+			},
+		});
+		// (no rpcActivate — the crash window)
+
+		// The index alarm tombstones the stale entry but keeps it as a
+		// manifest for reset.
+		await runInDurableObject(index, async (instance, state) => {
+			state.storage.sql.exec(
+				"UPDATE space SET updated_at = ? WHERE uri = ?",
+				new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+				uri,
+			);
+			await instance.alarm();
+		});
+		const status = await get("/xrpc/gg.mk.experimental.getSpacesStatus", {
+			Authorization: `Bearer ${env.AUTH_TOKEN}`,
+		});
+		const statusBody = (await status.json()) as {
+			spaces: Array<{ uri: string; state: string }>;
+		};
+		expect(statusBody.spaces.find((s) => s.uri === uri)?.state).toBe(
+			"deleted",
+		);
+
+		// Reset finds it through the tombstone and destroys the DO storage.
+		const reset = await post("/xrpc/gg.mk.experimental.spacesReset", {});
+		expect(reset.status).toBe(200);
+		expect(await stub.rpcGetMeta()).toBe(null);
 	});
 
 	it("keeps the firehose and public repo untouched by space writes", async () => {

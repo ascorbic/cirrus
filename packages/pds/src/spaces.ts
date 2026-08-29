@@ -15,9 +15,11 @@ import { createSpaceToken, spaceHostAud } from "@atproto/space";
 import {
 	SpaceDurableObject as EngineSpaceDurableObject,
 	SpaceIndexDurableObject as EngineSpaceIndexDurableObject,
+	SPACE_SCHEMA_VERSION,
 	createSpaceRoutes,
 	requireSpaceUri,
 	parseSpaceErrorCode,
+	spaceBlobRootPrefix,
 	spaceErrorStatus,
 } from "@getcirrus/spaces";
 import type {
@@ -417,6 +419,126 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 		} catch (err) {
 			return spacesErrorResponse(c, err);
 		}
+	});
+
+	return app;
+}
+
+/**
+ * Operator-only admin surface for spaces, mounted whenever the bindings
+ * exist — deliberately independent of SPACES_ENABLED so `pds spaces reset`
+ * and `pds spaces status` still work after the flag is turned off or an
+ * alpha schema bump puts the space DOs into their refusing state.
+ */
+export function createSpacesAdminApp(deps: SpacesAppDeps): Hono {
+	const { env } = deps;
+	const app = new Hono();
+
+	/** Full-trust operator auth only: AUTH_TOKEN or a non-app-password session. */
+	async function requireOperator(c: Context): Promise<Response | null> {
+		const auth = c.req.header("Authorization");
+		if (!auth?.startsWith("Bearer ")) {
+			return c.json(
+				{ error: "AuthMissing", message: "Authorization header required" },
+				401,
+			);
+		}
+		const token = auth.slice(7);
+		if (token === env.AUTH_TOKEN) return null;
+		try {
+			const payload = await verifyAccessToken(
+				token,
+				env.JWT_SECRET,
+				`did:web:${env.PDS_HOSTNAME}`,
+			);
+			if (payload.sub === env.DID && payload.apf !== true) return null;
+		} catch {
+			// fall through
+		}
+		return c.json(
+			{
+				error: "AuthenticationRequired",
+				message: "Operator session required",
+			},
+			401,
+		);
+	}
+
+	async function listAllIndexEntries(): Promise<
+		Array<{ uri: string; isAuthority: boolean; state: string }>
+	> {
+		const index = getSpaceIndexDO(env);
+		const entries: Array<{
+			uri: string;
+			isAuthority: boolean;
+			state: string;
+		}> = [];
+		let afterUri: string | undefined;
+		for (;;) {
+			const page = await index.rpcList({ limit: 500, afterUri });
+			entries.push(...page.spaces);
+			if (!page.hasMore || page.spaces.length === 0) break;
+			afterUri = page.spaces[page.spaces.length - 1]!.uri;
+		}
+		return entries;
+	}
+
+	// Flag, schema version, per-space state — feeds `pds spaces status`
+	// and the dashboard tab.
+	app.get("/xrpc/gg.mk.experimental.getSpacesStatus", async (c) => {
+		const denied = await requireOperator(c);
+		if (denied) return denied;
+		const index = getSpaceIndexDO(env);
+		const stats = await index.rpcStats();
+		const entries = await listAllIndexEntries();
+		const spaces = await Promise.all(
+			entries.map(async (entry) => {
+				const status = await getSpaceDO(env, entry.uri).rpcStatus();
+				return {
+					uri: entry.uri,
+					role: entry.isAuthority ? "authority" : "writer",
+					state: entry.state,
+					outdated: status.outdated,
+					recordCount: status.recordCount,
+					memberCount: status.memberCount,
+					writerCount: status.writerCount,
+				};
+			}),
+		);
+		return c.json({
+			enabled: env.SPACES_ENABLED === "true",
+			schemaVersion: SPACE_SCHEMA_VERSION,
+			stats,
+			spaces,
+		});
+	});
+
+	// Wipe all space state: every space DO, the index DO and the space R2
+	// prefix. Cannot touch staged/ or public blobs, the account DO or OAuth
+	// state — the deletes are scoped by construction.
+	app.post("/xrpc/gg.mk.experimental.spacesReset", async (c) => {
+		const denied = await requireOperator(c);
+		if (denied) return denied;
+		const entries = await listAllIndexEntries();
+		for (const entry of entries) {
+			await getSpaceDO(env, entry.uri).rpcDestroy();
+		}
+		await getSpaceIndexDO(env).rpcDestroy();
+
+		let blobsDeleted = 0;
+		if (env.BLOBS) {
+			const prefix = spaceBlobRootPrefix(env.DID);
+			let cursor: string | undefined;
+			do {
+				const listed = await env.BLOBS.list({ prefix, cursor, limit: 500 });
+				if (listed.objects.length > 0) {
+					await env.BLOBS.delete(listed.objects.map((o) => o.key));
+					blobsDeleted += listed.objects.length;
+				}
+				cursor = listed.truncated ? listed.cursor : undefined;
+			} while (cursor);
+		}
+		return c.json({ spacesDeleted: entries.length, blobsDeleted });
 	});
 
 	return app;
