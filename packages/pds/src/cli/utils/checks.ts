@@ -222,6 +222,37 @@ export function checkRepoComplete(status: MigrationStatus): CheckResult {
 }
 
 /**
+ * Check that the stored repo is keyed to the configured account DID.
+ *
+ * A mismatch happens when the repo was created under an earlier DID (e.g. the
+ * `did:web:<hostname>` init default) and the account was later migrated to a
+ * `did:plc:…` identity. The relay rejects such a repo at `verifyRepoRoot`
+ * (`commit.did !== <account did>`) and never onboards the account, even though
+ * every other check passes. Catch it before the user believes migration worked.
+ */
+export function checkRepoDidMatches(
+	status: MigrationStatus,
+	expectedDid: string,
+): CheckResult {
+	if (!status.did) {
+		// No repo yet — nothing to mismatch; other repo checks report emptiness.
+		return { ok: true, message: "no repo yet" };
+	}
+	if (status.did !== expectedDid) {
+		return {
+			ok: false,
+			message: `Repo DID (${status.did}) does not match account DID (${expectedDid})`,
+			detail:
+				"The repo was created under a different DID (e.g. the did:web init default) " +
+				"before migrating to did:plc. Deactivate the account and run " +
+				"gg.mk.experimental.resetMigration to rebuild the repo under the correct DID, " +
+				"then re-run migrate.",
+		};
+	}
+	return { ok: true, message: "matches account DID" };
+}
+
+/**
  * Check if profile is indexed by AppView
  */
 export async function checkAppViewIndexing(

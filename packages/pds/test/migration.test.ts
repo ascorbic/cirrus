@@ -70,6 +70,9 @@ describe("Account Migration", () => {
 			expect(body.validDid).toBe(true);
 			expect(body.repoRev).toBeDefined();
 			expect(body.repoRev).not.toBeNull();
+			// The repo DID must be surfaced so the CLI can detect a did:web/did:plc
+			// mismatch during migration preflight.
+			expect(body.did).toBe(env.DID);
 		});
 
 		it("returns account status info", async () => {
