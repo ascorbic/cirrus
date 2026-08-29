@@ -310,7 +310,12 @@ describe("SpaceDurableObject", () => {
 		expect(await stub.rpcIsMember("did:web:bob.test")).toBe(false);
 
 		const hash = new Uint8Array(32).fill(7);
-		await stub.rpcRecordWriter("did:web:bob.test", "3kzzzzzzzzzzz", hash);
+		const first = await stub.rpcRecordWriter(
+			"did:web:bob.test",
+			"3kzzzzzzzzzzz",
+			hash,
+		);
+		expect(first.advanced).toBe(true);
 		const writers = await stub.rpcListWriters({ limit: 10 });
 		expect(writers.repos).toHaveLength(1);
 		expect(writers.repos[0]).toMatchObject({
@@ -318,6 +323,35 @@ describe("SpaceDurableObject", () => {
 			rev: "3kzzzzzzzzzzz",
 		});
 		expect(new Uint8Array(writers.repos[0]!.hash)).toEqual(hash);
+
+		// A delayed or replayed notification with an older rev never rolls
+		// the writer set backwards, and reports that nothing advanced.
+		const staleHash = new Uint8Array(32).fill(9);
+		const stale = await stub.rpcRecordWriter(
+			"did:web:bob.test",
+			"3kaaaaaaaaaaa",
+			staleHash,
+		);
+		expect(stale.advanced).toBe(false);
+		const equal = await stub.rpcRecordWriter(
+			"did:web:bob.test",
+			"3kzzzzzzzzzzz",
+			staleHash,
+		);
+		expect(equal.advanced).toBe(false);
+		const unchanged = await stub.rpcListWriters({ limit: 10 });
+		expect(unchanged.repos[0]).toMatchObject({ rev: "3kzzzzzzzzzzz" });
+		expect(new Uint8Array(unchanged.repos[0]!.hash)).toEqual(hash);
+
+		// A newer rev advances again.
+		const newer = await stub.rpcRecordWriter(
+			"did:web:bob.test",
+			"3lzzzzzzzzzzz",
+			staleHash,
+		);
+		expect(newer.advanced).toBe(true);
+		const advancedState = await stub.rpcListWriters({ limit: 10 });
+		expect(advancedState.repos[0]).toMatchObject({ rev: "3lzzzzzzzzzzz" });
 
 		const reg = await stub.rpcRegisterNotify(
 			"did:web:syncer.test",

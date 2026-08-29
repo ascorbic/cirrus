@@ -79,7 +79,7 @@ describe("SpaceIndexDurableObject", () => {
 		expect(stats.deleted).toBeGreaterThan(0);
 	});
 
-	it("cleans up stale pending entries on alarm", async () => {
+	it("tombstones stale pending entries on alarm, keeping them discoverable", async () => {
 		const stub = indexStub();
 		const stale = entry();
 		await stub.rpcRegister(stale);
@@ -92,7 +92,15 @@ describe("SpaceIndexDurableObject", () => {
 			);
 			await instance.alarm();
 		});
-		expect(await stub.rpcGet(stale.uri)).toBe(null);
+		// Not removed: the row is the only durable manifest reset has for
+		// finding a space DO that was initialised but never activated.
+		expect((await stub.rpcGet(stale.uri))?.state).toBe("deleted");
+		const listed = await stub.rpcList({ limit: 1000 });
+		expect(listed.spaces.map((s) => s.uri)).toContain(stale.uri);
+
+		// A revived registration goes back to pending.
+		await stub.rpcRegister(stale);
+		expect((await stub.rpcGet(stale.uri))?.state).toBe("pending");
 	});
 
 	it("pages with a cursor", async () => {

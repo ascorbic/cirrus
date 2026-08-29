@@ -170,12 +170,19 @@ export class SpaceIndexDurableObject<Env = unknown> extends DurableObject<Env> {
 		this.initialized = false;
 	}
 
-	/** Clean up `pending` entries that never activated. */
+	/**
+	 * Tombstone `pending` entries that never activated. They become
+	 * `deleted` rather than being removed: a crash between the space DO's
+	 * initialisation and the index activation leaves real DO storage
+	 * behind, and the index row is the only durable manifest `spaces reset`
+	 * has for finding and destroying it.
+	 */
 	override async alarm(): Promise<void> {
 		await this.ensureInitialized();
 		const cutoff = new Date(Date.now() - PENDING_ENTRY_TTL_MS).toISOString();
 		this.sql.exec(
-			"DELETE FROM space WHERE state = 'pending' AND updated_at < ?",
+			"UPDATE space SET state = 'deleted', updated_at = ? WHERE state = 'pending' AND updated_at < ?",
+			new Date().toISOString(),
 			cutoff,
 		);
 		await this.ctx.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);

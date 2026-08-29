@@ -390,6 +390,10 @@ export abstract class SpaceDurableObject<Env = unknown> extends DurableObject<En
 	 * List records ordered by (collection, rkey) — equivalent to record-URI
 	 * order since every record shares the space and repo prefix. Descending
 	 * by default, matching the reference; `reverse` flips to ascending.
+	 *
+	 * `rev` is the repo revision the page was read at — the page and the
+	 * revision are one snapshot (synchronous reads, single-threaded DO), so
+	 * a paged reader can fence against concurrent writes.
 	 */
 	async rpcListRecords(params: {
 		collection?: string;
@@ -397,9 +401,17 @@ export abstract class SpaceDurableObject<Env = unknown> extends DurableObject<En
 		after?: { collection: string; rkey: string };
 		reverse?: boolean;
 		excludeValues?: boolean;
-	}): Promise<{ records: SpaceRecordRow[]; hasMore: boolean }> {
+	}): Promise<{
+		records: SpaceRecordRow[];
+		hasMore: boolean;
+		rev: string | null;
+	}> {
 		await this.ensureOpen();
 		this.requireLiveMeta();
+		const stateRow = this.sql
+			.exec("SELECT rev FROM repo_state WHERE id = 1")
+			.toArray()[0];
+		const rev = stateRow ? (stateRow.rev as string) : null;
 		const asc = params.reverse === true;
 		const op = asc ? ">" : "<";
 		const order = asc ? "ASC" : "DESC";
@@ -435,6 +447,7 @@ export abstract class SpaceDurableObject<Env = unknown> extends DurableObject<En
 					: { bytes: new Uint8Array(row.bytes as ArrayBuffer) }),
 			})),
 			hasMore,
+			rev,
 		};
 	}
 
@@ -713,21 +726,28 @@ export abstract class SpaceDurableObject<Env = unknown> extends DurableObject<En
 		return { dids: page.map((r) => r.did as string), hasMore };
 	}
 
-	/** Record a writer's latest (rev, hash), from notifyWrite or own writes. */
+	/**
+	 * Record a writer's latest (rev, hash), from notifyWrite or own writes.
+	 * Monotonic per writer: a delayed or replayed notification with an older
+	 * rev never rolls the writer set backwards. Returns whether the write
+	 * advanced state, so callers can skip fan-out for stale notifications.
+	 */
 	async rpcRecordWriter(
 		did: string,
 		rev: string,
 		hash: Uint8Array,
-	): Promise<void> {
+	): Promise<{ advanced: boolean }> {
 		await this.ensureOpen();
 		this.requireLiveMeta();
-		this.sql.exec(
+		const result = this.sql.exec(
 			`INSERT INTO writer (did, rev, hash) VALUES (?, ?, ?)
-			 ON CONFLICT (did) DO UPDATE SET rev = excluded.rev, hash = excluded.hash`,
+			 ON CONFLICT (did) DO UPDATE SET rev = excluded.rev, hash = excluded.hash
+			 WHERE excluded.rev > writer.rev`,
 			did,
 			rev,
 			hash,
 		);
+		return { advanced: result.rowsWritten > 0 };
 	}
 
 	async rpcListWriters(params: {
