@@ -109,7 +109,6 @@ export class SqliteRepoStorage
 		return rows.length > 0 ? ((rows[0]!.rev as string) ?? null) : null;
 	}
 
-
 	/**
 	 * Get the raw bytes for a block by CID.
 	 */

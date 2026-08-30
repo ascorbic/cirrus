@@ -105,9 +105,7 @@ export async function getRecordProofCar(
 	// Use @atproto/repo's getRecords to generate the proof CAR
 	// This returns an async iterable of CAR chunks
 	const carChunks: Uint8Array[] = [];
-	for await (const chunk of getRecords(storage, root, [
-		{ collection, rkey },
-	])) {
+	for await (const chunk of getRecords(storage, root, [{ collection, rkey }])) {
 		carChunks.push(chunk);
 	}
 

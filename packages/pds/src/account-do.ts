@@ -1,33 +1,16 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-	Repo,
-	WriteOpAction,
-	BlockMap,
-	readCarWithRoot,
-	cidForRecord,
-	type RecordCreateOp,
-	type RecordUpdateOp,
-	type RecordDeleteOp,
-	type RecordWriteOp,
-} from "@atproto/repo";
-/** Record type compatible with @atproto/repo operations */
-type RepoRecord = Record<string, unknown>;
-import { Secp256k1Keypair } from "@atproto/crypto";
-import { CID, asCid, isBlobRef } from "@atproto/lex-data";
-import { now as tidNow } from "@atcute/tid";
+import type { Repo } from "@atproto/repo";
+import type { Secp256k1Keypair } from "@atproto/crypto";
 import { SqliteRepoStorage } from "./repo/storage";
 import { SqliteOAuthStorage } from "./oauth-storage";
-import { Sequencer, type SeqEvent, type CommitData } from "./repo/sequencer";
+import { Sequencer } from "./repo/sequencer";
 import { BlobStore } from "./repo/blobs";
 import { AccountStore } from "./account/store";
 import { Firehose } from "./repo/firehose";
+import { RepoEngine } from "./repo/engine";
 import { getRepoCar, getBlocksCar, getRecordProofCar } from "./repo/sync";
-import { jsonToLex } from "@atproto/lex-json";
 import type { PDSEnv } from "./types";
-import { RecordAlreadyExistsError, type ValidationStatus } from "./validation";
-
-/** Sync 1.1 spec: at most 200 record operations per commit. */
-const MAX_OPS_PER_COMMIT = 200;
+import type { ValidationStatus } from "./validation";
 
 /**
  * Account Durable Object - manages a single user's AT Protocol repository.
@@ -42,13 +25,11 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	private storage: SqliteRepoStorage | null = null;
 	private accountStore: AccountStore | null = null;
 	private oauthStorage: SqliteOAuthStorage | null = null;
-	private repo: Repo | null = null;
-	private keypair: Secp256k1Keypair | null = null;
 	private sequencer: Sequencer | null = null;
 	private firehose: Firehose | null = null;
+	private engine: RepoEngine | null = null;
 	private blobStore: BlobStore | null = null;
 	private storageInitialized = false;
-	private repoInitialized = false;
 
 	constructor(ctx: DurableObjectState, env: PDSEnv) {
 		super(ctx, env);
@@ -91,6 +72,14 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 				this.firehose = new Firehose(this.sequencer, () =>
 					this.ctx.getWebSockets(),
 				);
+				this.engine = new RepoEngine({
+					storage: this.storage,
+					sequencer: this.sequencer,
+					did: this.env.DID,
+					signingKey: this.env.SIGNING_KEY,
+					lock: (fn) => this.ctx.blockConcurrencyWhile(fn),
+					broadcast: (event) => this.firehose!.broadcast(event),
+				});
 				this.storageInitialized = true;
 
 				// Run cleanup on initialization
@@ -132,41 +121,19 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * Initialize the Repo instance. Called lazily on first repo access.
-	 */
-	private async ensureRepoInitialized(): Promise<void> {
-		await this.ensureStorageInitialized();
-
-		if (!this.repoInitialized) {
-			await this.ctx.blockConcurrencyWhile(async () => {
-				if (this.repoInitialized) return; // Double-check after acquiring lock
-
-				// Load signing key
-				this.keypair = await Secp256k1Keypair.import(this.env.SIGNING_KEY);
-
-				// Load or create repo
-				const root = await this.storage!.getRoot();
-				if (root) {
-					this.repo = await Repo.load(this.storage!, root);
-				} else {
-					this.repo = await Repo.create(
-						this.storage!,
-						this.env.DID,
-						this.keypair,
-					);
-				}
-
-				this.repoInitialized = true;
-			});
-		}
-	}
-
-	/**
 	 * Get the storage adapter for direct access (used by tests and internal operations).
 	 */
 	async getStorage(): Promise<SqliteRepoStorage> {
 		await this.ensureStorageInitialized();
 		return this.storage!;
+	}
+
+	/**
+	 * Get the repo engine for repository operations.
+	 */
+	private async getEngine(): Promise<RepoEngine> {
+		await this.ensureStorageInitialized();
+		return this.engine!;
 	}
 
 	/**
@@ -189,48 +156,32 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * Get the Repo instance for repository operations.
 	 */
 	async getRepo(): Promise<Repo> {
-		await this.ensureRepoInitialized();
-		return this.repo!;
+		const engine = await this.getEngine();
+		return engine.getRepo();
 	}
 
 	/**
 	 * Ensure the account is active. Throws error if deactivated.
 	 */
 	async ensureActive(): Promise<void> {
-		const storage = await this.getStorage();
-		const isActive = await storage.getActive();
-		if (!isActive) {
-			throw new Error(
-				"AccountDeactivated: Account is deactivated. Call activateAccount to enable writes.",
-			);
-		}
+		const engine = await this.getEngine();
+		await engine.ensureActive();
 	}
 
 	/**
 	 * Get the signing keypair for repository operations.
 	 */
 	async getKeypair(): Promise<Secp256k1Keypair> {
-		await this.ensureRepoInitialized();
-		return this.keypair!;
+		const engine = await this.getEngine();
+		return engine.getKeypair();
 	}
 
 	/**
 	 * Update the Repo instance after mutations.
 	 */
 	async setRepo(repo: Repo): Promise<void> {
-		this.repo = repo;
-	}
-
-	/**
-	 * Drop the in-memory repo so the next access reloads from storage.
-	 * Used after a write fails post-applyWrites: Cloudflare rolls back the
-	 * SQLite writes, but JS state isn't rolled back, so the cached Repo can
-	 * end up ahead of storage. That mismatch produces firehose events whose
-	 * `since` rev the relay never saw, causing it to mark us desynced.
-	 */
-	private invalidateRepoCache(): void {
-		this.repo = null;
-		this.repoInitialized = false;
+		const engine = await this.getEngine();
+		engine.setRepo(repo);
 	}
 
 	/**
@@ -241,25 +192,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		collections: string[];
 		cid: string;
 	}> {
-		const repo = await this.getRepo();
-		const storage = await this.getStorage();
-
-		// Lazy backfill: if the cache is empty and the repo has content, populate it
-		if (!storage.hasCollections() && (await storage.getRoot())) {
-			const seen = new Set<string>();
-			for await (const record of repo.walkRecords()) {
-				if (!seen.has(record.collection)) {
-					seen.add(record.collection);
-					storage.addCollection(record.collection);
-				}
-			}
-		}
-
-		return {
-			did: repo.did,
-			collections: storage.getCollections(),
-			cid: repo.cid.toString(),
-		};
+		const engine = await this.getEngine();
+		return engine.describeRepo();
 	}
 
 	/**
@@ -272,24 +206,12 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		cid: string;
 		record: Rpc.Serializable<any>;
 	} | null> {
-		const repo = await this.getRepo();
-
-		// Get the CID from the MST
-		const dataKey = `${collection}/${rkey}`;
-		const recordCid = await repo.data.get(dataKey);
-		if (!recordCid) {
-			return null;
-		}
-
-		const record = await repo.getRecord(collection, rkey);
-
-		if (!record) {
-			return null;
-		}
-
+		const engine = await this.getEngine();
+		const result = await engine.getRecord(collection, rkey);
+		if (!result) return null;
 		return {
-			cid: recordCid.toString(),
-			record: serializeRecord(record) as Rpc.Serializable<any>,
+			cid: result.cid,
+			record: result.record as Rpc.Serializable<any>,
 		};
 	}
 
@@ -307,36 +229,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		records: Array<{ uri: string; cid: string; value: unknown }>;
 		cursor?: string;
 	}> {
-		const repo = await this.getRepo();
-		const records = [];
-		const startFrom = opts.cursor || `${collection}/`;
-
-		for await (const record of repo.walkRecords(startFrom)) {
-			if (record.collection !== collection) {
-				if (records.length > 0) break;
-				continue;
-			}
-
-			records.push({
-				uri: `at://${repo.did}/${record.collection}/${record.rkey}`,
-				cid: record.cid.toString(),
-				value: serializeRecord(record.record),
-			});
-
-			if (records.length >= opts.limit + 1) break;
-		}
-
-		if (opts.reverse) {
-			records.reverse();
-		}
-
-		const hasMore = records.length > opts.limit;
-		const results = hasMore ? records.slice(0, opts.limit) : records;
-		const cursor = hasMore
-			? `${collection}/${results[results.length - 1]?.uri.split("/").pop() ?? ""}`
-			: undefined;
-
-		return { records: results, cursor };
+		const engine = await this.getEngine();
+		return engine.listRecords(collection, opts);
 	}
 
 	/**
@@ -353,92 +247,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		commit: { cid: string; rev: string };
 		validationStatus?: ValidationStatus;
 	}> {
-		await this.ensureActive();
-		const repo = await this.getRepo();
-		const keypair = await this.getKeypair();
-
-		// Auto-generate rkey here (not in the worker) so the candidate is
-		// chosen against this DO's authoritative MST state, eliminating the
-		// 1/1024 collision risk between worker isolates picking the same
-		// timestamp+clockid in the same ms. For client-supplied rkeys, throw
-		// a structured RecordAlreadyExistsError if it collides. Use the
-		// MST's CID lookup (data.get) instead of repo.getRecord to avoid
-		// fetching and decoding the full record block on every write.
-		const autoGenerated = rkey === undefined;
-		let actualRkey = rkey ?? tidNow();
-		for (let attempt = 0; attempt < 5; attempt++) {
-			const existingCid = await repo.data.get(`${collection}/${actualRkey}`);
-			if (!existingCid) break;
-			if (!autoGenerated) {
-				throw new RecordAlreadyExistsError(
-					`${collection}/${actualRkey}`,
-				);
-			}
-			if (attempt === 4) {
-				throw new Error(
-					`Failed to allocate unique rkey for ${collection} after 5 attempts`,
-				);
-			}
-			actualRkey = tidNow();
-		}
-
-		const createOp: RecordCreateOp = {
-			action: WriteOpAction.Create,
-			collection,
-			rkey: actualRkey,
-			record: jsonToLex(record) as RepoRecord,
-		};
-
-		const prevRev = repo.commit.rev;
-		const prevData = repo.commit.data;
-		const commit = await repo.formatCommit([createOp], keypair);
-		const updatedRepo = await repo.applyCommit(commit);
-
-		try {
-			const dataKey = `${collection}/${actualRkey}`;
-			const recordCid = await updatedRepo.data.get(dataKey);
-
-			if (!recordCid) {
-				throw new Error(
-					`Failed to create record: ${collection}/${actualRkey}`,
-				);
-			}
-
-			this.storage!.addCollection(collection);
-
-			if (this.sequencer) {
-				const opWithCid = { ...createOp, cid: recordCid };
-
-				const commitData: CommitData = {
-					did: updatedRepo.did,
-					commit: commit.cid,
-					rev: commit.rev,
-					since: prevRev,
-					prevData,
-					newBlocks: commit.newBlocks,
-					relevantBlocks: commit.relevantBlocks,
-					ops: [opWithCid],
-				};
-
-				const event = await this.sequencer.sequenceCommit(commitData);
-				await this.broadcastEvent(event);
-			}
-
-			this.repo = updatedRepo;
-
-			return {
-				uri: `at://${updatedRepo.did}/${collection}/${actualRkey}`,
-				cid: recordCid.toString(),
-				commit: {
-					cid: updatedRepo.cid.toString(),
-					rev: updatedRepo.commit.rev,
-				},
-				...(validationStatus !== undefined ? { validationStatus } : {}),
-			};
-		} catch (err) {
-			this.invalidateRepoCache();
-			throw err;
-		}
+		const engine = await this.getEngine();
+		return engine.createRecord(collection, rkey, record, validationStatus);
 	}
 
 	/**
@@ -448,64 +258,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		collection: string,
 		rkey: string,
 	): Promise<{ commit: { cid: string; rev: string } } | null> {
-		await this.ensureActive();
-		const repo = await this.getRepo();
-		const keypair = await this.getKeypair();
-
-		const existingCid = await repo.data.get(`${collection}/${rkey}`);
-		if (!existingCid) return null;
-
-		const deleteOp: RecordDeleteOp = {
-			action: WriteOpAction.Delete,
-			collection,
-			rkey,
-		};
-
-		const prevRev = repo.commit.rev;
-		const prevData = repo.commit.data;
-		const commit = await repo.formatCommit([deleteOp], keypair);
-		const updatedRepo = await repo.applyCommit(commit);
-
-		try {
-			if (this.sequencer) {
-				const commitData: CommitData = {
-					did: updatedRepo.did,
-					commit: commit.cid,
-					rev: commit.rev,
-					since: prevRev,
-					prevData,
-					newBlocks: commit.newBlocks,
-					relevantBlocks: commit.relevantBlocks,
-					ops: [{ ...deleteOp, cid: null, prev: existingCid }],
-				};
-
-				const event = await this.sequencer.sequenceCommit(commitData);
-				await this.broadcastEvent(event);
-			}
-
-			this.repo = updatedRepo;
-
-			// If the collection has no records left, remove it from the cache
-			let collectionStillHasRecords = false;
-			for await (const remaining of updatedRepo.walkRecords(`${collection}/`)) {
-				if (remaining.collection !== collection) break;
-				collectionStillHasRecords = true;
-				break;
-			}
-			if (!collectionStillHasRecords) {
-				this.storage!.removeCollection(collection);
-			}
-
-			return {
-				commit: {
-					cid: updatedRepo.cid.toString(),
-					rev: updatedRepo.commit.rev,
-				},
-			};
-		} catch (err) {
-			this.invalidateRepoCache();
-			throw err;
-		}
+		const engine = await this.getEngine();
+		return engine.deleteRecord(collection, rkey);
 	}
 
 	/**
@@ -522,80 +276,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		commit: { cid: string; rev: string };
 		validationStatus?: ValidationStatus;
 	}> {
-		await this.ensureActive();
-		const repo = await this.getRepo();
-		const keypair = await this.getKeypair();
-
-		const existingCid = await repo.data.get(`${collection}/${rkey}`);
-		const isUpdate = existingCid !== null;
-
-		const normalizedRecord = jsonToLex(record) as RepoRecord;
-		const op: RecordWriteOp = isUpdate
-			? ({
-					action: WriteOpAction.Update,
-					collection,
-					rkey,
-					record: normalizedRecord,
-				} as RecordUpdateOp)
-			: ({
-					action: WriteOpAction.Create,
-					collection,
-					rkey,
-					record: normalizedRecord,
-				} as RecordCreateOp);
-
-		const prevRev = repo.commit.rev;
-		const prevData = repo.commit.data;
-		const commit = await repo.formatCommit([op], keypair);
-		const updatedRepo = await repo.applyCommit(commit);
-
-		try {
-			const dataKey = `${collection}/${rkey}`;
-			const recordCid = await updatedRepo.data.get(dataKey);
-
-			if (!recordCid) {
-				throw new Error(`Failed to put record: ${collection}/${rkey}`);
-			}
-
-			this.storage!.addCollection(collection);
-
-			if (this.sequencer) {
-				const opWithCid: CommitData["ops"][number] = {
-					...op,
-					cid: recordCid,
-				};
-				if (existingCid) opWithCid.prev = existingCid;
-
-				const commitData: CommitData = {
-					did: updatedRepo.did,
-					commit: commit.cid,
-					rev: commit.rev,
-					since: prevRev,
-					prevData,
-					newBlocks: commit.newBlocks,
-					relevantBlocks: commit.relevantBlocks,
-					ops: [opWithCid],
-				};
-
-				const event = await this.sequencer.sequenceCommit(commitData);
-				await this.broadcastEvent(event);
-			}
-
-			this.repo = updatedRepo;
-
-			return {
-				uri: `at://${updatedRepo.did}/${collection}/${rkey}`,
-				cid: recordCid.toString(),
-				commit: {
-					cid: updatedRepo.cid.toString(),
-					rev: updatedRepo.commit.rev,
-				},
-				...(validationStatus !== undefined ? { validationStatus } : {}),
-			};
-		} catch (err) {
-			this.invalidateRepoCache();
-			throw err;
-		}
+		const engine = await this.getEngine();
+		return engine.putRecord(collection, rkey, record, validationStatus);
 	}
 
 	/**
@@ -618,238 +300,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			validationStatus?: ValidationStatus;
 		}>;
 	}> {
-		await this.ensureActive();
-
-		// Spec limit: at most 200 operations per #commit.
-		if (writes.length > MAX_OPS_PER_COMMIT) {
-			throw new Error(
-				`InvalidRequest: applyWrites accepts at most ${MAX_OPS_PER_COMMIT} operations per call, got ${writes.length}`,
-			);
-		}
-
-		const repo = await this.getRepo();
-		const keypair = await this.getKeypair();
-
-		// Convert input writes to RecordWriteOp format
-		const ops: RecordWriteOp[] = [];
-		const results: Array<{
-			$type: string;
-			uri?: string;
-			cid?: string;
-			validationStatus?: ValidationStatus;
-			collection: string;
-			rkey: string;
-			action: WriteOpAction;
-		}> = [];
-
-		// Track rkeys this batch will write so two auto-generated creates in
-		// the same batch don't pick the same rkey.
-		const reservedRkeys = new Set<string>();
-
-		for (const write of writes) {
-			if (write.$type === "com.atproto.repo.applyWrites#create") {
-				const autoGenerated = write.rkey === undefined;
-				let rkey = write.rkey ?? tidNow();
-				for (let attempt = 0; attempt < 5; attempt++) {
-					const composite = `${write.collection}/${rkey}`;
-					const collidesInBatch = reservedRkeys.has(composite);
-					const collidesInRepo =
-						!collidesInBatch &&
-						(await repo.data.get(composite)) !== null;
-					if (!collidesInBatch && !collidesInRepo) break;
-					if (!autoGenerated) {
-						throw new RecordAlreadyExistsError(composite);
-					}
-					if (attempt === 4) {
-						throw new Error(
-							`Failed to allocate unique rkey for ${write.collection} after 5 attempts`,
-						);
-					}
-					rkey = tidNow();
-				}
-				reservedRkeys.add(`${write.collection}/${rkey}`);
-				const op: RecordCreateOp = {
-					action: WriteOpAction.Create,
-					collection: write.collection,
-					rkey,
-					record: jsonToLex(write.value) as RepoRecord,
-				};
-				ops.push(op);
-				results.push({
-					$type: "com.atproto.repo.applyWrites#createResult",
-					collection: write.collection,
-					rkey,
-					action: WriteOpAction.Create,
-					validationStatus: write.validationStatus,
-				});
-			} else if (write.$type === "com.atproto.repo.applyWrites#update") {
-				if (!write.rkey) {
-					throw new Error("Update requires rkey");
-				}
-				const op: RecordUpdateOp = {
-					action: WriteOpAction.Update,
-					collection: write.collection,
-					rkey: write.rkey,
-					record: jsonToLex(write.value) as RepoRecord,
-				};
-				ops.push(op);
-				results.push({
-					$type: "com.atproto.repo.applyWrites#updateResult",
-					collection: write.collection,
-					rkey: write.rkey,
-					action: WriteOpAction.Update,
-					validationStatus: write.validationStatus,
-				});
-			} else if (write.$type === "com.atproto.repo.applyWrites#delete") {
-				if (!write.rkey) {
-					throw new Error("Delete requires rkey");
-				}
-				const op: RecordDeleteOp = {
-					action: WriteOpAction.Delete,
-					collection: write.collection,
-					rkey: write.rkey,
-				};
-				ops.push(op);
-				results.push({
-					$type: "com.atproto.repo.applyWrites#deleteResult",
-					collection: write.collection,
-					rkey: write.rkey,
-					action: WriteOpAction.Delete,
-				});
-			} else {
-				throw new Error(`Unknown write type: ${write.$type}`);
-			}
-		}
-
-		// Capture prev CIDs for every update/delete *before* the write, so the
-		// firehose can emit ops[].prev per sync 1.1. Matches reference PDS
-		// behaviour: prev is read from pre-batch MST state only, so a delete
-		// for a record that was also created earlier in the same batch will
-		// have no prev (the record didn't exist before the batch).
-		const prevCids = new Map<string, CID>();
-		for (const op of ops) {
-			if (op.action === WriteOpAction.Create) continue;
-			const key = `${op.collection}/${op.rkey}`;
-			if (prevCids.has(key)) continue;
-			const cid = await repo.data.get(key);
-			if (cid) prevCids.set(key, cid);
-		}
-
-		// Precompute every create/update record's CID. The lexicon marks
-		// `cid` as required on createResult / updateResult, and we can't rely
-		// on the post-commit MST: a create that is deleted later in the same
-		// batch leaves no entry. cidForRecord is deterministic from the
-		// record bytes and matches what formatCommit stores in the MST.
-		const opCids: Array<CID | undefined> = new Array(ops.length);
-		for (let i = 0; i < ops.length; i++) {
-			const op = ops[i]!;
-			if (op.action !== WriteOpAction.Delete) {
-				opCids[i] = await cidForRecord(op.record);
-			}
-		}
-
-		const prevRev = repo.commit.rev;
-		const prevData = repo.commit.data;
-		const commit = await repo.formatCommit(ops, keypair);
-		const updatedRepo = await repo.applyCommit(commit);
-
-		try {
-			for (const op of ops) {
-				if (op.action !== WriteOpAction.Delete) {
-					this.storage!.addCollection(op.collection);
-				}
-			}
-
-			const finalResults: Array<{
-				$type: string;
-				uri?: string;
-				cid?: string;
-				validationStatus?: ValidationStatus;
-			}> = [];
-			const opsWithCids: CommitData["ops"] = [];
-
-			for (let i = 0; i < results.length; i++) {
-				const result = results[i]!;
-				const op = ops[i]!;
-				const prev = prevCids.get(`${op.collection}/${op.rkey}`);
-
-				if (result.action === WriteOpAction.Delete) {
-					finalResults.push({
-						$type: result.$type,
-					});
-					opsWithCids.push({
-						...op,
-						cid: null,
-						...(prev ? { prev } : {}),
-					});
-				} else {
-					const recordCid = opCids[i]!;
-					finalResults.push({
-						$type: result.$type,
-						uri: `at://${updatedRepo.did}/${result.collection}/${result.rkey}`,
-						cid: recordCid.toString(),
-						...(result.validationStatus !== undefined
-							? { validationStatus: result.validationStatus }
-							: {}),
-					});
-					opsWithCids.push({
-						...op,
-						cid: recordCid,
-						...(prev ? { prev } : {}),
-					});
-				}
-			}
-
-			if (this.sequencer) {
-				const commitData: CommitData = {
-					did: updatedRepo.did,
-					commit: commit.cid,
-					rev: commit.rev,
-					since: prevRev,
-					prevData,
-					newBlocks: commit.newBlocks,
-					relevantBlocks: commit.relevantBlocks,
-					ops: opsWithCids,
-				};
-
-				const event = await this.sequencer.sequenceCommit(commitData);
-				await this.broadcastEvent(event);
-			}
-
-			this.repo = updatedRepo;
-
-			// For any collection touched by a delete, drop the cache entry if it's
-			// now empty. Runs after addCollection so a batch that creates + deletes
-			// in the same collection still walks the MST as the source of truth.
-			const deletedCollections = new Set<string>();
-			for (const op of ops) {
-				if (op.action === WriteOpAction.Delete) {
-					deletedCollections.add(op.collection);
-				}
-			}
-			for (const collection of deletedCollections) {
-				let collectionStillHasRecords = false;
-				for await (const remaining of updatedRepo.walkRecords(`${collection}/`)) {
-					if (remaining.collection !== collection) break;
-					collectionStillHasRecords = true;
-					break;
-				}
-				if (!collectionStillHasRecords) {
-					this.storage!.removeCollection(collection);
-				}
-			}
-
-			return {
-				commit: {
-					cid: updatedRepo.cid.toString(),
-					rev: updatedRepo.commit.rev,
-				},
-				results: finalResults,
-			};
-		} catch (err) {
-			this.invalidateRepoCache();
-			throw err;
-		}
+		const engine = await this.getEngine();
+		return engine.applyWrites(writes);
 	}
 
 	/**
@@ -860,12 +312,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		head: string;
 		rev: string;
 	}> {
-		const repo = await this.getRepo();
-		return {
-			did: repo.did,
-			head: repo.cid.toString(),
-			rev: repo.commit.rev,
-		};
+		const engine = await this.getEngine();
+		return engine.getStatus();
 	}
 
 	/**
@@ -907,71 +355,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		rev: string;
 		cid: string;
 	}> {
-		await this.ensureStorageInitialized();
-
-		// Check if account is active - only allow imports on deactivated accounts
-		const isActive = await this.storage!.getActive();
-		const existingRoot = await this.storage!.getRoot();
-
-		if (isActive && existingRoot) {
-			// Account is active - reject import to prevent accidental overwrites
-			throw new Error(
-				"Repository already exists. Cannot import over existing repository.",
-			);
-		}
-
-		// If deactivated and repo exists, clear it first
-		if (existingRoot) {
-			await this.storage!.destroy();
-			this.repo = null;
-			this.repoInitialized = false;
-		}
-
-		// Use official @atproto/repo utilities to read and validate CAR
-		// readCarWithRoot validates single root requirement and returns BlockMap
-		const { root: rootCid, blocks } = await readCarWithRoot(carBytes);
-
-		// Import all blocks into storage using putMany (more efficient than individual putBlock)
-		const importRev = tidNow();
-		await this.storage!.putMany(blocks, importRev);
-
-		// Load the repo to verify it's valid and get the actual revision
-		this.keypair = await Secp256k1Keypair.import(this.env.SIGNING_KEY);
-		this.repo = await Repo.load(this.storage!, rootCid);
-
-		// Persist the root CID in storage so getRoot() works correctly
-		await this.storage!.updateRoot(rootCid, this.repo.commit.rev);
-
-		// Verify the DID matches to prevent incorrect migrations
-		if (this.repo.did !== this.env.DID) {
-			// Clean up imported blocks
-			await this.storage!.destroy();
-			throw new Error(
-				`DID mismatch: CAR file contains DID ${this.repo.did}, but expected ${this.env.DID}`,
-			);
-		}
-
-		this.repoInitialized = true;
-
-		// Extract blob references and collection names from all imported records
-		const seenCollections = new Set<string>();
-		for await (const record of this.repo.walkRecords()) {
-			if (!seenCollections.has(record.collection)) {
-				seenCollections.add(record.collection);
-				this.storage!.addCollection(record.collection);
-			}
-			const blobCids = extractBlobCids(record.record);
-			if (blobCids.length > 0) {
-				const uri = `at://${this.repo.did}/${record.collection}/${record.rkey}`;
-				this.storage!.addRecordBlobs(uri, blobCids);
-			}
-		}
-
-		return {
-			did: this.repo.did,
-			rev: this.repo.commit.rev,
-			cid: rootCid.toString(),
-		};
+		const engine = await this.getEngine();
+		return engine.importRepo(carBytes);
 	}
 
 	/**
@@ -1007,13 +392,6 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			throw new Error("Blob storage not configured");
 		}
 		return this.blobStore.getBlob(cidStr);
-	}
-
-	/**
-	 * Broadcast a sequenced event to all connected firehose clients.
-	 */
-	private async broadcastEvent(event: SeqEvent): Promise<void> {
-		await this.firehose!.broadcast(event);
 	}
 
 	/**
@@ -1129,38 +507,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * root exists (i.e. after migration import or initial commit).
 	 */
 	async rpcActivateAccount(): Promise<void> {
-		const storage = await this.getStorage();
-		const wasActive = await storage.getActive();
-		await storage.setActive(true);
-		if (wasActive || !this.sequencer) return;
-
-		const account = await this.sequencer.sequenceAccount({
-			did: this.env.DID,
-			active: true,
-		});
-		await this.broadcastEvent(account);
-
-		const identity = await this.sequencer.sequenceIdentity({
-			did: this.env.DID,
-		});
-		await this.broadcastEvent(identity);
-
-		const root = await storage.getRoot();
-		if (root) {
-			const commitBytes = await storage.getBytes(root);
-			if (commitBytes) {
-				const repo = await this.getRepo();
-				const blocks = new BlockMap();
-				blocks.set(root, commitBytes);
-				const sync = await this.sequencer.sequenceSync({
-					did: this.env.DID,
-					rev: repo.commit.rev,
-					cid: root,
-					blocks,
-				});
-				await this.broadcastEvent(sync);
-			}
-		}
+		const engine = await this.getEngine();
+		await engine.activateAccount();
 	}
 
 	/**
@@ -1168,17 +516,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * Emits #account(active=false, status='deactivated') per sync 1.1.
 	 */
 	async rpcDeactivateAccount(): Promise<void> {
-		const storage = await this.getStorage();
-		const wasActive = await storage.getActive();
-		await storage.setActive(false);
-		if (!wasActive || !this.sequencer) return;
-
-		const account = await this.sequencer.sequenceAccount({
-			did: this.env.DID,
-			active: false,
-			status: "deactivated",
-		});
-		await this.broadcastEvent(account);
+		const engine = await this.getEngine();
+		await engine.deactivateAccount();
 	}
 
 	// ============================================
@@ -1197,12 +536,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * RPC method: Count records in repository
 	 */
 	async rpcCountRecords(): Promise<number> {
-		const repo = await this.getRepo();
-		let count = 0;
-		for await (const _record of repo.walkRecords()) {
-			count++;
-		}
-		return count;
+		const engine = await this.getEngine();
+		return engine.countRecords();
 	}
 
 	/**
@@ -1244,31 +579,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		blocksDeleted: number;
 		blobsCleared: number;
 	}> {
-		const storage = await this.getStorage();
-
-		// Only allow reset on deactivated accounts
-		const isActive = await storage.getActive();
-		if (isActive) {
-			throw new Error(
-				"AccountActive: Cannot reset migration on an active account. Deactivate first.",
-			);
-		}
-
-		// Get counts before deletion for reporting
-		const blocksDeleted = await storage.countBlocks();
-		const blobsCleared = storage.countImportedBlobs();
-
-		// Clear all blocks and reset repo state
-		await storage.destroy();
-
-		// Clear blob tracking tables
-		storage.clearBlobTracking();
-
-		// Reset in-memory repo reference so it gets reinitialized on next access
-		this.repo = null;
-		this.repoInitialized = false;
-
-		return { blocksDeleted, blobsCleared };
+		const engine = await this.getEngine();
+		return engine.resetMigration();
 	}
 
 	/**
@@ -1276,13 +588,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * `handle` is optional per sync 1.1.
 	 */
 	async rpcEmitIdentityEvent(handle?: string): Promise<{ seq: number }> {
-		await this.ensureStorageInitialized();
-		const event = await this.sequencer!.sequenceIdentity({
-			did: this.env.DID,
-			...(handle ? { handle } : {}),
-		});
-		await this.broadcastEvent(event);
-		return { seq: event.seq };
+		const engine = await this.getEngine();
+		return engine.emitIdentityEvent(handle);
 	}
 
 	// ============================================
@@ -1557,10 +864,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	// ============================================
 
 	/** Save an app password (bcrypt hash) */
-	async rpcSaveAppPassword(
-		name: string,
-		passwordHash: string,
-	): Promise<void> {
+	async rpcSaveAppPassword(name: string, passwordHash: string): Promise<void> {
 		const store = await this.getAccountStore();
 		store.saveAppPassword(name, passwordHash);
 	}
@@ -1604,73 +908,4 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		// All other requests should use RPC methods, not fetch
 		return new Response("Method not allowed", { status: 405 });
 	}
-}
-
-/**
- * Serialize a record for JSON by converting CID objects to { $link: "..." } format.
- * CBOR-decoded records contain raw CID objects that need conversion for JSON serialization.
- */
-function serializeRecord(obj: unknown): unknown {
-	if (obj === null || obj === undefined) return obj;
-
-	// Check if this is a CID object using @atproto/lex-data helper
-	const cid = asCid(obj);
-	if (cid) {
-		return { $link: cid.toString() };
-	}
-
-	// Convert Uint8Array to { $bytes: "<base64>" }
-	if (obj instanceof Uint8Array) {
-		let binary = "";
-		for (let i = 0; i < obj.length; i++) {
-			binary += String.fromCharCode(obj[i]!);
-		}
-		return { $bytes: btoa(binary) };
-	}
-
-	if (Array.isArray(obj)) {
-		return obj.map(serializeRecord);
-	}
-
-	if (typeof obj === "object") {
-		const result: Record<string, unknown> = {};
-		for (const [key, value] of Object.entries(obj)) {
-			result[key] = serializeRecord(value);
-		}
-		return result;
-	}
-
-	return obj;
-}
-
-/**
- * Extract blob CIDs from a record by recursively searching for blob references.
- * Blob refs have the structure: { $type: "blob", ref: CID, mimeType, size }
- */
-function extractBlobCids(obj: unknown): string[] {
-	const cids: string[] = [];
-
-	function walk(value: unknown): void {
-		if (value === null || value === undefined) return;
-
-		// Check if this is a blob reference using @atproto/lex-data helper
-		if (isBlobRef(value)) {
-			cids.push(value.ref.toString());
-			return; // No need to recurse into blob ref properties
-		}
-
-		if (Array.isArray(value)) {
-			for (const item of value) {
-				walk(item);
-			}
-		} else if (typeof value === "object") {
-			// Recursively walk all properties
-			for (const key of Object.keys(value as Record<string, unknown>)) {
-				walk((value as Record<string, unknown>)[key]);
-			}
-		}
-	}
-
-	walk(obj);
-	return cids;
 }
