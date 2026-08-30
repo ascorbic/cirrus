@@ -14,9 +14,7 @@ import type { Capability, Check, Tier } from "./model.js";
  */
 export function defineCheck(check: Check): Check {
 	if (!/^[a-z0-9-]+\.[a-z0-9-]+$/.test(check.id)) {
-		throw new Error(
-			`Check id must be "area.slug" (kebab-case): ${check.id}`,
-		);
+		throw new Error(`Check id must be "area.slug" (kebab-case): ${check.id}`);
 	}
 	if (check.tier === "must" && check.citations.length === 0) {
 		throw new Error(

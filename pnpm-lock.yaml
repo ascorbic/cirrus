@@ -324,6 +324,19 @@ importers:
         version: 8.19.0
 
   packages/space-conformance:
+    dependencies:
+      '@atproto/crypto':
+        specifier: ^0.4.5
+        version: 0.4.5
+      '@atproto/lex-cbor':
+        specifier: ^0.1.6
+        version: 0.1.6
+      '@atproto/lex-data':
+        specifier: ^0.1.7
+        version: 0.1.7
+      '@atproto/space':
+        specifier: 0.0.0-spaces-alpha-20260818163953
+        version: 0.0.0-spaces-alpha-20260818163953
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: ^0.18.2

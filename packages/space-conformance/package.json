@@ -9,15 +9,21 @@
 		"lexicons"
 	],
 	"exports": {
-		".": "./dist/index.js"
+		".": "./dist/index.js",
+		"./full": "./dist/full.js"
 	},
 	"scripts": {
 		"build": "tsdown",
 		"dev": "tsdown --watch",
 		"test": "vitest run",
-		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm"
+		"check": "publint && attw --pack --profile esm-only"
 	},
-	"dependencies": {},
+	"dependencies": {
+		"@atproto/space": "0.0.0-spaces-alpha-20260818163953",
+		"@atproto/crypto": "^0.4.5",
+		"@atproto/lex-cbor": "^0.1.6",
+		"@atproto/lex-data": "^0.1.7"
+	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
 		"publint": "^0.3.16",
