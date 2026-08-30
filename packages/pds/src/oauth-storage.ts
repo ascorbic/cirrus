@@ -1,8 +1,9 @@
+import { RpcTarget } from "cloudflare:workers";
 import {
 	type AuthCodeData,
 	type ClientMetadata,
 	type OAuthStorage,
-  type LexiconPermissionSet,
+	type LexiconPermissionSet,
 	type PARData,
 	type TokenData,
 	REFRESH_TOKEN_TTL,
@@ -24,9 +25,15 @@ export interface CachedPermissionSet {
  *
  * Implements the OAuthStorage interface from @getcirrus/oauth-provider,
  * storing OAuth data in SQLite tables within a Durable Object.
+ *
+ * Extends RpcTarget so the Durable Object can hand it to the Worker as a
+ * stub (via authStore()) — callers invoke storage methods directly over
+ * RPC instead of going through per-method proxies on the DO class.
  */
-export class SqliteOAuthStorage implements OAuthStorage {
-	constructor(private sql: SqlStorage) {}
+export class SqliteOAuthStorage extends RpcTarget implements OAuthStorage {
+	constructor(private sql: SqlStorage) {
+		super();
+	}
 
 	/**
 	 * Initialize the OAuth database schema. Should be called once on DO startup.
@@ -200,10 +207,7 @@ export class SqliteOAuthStorage implements OAuthStorage {
 	cleanup(): void {
 		const now = Date.now();
 		this.sql.exec("DELETE FROM oauth_auth_codes WHERE expires_at < ?", now);
-		this.sql.exec(
-			"DELETE FROM oauth_tokens WHERE refresh_expires_at < ?",
-			now,
-		);
+		this.sql.exec("DELETE FROM oauth_tokens WHERE refresh_expires_at < ?", now);
 		this.sql.exec("DELETE FROM oauth_par_requests WHERE expires_at < ?", now);
 		this.sql.exec(
 			"DELETE FROM oauth_permission_sets WHERE expires_at < ?",

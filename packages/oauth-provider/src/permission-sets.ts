@@ -23,6 +23,19 @@ import type { LexiconPermissionSet } from "@atproto/oauth-scopes";
 
 export type { LexiconPermissionSet };
 
+/**
+ * A lexicon space type declaration (`type: 'space'`), per the permissioned
+ * data proposal. Mirrors `@atproto/oauth-scopes`'s internal `LexiconSpace`
+ * type, which the alpha build does not re-export from its entry point.
+ */
+export type LexiconSpace = {
+	readonly type: "space";
+	readonly name: string;
+	readonly "name:lang"?: Readonly<Record<string, string>>;
+	readonly collections: readonly string[];
+	readonly description?: string;
+};
+
 export interface PermissionSetResolver {
 	/**
 	 * Resolve an NSID to its permission-set lexicon definition. Returns null
@@ -30,6 +43,14 @@ export interface PermissionSetResolver {
 	 * when resolution itself fails (network, signature, etc.).
 	 */
 	resolve(nsid: Nsid): Promise<LexiconPermissionSet | null>;
+	/**
+	 * Resolve an NSID to its lexicon space declaration (`type: 'space'`).
+	 * Returns null when the lexicon exists but is not a space declaration,
+	 * and throws when resolution itself fails. Used by the consent UI to
+	 * show a space type's human name, and at grant time to default a space
+	 * scope's write collections. Optional for backwards compatibility.
+	 */
+	resolveSpaceDeclaration?(nsid: Nsid): Promise<LexiconSpace | null>;
 }
 
 export interface CreateAtcutePermissionSetResolverOptions {
@@ -68,14 +89,23 @@ export function createAtcutePermissionSetResolver(
 		fetch: opts.fetch,
 	});
 
+	const resolveMain = async (nsid: Nsid) => {
+		const did = await authority.resolve(nsid);
+		const resolved = await schema.resolve(did, nsid);
+		return (resolved.schema as { defs?: Record<string, unknown> }).defs
+			?.main as { type?: string } | undefined;
+	};
+
 	return {
 		async resolve(nsid) {
-			const did = await authority.resolve(nsid);
-			const resolved = await schema.resolve(did, nsid);
-			const main = (resolved.schema as { defs?: Record<string, unknown> })
-				.defs?.main as { type?: string } | undefined;
+			const main = await resolveMain(nsid);
 			if (!main || main.type !== "permission-set") return null;
 			return main as unknown as LexiconPermissionSet;
+		},
+		async resolveSpaceDeclaration(nsid) {
+			const main = await resolveMain(nsid);
+			if (!main || main.type !== "space") return null;
+			return main as unknown as LexiconSpace;
 		},
 	};
 }

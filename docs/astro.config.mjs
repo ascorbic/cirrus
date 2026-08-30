@@ -50,6 +50,11 @@ export default defineConfig({
 						},
 						{ label: "Authentication methods", slug: "concepts/auth" },
 						{ label: "The firehose", slug: "concepts/firehose" },
+					{
+						label: "Atproto spaces (alpha)",
+						slug: "concepts/spaces",
+						badge: { text: "alpha", variant: "caution" },
+					},
 						{ label: "Data placement", slug: "concepts/data-placement" },
 						{ label: "Costs and limits", slug: "concepts/costs-and-limits" },
 					],
@@ -80,6 +85,11 @@ export default defineConfig({
 							slug: "guides/app-password",
 						},
 						{ label: "Update a deployed PDS", slug: "guides/update" },
+					{
+						label: "Enable spaces",
+						slug: "guides/enable-spaces",
+						badge: { text: "alpha", variant: "caution" },
+					},
 						{
 							label: "Troubleshoot common errors",
 							slug: "guides/troubleshoot",

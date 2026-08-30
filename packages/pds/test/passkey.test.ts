@@ -16,7 +16,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 				const challenge = "test-challenge-" + crypto.randomUUID();
 
 				oauthStorage.saveWebAuthnChallenge(challenge);
@@ -31,7 +31,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 				const challenge = "test-challenge-" + crypto.randomUUID();
 
 				oauthStorage.saveWebAuthnChallenge(challenge);
@@ -51,7 +51,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 
 				const isValid = oauthStorage.consumeWebAuthnChallenge(
 					"unknown-challenge-" + crypto.randomUUID(),
@@ -66,7 +66,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 				const challenge = "test-challenge-" + crypto.randomUUID();
 
 				// Save challenge with mocked time
@@ -89,7 +89,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 				const challenge = "test-challenge-" + crypto.randomUUID();
 
 				const now = Date.now();
@@ -111,7 +111,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 
 				const challenge1 = "challenge-1-" + crypto.randomUUID();
 				const challenge2 = "challenge-2-" + crypto.randomUUID();
@@ -143,13 +143,10 @@ describe("Passkey Security", () => {
 			const challenge = "test-challenge-" + crypto.randomUUID();
 			const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
 
-			await stub.rpcSavePasskeyToken(
-				token,
-				challenge,
-				expiresAt,
-				"Test Passkey",
-			);
-			const tokenData = await stub.rpcConsumePasskeyToken(token);
+			await (
+				await stub.account()
+			).savePasskeyToken(token, challenge, expiresAt, "Test Passkey");
+			const tokenData = await (await stub.account()).consumePasskeyToken(token);
 
 			expect(tokenData).not.toBeNull();
 			expect(tokenData?.challenge).toBe(challenge);
@@ -164,12 +161,18 @@ describe("Passkey Security", () => {
 			const challenge = "test-challenge-" + crypto.randomUUID();
 			const expiresAt = Date.now() + 10 * 60 * 1000;
 
-			await stub.rpcSavePasskeyToken(token, challenge, expiresAt);
+			await (
+				await stub.account()
+			).savePasskeyToken(token, challenge, expiresAt);
 
-			const firstConsume = await stub.rpcConsumePasskeyToken(token);
+			const firstConsume = await (
+				await stub.account()
+			).consumePasskeyToken(token);
 			expect(firstConsume).not.toBeNull();
 
-			const secondConsume = await stub.rpcConsumePasskeyToken(token);
+			const secondConsume = await (
+				await stub.account()
+			).consumePasskeyToken(token);
 			expect(secondConsume).toBeNull();
 		});
 
@@ -181,8 +184,10 @@ describe("Passkey Security", () => {
 			const challenge = "test-challenge-" + crypto.randomUUID();
 			const expiresAt = Date.now() - 1000; // Already expired
 
-			await stub.rpcSavePasskeyToken(token, challenge, expiresAt);
-			const tokenData = await stub.rpcConsumePasskeyToken(token);
+			await (
+				await stub.account()
+			).savePasskeyToken(token, challenge, expiresAt);
+			const tokenData = await (await stub.account()).consumePasskeyToken(token);
 
 			expect(tokenData).toBeNull();
 		});
@@ -191,9 +196,9 @@ describe("Passkey Security", () => {
 			const id = env.ACCOUNT.newUniqueId();
 			const stub = env.ACCOUNT.get(id);
 
-			const tokenData = await stub.rpcConsumePasskeyToken(
-				"unknown-token-" + crypto.randomUUID(),
-			);
+			const tokenData = await (
+				await stub.account()
+			).consumePasskeyToken("unknown-token-" + crypto.randomUUID());
 
 			expect(tokenData).toBeNull();
 		});
@@ -209,8 +214,10 @@ describe("Passkey Security", () => {
 			const counter = 0;
 			const name = "My Passkey";
 
-			await stub.rpcSavePasskey(credentialId, publicKey, counter, name);
-			const passkey = await stub.rpcGetPasskey(credentialId);
+			await (
+				await stub.account()
+			).savePasskey(credentialId, publicKey, counter, name);
+			const passkey = await (await stub.account()).getPasskey(credentialId);
 
 			expect(passkey).not.toBeNull();
 			expect(passkey?.credentialId).toBe(credentialId);
@@ -226,10 +233,14 @@ describe("Passkey Security", () => {
 			const cred1 = "cred-1-" + crypto.randomUUID();
 			const cred2 = "cred-2-" + crypto.randomUUID();
 
-			await stub.rpcSavePasskey(cred1, new Uint8Array([1]), 0, "Passkey 1");
-			await stub.rpcSavePasskey(cred2, new Uint8Array([2]), 0, "Passkey 2");
+			await (
+				await stub.account()
+			).savePasskey(cred1, new Uint8Array([1]), 0, "Passkey 1");
+			await (
+				await stub.account()
+			).savePasskey(cred2, new Uint8Array([2]), 0, "Passkey 2");
 
-			const passkeys = await stub.rpcListPasskeys();
+			const passkeys = await (await stub.account()).listPasskeys();
 
 			expect(passkeys).toHaveLength(2);
 			expect(passkeys.map((p) => p.credentialId)).toContain(cred1);
@@ -241,18 +252,20 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			const credentialId = "cred-" + crypto.randomUUID();
-			await stub.rpcSavePasskey(credentialId, new Uint8Array([1]), 0);
+			await (
+				await stub.account()
+			).savePasskey(credentialId, new Uint8Array([1]), 0);
 
 			// Simulate authentication - counter should increase
-			await stub.rpcUpdatePasskeyCounter(credentialId, 1);
+			await (await stub.account()).updatePasskeyCounter(credentialId, 1);
 
-			const passkey = await stub.rpcGetPasskey(credentialId);
+			const passkey = await (await stub.account()).getPasskey(credentialId);
 			expect(passkey?.counter).toBe(1);
 
 			// Counter should only go up
-			await stub.rpcUpdatePasskeyCounter(credentialId, 5);
+			await (await stub.account()).updatePasskeyCounter(credentialId, 5);
 
-			const passkey2 = await stub.rpcGetPasskey(credentialId);
+			const passkey2 = await (await stub.account()).getPasskey(credentialId);
 			expect(passkey2?.counter).toBe(5);
 		});
 
@@ -261,12 +274,14 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			const credentialId = "cred-" + crypto.randomUUID();
-			await stub.rpcSavePasskey(credentialId, new Uint8Array([1]), 0);
+			await (
+				await stub.account()
+			).savePasskey(credentialId, new Uint8Array([1]), 0);
 
-			const deleted = await stub.rpcDeletePasskey(credentialId);
+			const deleted = await (await stub.account()).deletePasskey(credentialId);
 			expect(deleted).toBe(true);
 
-			const passkey = await stub.rpcGetPasskey(credentialId);
+			const passkey = await (await stub.account()).getPasskey(credentialId);
 			expect(passkey).toBeNull();
 		});
 
@@ -274,9 +289,9 @@ describe("Passkey Security", () => {
 			const id = env.ACCOUNT.newUniqueId();
 			const stub = env.ACCOUNT.get(id);
 
-			const deleted = await stub.rpcDeletePasskey(
-				"nonexistent-" + crypto.randomUUID(),
-			);
+			const deleted = await (
+				await stub.account()
+			).deletePasskey("nonexistent-" + crypto.randomUUID());
 			expect(deleted).toBe(false);
 		});
 	});
@@ -287,7 +302,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 
 				// Create some challenges
 				const now = Date.now();

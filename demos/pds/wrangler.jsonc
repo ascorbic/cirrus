@@ -13,15 +13,30 @@
 			{
 				"name": "ACCOUNT",
 				"class_name": "AccountDurableObject"
+			},
+			{
+				"name": "SPACES",
+				"class_name": "SpaceDurableObject"
+			},
+			{
+				"name": "SPACES_INDEX",
+				"class_name": "SpaceIndexDurableObject"
 			}
 		]
 	},
-	// Enable SQLite for the Durable Object
+	// Enable SQLite for the Durable Objects
 	"migrations": [
 		{
 			"tag": "v1",
 			"new_sqlite_classes": [
 				"AccountDurableObject"
+			]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": [
+				"SpaceDurableObject",
+				"SpaceIndexDurableObject"
 			]
 		}
 	],
@@ -40,7 +55,10 @@
 		// Account DID - usually did:web:<hostname>
 		"DID": "did:web:pds.mk.gg",
 		// Account handle (e.g., "alice.example.com")
-		"HANDLE": "pds.mk.gg"
+		"HANDLE": "pds.mk.gg",
+		// Atproto spaces (ALPHA). Breaking upstream changes are absorbed by
+		// `pds spaces reset`, which wipes space data and nothing else.
+		"SPACES_ENABLED": "true"
 	},
 	// Secrets (set via `pds init` or `pds secret <name>`):
 	// - AUTH_TOKEN: Bearer token for API write operations

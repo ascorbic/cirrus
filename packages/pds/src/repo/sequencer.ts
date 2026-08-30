@@ -1,4 +1,4 @@
-import { encode as cborEncode, decode as cborDecode } from "./cbor-compat";
+import { encode as cborEncode, decode as cborDecode } from "../cbor-compat";
 import { CID } from "@atproto/lex-data";
 import { blocksToCarFile, BlockMap } from "@atproto/repo";
 import type { RecordWriteOp } from "@atproto/repo";

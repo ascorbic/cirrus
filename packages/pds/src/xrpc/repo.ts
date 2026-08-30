@@ -10,8 +10,30 @@ import {
 	type ValidationStatus,
 } from "../validation.js";
 import { detectContentType } from "../format.js";
-import { BlobStore } from "../blobs.js";
+import { BlobStore, extractJsonBlobCids } from "../repo/blobs.js";
 import { buildScopeChecker, requireScope } from "../middleware/auth.js";
+
+/**
+ * Promote any staged blobs referenced by the given records to their public
+ * serving key. Runs in the Worker before the DO applies the commit, so a
+ * relay or AppView reacting to the commit never sees a 404 for a
+ * just-referenced blob. Idempotent per CID; unknown CIDs are skipped.
+ */
+async function promoteRecordBlobs(
+	c: Context<AuthedAppEnv>,
+	records: unknown[],
+): Promise<void> {
+	if (!c.env.BLOBS) return;
+	const cids = new Set<string>();
+	for (const record of records) {
+		for (const cid of extractJsonBlobCids(record)) {
+			cids.add(cid);
+		}
+	}
+	if (cids.size === 0) return;
+	const blobStore = new BlobStore(c.env.BLOBS, c.env.DID);
+	await blobStore.promoteBlobs(Array.from(cids));
+}
 
 function invalidRecordError(
 	c: Context<AuthedAppEnv>,
@@ -127,7 +149,7 @@ export async function describeRepo(
 		);
 	}
 
-	const data = await accountDO.rpcDescribeRepo();
+	const data = await accountDO.repo().describeRepo();
 
 	return c.json({
 		did: c.env.DID,
@@ -186,7 +208,7 @@ export async function getRecord(
 		);
 	}
 
-	const result = await accountDO.rpcGetRecord(collection, rkey);
+	const result = await accountDO.repo().getRecord(collection, rkey);
 
 	if (!result) {
 		return c.json(
@@ -246,7 +268,7 @@ export async function listRecords(
 	const limit = Math.min(limitStr ? Number.parseInt(limitStr, 10) : 50, 100);
 	const reverse = reverseStr === "true";
 
-	const result = await accountDO.rpcListRecords(collection, {
+	const result = await accountDO.repo().listRecords(collection, {
 		limit,
 		cursor,
 		reverse,
@@ -319,13 +341,12 @@ export async function createRecord(
 		throw err;
 	}
 
+	await promoteRecordBlobs(c, [validated.record]);
+
 	try {
-		const result = await accountDO.rpcCreateRecord(
-			collection,
-			rkey,
-			validated.record,
-			validated.status,
-		);
+		const result = await accountDO
+			.repo()
+			.createRecord(collection, rkey, validated.record, validated.status);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
@@ -370,7 +391,7 @@ export async function deleteRecord(
 	if (scopeError) return scopeError;
 
 	try {
-		const result = await accountDO.rpcDeleteRecord(collection, rkey);
+		const result = await accountDO.repo().deleteRecord(collection, rkey);
 
 		return c.json(result ?? {});
 	} catch (err) {
@@ -432,13 +453,12 @@ export async function putRecord(
 		throw err;
 	}
 
+	await promoteRecordBlobs(c, [validated.record]);
+
 	try {
-		const result = await accountDO.rpcPutRecord(
-			collection,
-			rkey,
-			validated.record,
-			validated.status,
-		);
+		const result = await accountDO
+			.repo()
+			.putRecord(collection, rkey, validated.record, validated.status);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
@@ -564,7 +584,7 @@ export async function applyWrites(
 
 		// Worker validates against a candidate TID so restrictive keySchemas
 		// reject unrkeyed creates here. DO picks the final rkey when none
-		// was supplied (see rpcApplyWrites collision-retry logic).
+		// was supplied (see applyWrites collision-retry logic).
 		const candidateRkey = write.rkey ?? tidNow();
 
 		try {
@@ -589,8 +609,13 @@ export async function applyWrites(
 		}
 	}
 
+	await promoteRecordBlobs(
+		c,
+		preparedWrites.filter((w) => w.value !== undefined).map((w) => w.value),
+	);
+
 	try {
-		const result = await accountDO.rpcApplyWrites(preparedWrites);
+		const result = await accountDO.repo().applyWrites(preparedWrites);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
@@ -669,13 +694,19 @@ export async function uploadBlob(
 	// input gate, and Cloudflare resets the object when a storage op times
 	// out, dropping the firehose and desyncing the relay. The DO only
 	// records the tracking metadata. This mirrors sync.getBlob.
+	//
+	// Uploads land in `staged/` and are promoted when a record write
+	// references them. During migration the referencing records were already
+	// imported, so no later write will promote — trackBlob reports
+	// whether the CID is referenced and we promote here in that case.
 	const blobStore = new BlobStore(c.env.BLOBS, c.env.DID);
 	const blobRef = await blobStore.putBlob(bytes, contentType);
-	await accountDO.rpcTrackBlob(
-		blobRef.ref.$link,
-		blobRef.size,
-		blobRef.mimeType,
-	);
+	const { referenced } = await accountDO
+		.repo()
+		.trackBlob(blobRef.ref.$link, blobRef.size, blobRef.mimeType);
+	if (referenced) {
+		await blobStore.promoteBlob(blobRef.ref.$link);
+	}
 	return c.json({ blob: blobRef });
 }
 
@@ -723,7 +754,7 @@ export async function importRepo(
 	}
 
 	try {
-		const result = await accountDO.rpcImportRepo(carBytes);
+		const result = await accountDO.repo().importRepo(carBytes);
 		return c.json(result);
 	} catch (err) {
 		if (err instanceof Error) {
@@ -777,10 +808,9 @@ export async function listMissingBlobs(
 
 	const limit = limitStr ? Math.min(Number.parseInt(limitStr, 10), 500) : 500;
 
-	const result = await accountDO.rpcListMissingBlobs(
-		limit,
-		cursor || undefined,
-	);
+	const result = await accountDO
+		.repo()
+		.listMissingBlobs(limit, cursor || undefined);
 
 	return c.json(result);
 }

@@ -1,5 +1,6 @@
 // Public API
 export { AccountDurableObject } from "./account-do";
+export { SpaceDurableObject, SpaceIndexDurableObject } from "./spaces";
 export type { PDSEnv, DataLocation } from "./types";
 
 import { Hono } from "hono";
@@ -28,6 +29,11 @@ import {
 	PASSKEY_ERROR_CSP,
 } from "./passkey-ui";
 import { renderDashboard } from "./dashboard";
+import {
+	createSpacesApp,
+	createSpacesAdminApp,
+	createSpacesUnavailableApp,
+} from "./spaces";
 import type { PDSEnv } from "./types";
 
 import { version } from "../package.json" with { type: "json" };
@@ -125,7 +131,7 @@ app.get("/.well-known/atproto-did", (c) => {
 app.get("/xrpc/_health", async (c) => {
 	try {
 		const accountDO = getAccountDO(c.env);
-		await accountDO.rpcHealthCheck();
+		await accountDO.healthCheck();
 		return c.json({ status: "ok", version: `cirrus ${version}` });
 	} catch {
 		return c.json({ status: "unhealthy", version: `cirrus ${version}` }, 503);
@@ -181,6 +187,7 @@ app.get("/status", (c) => {
 			handle: c.env.HANDLE,
 			did: c.env.DID,
 			version,
+			spacesEnabled: c.env.SPACES_ENABLED === "true",
 		}),
 	);
 });
@@ -381,13 +388,13 @@ app.get(
 // Actor preferences
 app.get("/xrpc/app.bsky.actor.getPreferences", requireAuth, async (c) => {
 	const accountDO = getAccountDO(c.env);
-	const result = await accountDO.rpcGetPreferences();
-	return c.json(result);
+	const preferences = await accountDO.account().getPreferences();
+	return c.json({ preferences });
 });
 app.post("/xrpc/app.bsky.actor.putPreferences", requireAuth, async (c) => {
 	const body = await c.req.json<{ preferences: unknown[] }>();
 	const accountDO = getAccountDO(c.env);
-	await accountDO.rpcPutPreferences(body.preferences);
+	await accountDO.account().putPreferences(body.preferences);
 	return c.json({});
 });
 
@@ -411,7 +418,7 @@ app.post(
 	requireAuth,
 	async (c) => {
 		const accountDO = getAccountDO(c.env);
-		const result = await accountDO.rpcEmitIdentityEvent(c.env.HANDLE);
+		const result = await accountDO.repo().emitIdentityEvent(c.env.HANDLE);
 		return c.json(result);
 	},
 );
@@ -422,7 +429,7 @@ app.get(
 	requireAuth,
 	async (c) => {
 		const accountDO = getAccountDO(c.env);
-		return c.json(await accountDO.rpcGetFirehoseStatus());
+		return c.json(await accountDO.getFirehoseStatus());
 	},
 );
 
@@ -545,6 +552,31 @@ app.post("/passkey/delete", requireAuth, async (c) => {
 // OAuth 2.1 endpoints for "Login with Bluesky"
 const oauthApp = createOAuthApp(getAccountDO);
 app.route("/", oauthApp);
+
+// Atproto spaces (alpha). When the flag is off none of the space or
+// simplespace routes are registered, so they fall through to the proxy
+// like any unknown method, and the DID document says nothing about spaces.
+//
+// The bindings check must not throw: deploy-time startup validation
+// evaluates this scope with vars visible but Durable Object bindings not
+// yet materialized, and a real misconfiguration should degrade spaces to
+// 503s rather than fail worker startup.
+if (env.SPACES_ENABLED === "true") {
+	if (env.SPACES && env.SPACES_INDEX) {
+		app.route("/", createSpacesApp({ env, didResolver, getKeypair }));
+	} else {
+		console.error(
+			"SPACES_ENABLED is set but the SPACES / SPACES_INDEX Durable Object bindings are missing. Space endpoints will return 503.",
+		);
+		app.route("/", createSpacesUnavailableApp());
+	}
+}
+// The operator-only admin surface (spaces status and reset) mounts
+// whenever the bindings exist, so `pds spaces reset` still works with the
+// flag off or the space DOs in their schema-refusing state.
+if (env.SPACES && env.SPACES_INDEX) {
+	app.route("/", createSpacesAdminApp({ env, didResolver, getKeypair }));
+}
 
 // getFeed is proxied to the AppView but the service-auth JWT must be addressed
 // to the feed generator, so it needs special handling ahead of the catch-all.

@@ -1,35 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-	Repo,
-	WriteOpAction,
-	BlockMap,
-	blocksToCarFile,
-	writeCarStream,
-	readCarWithRoot,
-	getRecords,
-	cidForRecord,
-	type CarBlock,
-	type RecordCreateOp,
-	type RecordUpdateOp,
-	type RecordDeleteOp,
-	type RecordWriteOp,
-} from "@atproto/repo";
-/** Record type compatible with @atproto/repo operations */
-type RepoRecord = Record<string, unknown>;
-import { Secp256k1Keypair } from "@atproto/crypto";
-import { CID, asCid, isBlobRef } from "@atproto/lex-data";
-import { now as tidNow } from "@atcute/tid";
-import { encode as cborEncode } from "./cbor-compat";
-import { SqliteRepoStorage } from "./storage";
+import type { Repo } from "@atproto/repo";
+import { SqliteRepoStorage } from "./repo/storage";
 import { SqliteOAuthStorage } from "./oauth-storage";
-import { Sequencer, type SeqEvent, type CommitData } from "./sequencer";
-import { BlobStore } from "./blobs";
-import { jsonToLex } from "@atproto/lex-json";
+import { Sequencer } from "./repo/sequencer";
+import { AccountStore } from "./account/store";
+import { Firehose } from "./repo/firehose";
+import { RepoEngine } from "./repo/engine";
+import { RepoFacet } from "./repo/facet";
+import { getRepoCar } from "./repo/sync";
 import type { PDSEnv } from "./types";
-import { RecordAlreadyExistsError, type ValidationStatus } from "./validation";
-
-/** Sync 1.1 spec: at most 200 record operations per commit. */
-const MAX_OPS_PER_COMMIT = 200;
 
 /**
  * Account Durable Object - manages a single user's AT Protocol repository.
@@ -39,16 +18,20 @@ const MAX_OPS_PER_COMMIT = 200;
  * - AT Protocol Repo instance for repository operations
  * - Firehose WebSocket connections
  * - Sequence number management
+ *
+ * The Worker talks to it through three RpcTarget facets — repo(),
+ * account() and authStore() — plus the fetch handler for WebSocket
+ * upgrades and streaming responses.
  */
 export class AccountDurableObject extends DurableObject<PDSEnv> {
 	private storage: SqliteRepoStorage | null = null;
+	private accountStore: AccountStore | null = null;
 	private oauthStorage: SqliteOAuthStorage | null = null;
-	private repo: Repo | null = null;
-	private keypair: Secp256k1Keypair | null = null;
 	private sequencer: Sequencer | null = null;
-	private blobStore: BlobStore | null = null;
+	private firehose: Firehose | null = null;
+	private engine: RepoEngine | null = null;
+	private repoFacet: RepoFacet | null = null;
 	private storageInitialized = false;
-	private repoInitialized = false;
 
 	constructor(ctx: DurableObjectState, env: PDSEnv) {
 		super(ctx, env);
@@ -59,11 +42,6 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		}
 		if (!env.DID) {
 			throw new Error("Missing required environment variable: DID");
-		}
-
-		// Initialize BlobStore if R2 bucket is available
-		if (env.BLOBS) {
-			this.blobStore = new BlobStore(env.BLOBS, env.DID);
 		}
 	}
 
@@ -83,9 +61,23 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 				this.storage = new SqliteRepoStorage(this.ctx.storage.sql);
 				this.storage.initSchema(initialActive);
+				this.accountStore = new AccountStore(this.ctx.storage.sql);
+				this.accountStore.initSchema();
 				this.oauthStorage = new SqliteOAuthStorage(this.ctx.storage.sql);
 				this.oauthStorage.initSchema();
 				this.sequencer = new Sequencer(this.ctx.storage.sql);
+				this.firehose = new Firehose(this.sequencer, () =>
+					this.ctx.getWebSockets(),
+				);
+				this.engine = new RepoEngine({
+					storage: this.storage,
+					sequencer: this.sequencer,
+					did: this.env.DID,
+					signingKey: this.env.SIGNING_KEY,
+					lock: (fn) => this.ctx.blockConcurrencyWhile(fn),
+					broadcast: (event) => this.firehose!.broadcast(event),
+				});
+				this.repoFacet = new RepoFacet(this.engine, this.storage);
 				this.storageInitialized = true;
 
 				// Run cleanup on initialization
@@ -104,8 +96,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * Run cleanup on storage to remove expired entries
 	 */
 	private runCleanup(): void {
-		if (this.storage) {
-			this.storage.cleanupPasskeyTokens();
+		if (this.accountStore) {
+			this.accountStore.cleanupPasskeyTokens();
 		}
 		if (this.oauthStorage) {
 			this.oauthStorage.cleanup();
@@ -127,36 +119,6 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * Initialize the Repo instance. Called lazily on first repo access.
-	 */
-	private async ensureRepoInitialized(): Promise<void> {
-		await this.ensureStorageInitialized();
-
-		if (!this.repoInitialized) {
-			await this.ctx.blockConcurrencyWhile(async () => {
-				if (this.repoInitialized) return; // Double-check after acquiring lock
-
-				// Load signing key
-				this.keypair = await Secp256k1Keypair.import(this.env.SIGNING_KEY);
-
-				// Load or create repo
-				const root = await this.storage!.getRoot();
-				if (root) {
-					this.repo = await Repo.load(this.storage!, root);
-				} else {
-					this.repo = await Repo.create(
-						this.storage!,
-						this.env.DID,
-						this.keypair,
-					);
-				}
-
-				this.repoInitialized = true;
-			});
-		}
-	}
-
-	/**
 	 * Get the storage adapter for direct access (used by tests and internal operations).
 	 */
 	async getStorage(): Promise<SqliteRepoStorage> {
@@ -165,9 +127,34 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * Get the OAuth storage adapter for OAuth operations.
+	 * Get the repo engine for repository operations.
 	 */
-	async getOAuthStorage(): Promise<SqliteOAuthStorage> {
+	private async getEngine(): Promise<RepoEngine> {
+		await this.ensureStorageInitialized();
+		return this.engine!;
+	}
+
+	/**
+	 * RPC facet: repository operations (records, sync, migration, blobs).
+	 */
+	async repo(): Promise<RepoFacet> {
+		await this.ensureStorageInitialized();
+		return this.repoFacet!;
+	}
+
+	/**
+	 * RPC facet: person-account data (passkeys, app passwords, preferences, email).
+	 */
+	async account(): Promise<AccountStore> {
+		await this.ensureStorageInitialized();
+		return this.accountStore!;
+	}
+
+	/**
+	 * RPC facet: OAuth storage (codes, tokens, clients, PAR, nonces,
+	 * permission sets, WebAuthn challenges).
+	 */
+	async authStore(): Promise<SqliteOAuthStorage> {
 		await this.ensureStorageInitialized();
 		return this.oauthStorage!;
 	}
@@ -176,682 +163,46 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * Get the Repo instance for repository operations.
 	 */
 	async getRepo(): Promise<Repo> {
-		await this.ensureRepoInitialized();
-		return this.repo!;
+		const engine = await this.getEngine();
+		return engine.getRepo();
 	}
 
 	/**
-	 * Ensure the account is active. Throws error if deactivated.
+	 * RPC method: Health check - verifies storage is accessible
 	 */
-	async ensureActive(): Promise<void> {
-		const storage = await this.getStorage();
-		const isActive = await storage.getActive();
-		if (!isActive) {
-			throw new Error(
-				"AccountDeactivated: Account is deactivated. Call activateAccount to enable writes.",
-			);
-		}
+	async healthCheck(): Promise<{ ok: true }> {
+		this.ctx.storage.sql.exec("SELECT 1").toArray();
+		return { ok: true };
 	}
 
 	/**
-	 * Get the signing keypair for repository operations.
+	 * RPC method: Firehose status - returns subscriber count and latest sequence
 	 */
-	async getKeypair(): Promise<Secp256k1Keypair> {
-		await this.ensureRepoInitialized();
-		return this.keypair!;
-	}
-
-	/**
-	 * Update the Repo instance after mutations.
-	 */
-	async setRepo(repo: Repo): Promise<void> {
-		this.repo = repo;
-	}
-
-	/**
-	 * Drop the in-memory repo so the next access reloads from storage.
-	 * Used after a write fails post-applyWrites: Cloudflare rolls back the
-	 * SQLite writes, but JS state isn't rolled back, so the cached Repo can
-	 * end up ahead of storage. That mismatch produces firehose events whose
-	 * `since` rev the relay never saw, causing it to mark us desynced.
-	 */
-	private invalidateRepoCache(): void {
-		this.repo = null;
-		this.repoInitialized = false;
-	}
-
-	/**
-	 * RPC method: Get repo metadata for describeRepo
-	 */
-	async rpcDescribeRepo(): Promise<{
-		did: string;
-		collections: string[];
-		cid: string;
-	}> {
-		const repo = await this.getRepo();
-		const storage = await this.getStorage();
-
-		// Lazy backfill: if the cache is empty and the repo has content, populate it
-		if (!storage.hasCollections() && (await storage.getRoot())) {
-			const seen = new Set<string>();
-			for await (const record of repo.walkRecords()) {
-				if (!seen.has(record.collection)) {
-					seen.add(record.collection);
-					storage.addCollection(record.collection);
-				}
-			}
-		}
-
-		return {
-			did: repo.did,
-			collections: storage.getCollections(),
-			cid: repo.cid.toString(),
-		};
-	}
-
-	/**
-	 * RPC method: Get a single record
-	 */
-	async rpcGetRecord(
-		collection: string,
-		rkey: string,
-	): Promise<{
-		cid: string;
-		record: Rpc.Serializable<any>;
-	} | null> {
-		const repo = await this.getRepo();
-
-		// Get the CID from the MST
-		const dataKey = `${collection}/${rkey}`;
-		const recordCid = await repo.data.get(dataKey);
-		if (!recordCid) {
-			return null;
-		}
-
-		const record = await repo.getRecord(collection, rkey);
-
-		if (!record) {
-			return null;
-		}
-
-		return {
-			cid: recordCid.toString(),
-			record: serializeRecord(record) as Rpc.Serializable<any>,
-		};
-	}
-
-	/**
-	 * RPC method: List records in a collection
-	 */
-	async rpcListRecords(
-		collection: string,
-		opts: {
-			limit: number;
-			cursor?: string;
-			reverse?: boolean;
-		},
-	): Promise<{
-		records: Array<{ uri: string; cid: string; value: unknown }>;
-		cursor?: string;
-	}> {
-		const repo = await this.getRepo();
-		const records = [];
-		const startFrom = opts.cursor || `${collection}/`;
-
-		for await (const record of repo.walkRecords(startFrom)) {
-			if (record.collection !== collection) {
-				if (records.length > 0) break;
-				continue;
-			}
-
-			records.push({
-				uri: `at://${repo.did}/${record.collection}/${record.rkey}`,
-				cid: record.cid.toString(),
-				value: serializeRecord(record.record),
-			});
-
-			if (records.length >= opts.limit + 1) break;
-		}
-
-		if (opts.reverse) {
-			records.reverse();
-		}
-
-		const hasMore = records.length > opts.limit;
-		const results = hasMore ? records.slice(0, opts.limit) : records;
-		const cursor = hasMore
-			? `${collection}/${results[results.length - 1]?.uri.split("/").pop() ?? ""}`
-			: undefined;
-
-		return { records: results, cursor };
-	}
-
-	/**
-	 * RPC method: Create a record
-	 */
-	async rpcCreateRecord(
-		collection: string,
-		rkey: string | undefined,
-		record: unknown,
-		validationStatus?: ValidationStatus,
-	): Promise<{
-		uri: string;
-		cid: string;
-		commit: { cid: string; rev: string };
-		validationStatus?: ValidationStatus;
-	}> {
-		await this.ensureActive();
-		const repo = await this.getRepo();
-		const keypair = await this.getKeypair();
-
-		// Auto-generate rkey here (not in the worker) so the candidate is
-		// chosen against this DO's authoritative MST state, eliminating the
-		// 1/1024 collision risk between worker isolates picking the same
-		// timestamp+clockid in the same ms. For client-supplied rkeys, throw
-		// a structured RecordAlreadyExistsError if it collides. Use the
-		// MST's CID lookup (data.get) instead of repo.getRecord to avoid
-		// fetching and decoding the full record block on every write.
-		const autoGenerated = rkey === undefined;
-		let actualRkey = rkey ?? tidNow();
-		for (let attempt = 0; attempt < 5; attempt++) {
-			const existingCid = await repo.data.get(`${collection}/${actualRkey}`);
-			if (!existingCid) break;
-			if (!autoGenerated) {
-				throw new RecordAlreadyExistsError(
-					`${collection}/${actualRkey}`,
-				);
-			}
-			if (attempt === 4) {
-				throw new Error(
-					`Failed to allocate unique rkey for ${collection} after 5 attempts`,
-				);
-			}
-			actualRkey = tidNow();
-		}
-
-		const createOp: RecordCreateOp = {
-			action: WriteOpAction.Create,
-			collection,
-			rkey: actualRkey,
-			record: jsonToLex(record) as RepoRecord,
-		};
-
-		const prevRev = repo.commit.rev;
-		const prevData = repo.commit.data;
-		const commit = await repo.formatCommit([createOp], keypair);
-		const updatedRepo = await repo.applyCommit(commit);
-
-		try {
-			const dataKey = `${collection}/${actualRkey}`;
-			const recordCid = await updatedRepo.data.get(dataKey);
-
-			if (!recordCid) {
-				throw new Error(
-					`Failed to create record: ${collection}/${actualRkey}`,
-				);
-			}
-
-			this.storage!.addCollection(collection);
-
-			if (this.sequencer) {
-				const opWithCid = { ...createOp, cid: recordCid };
-
-				const commitData: CommitData = {
-					did: updatedRepo.did,
-					commit: commit.cid,
-					rev: commit.rev,
-					since: prevRev,
-					prevData,
-					newBlocks: commit.newBlocks,
-					relevantBlocks: commit.relevantBlocks,
-					ops: [opWithCid],
-				};
-
-				const event = await this.sequencer.sequenceCommit(commitData);
-				await this.broadcastEvent(event);
-			}
-
-			this.repo = updatedRepo;
-
-			return {
-				uri: `at://${updatedRepo.did}/${collection}/${actualRkey}`,
-				cid: recordCid.toString(),
-				commit: {
-					cid: updatedRepo.cid.toString(),
-					rev: updatedRepo.commit.rev,
-				},
-				...(validationStatus !== undefined ? { validationStatus } : {}),
-			};
-		} catch (err) {
-			this.invalidateRepoCache();
-			throw err;
-		}
-	}
-
-	/**
-	 * RPC method: Delete a record
-	 */
-	async rpcDeleteRecord(
-		collection: string,
-		rkey: string,
-	): Promise<{ commit: { cid: string; rev: string } } | null> {
-		await this.ensureActive();
-		const repo = await this.getRepo();
-		const keypair = await this.getKeypair();
-
-		const existingCid = await repo.data.get(`${collection}/${rkey}`);
-		if (!existingCid) return null;
-
-		const deleteOp: RecordDeleteOp = {
-			action: WriteOpAction.Delete,
-			collection,
-			rkey,
-		};
-
-		const prevRev = repo.commit.rev;
-		const prevData = repo.commit.data;
-		const commit = await repo.formatCommit([deleteOp], keypair);
-		const updatedRepo = await repo.applyCommit(commit);
-
-		try {
-			if (this.sequencer) {
-				const commitData: CommitData = {
-					did: updatedRepo.did,
-					commit: commit.cid,
-					rev: commit.rev,
-					since: prevRev,
-					prevData,
-					newBlocks: commit.newBlocks,
-					relevantBlocks: commit.relevantBlocks,
-					ops: [{ ...deleteOp, cid: null, prev: existingCid }],
-				};
-
-				const event = await this.sequencer.sequenceCommit(commitData);
-				await this.broadcastEvent(event);
-			}
-
-			this.repo = updatedRepo;
-
-			// If the collection has no records left, remove it from the cache
-			let collectionStillHasRecords = false;
-			for await (const remaining of updatedRepo.walkRecords(`${collection}/`)) {
-				if (remaining.collection !== collection) break;
-				collectionStillHasRecords = true;
-				break;
-			}
-			if (!collectionStillHasRecords) {
-				this.storage!.removeCollection(collection);
-			}
-
-			return {
-				commit: {
-					cid: updatedRepo.cid.toString(),
-					rev: updatedRepo.commit.rev,
-				},
-			};
-		} catch (err) {
-			this.invalidateRepoCache();
-			throw err;
-		}
-	}
-
-	/**
-	 * RPC method: Put a record (create or update)
-	 */
-	async rpcPutRecord(
-		collection: string,
-		rkey: string,
-		record: unknown,
-		validationStatus?: ValidationStatus,
-	): Promise<{
-		uri: string;
-		cid: string;
-		commit: { cid: string; rev: string };
-		validationStatus?: ValidationStatus;
-	}> {
-		await this.ensureActive();
-		const repo = await this.getRepo();
-		const keypair = await this.getKeypair();
-
-		const existingCid = await repo.data.get(`${collection}/${rkey}`);
-		const isUpdate = existingCid !== null;
-
-		const normalizedRecord = jsonToLex(record) as RepoRecord;
-		const op: RecordWriteOp = isUpdate
-			? ({
-					action: WriteOpAction.Update,
-					collection,
-					rkey,
-					record: normalizedRecord,
-				} as RecordUpdateOp)
-			: ({
-					action: WriteOpAction.Create,
-					collection,
-					rkey,
-					record: normalizedRecord,
-				} as RecordCreateOp);
-
-		const prevRev = repo.commit.rev;
-		const prevData = repo.commit.data;
-		const commit = await repo.formatCommit([op], keypair);
-		const updatedRepo = await repo.applyCommit(commit);
-
-		try {
-			const dataKey = `${collection}/${rkey}`;
-			const recordCid = await updatedRepo.data.get(dataKey);
-
-			if (!recordCid) {
-				throw new Error(`Failed to put record: ${collection}/${rkey}`);
-			}
-
-			this.storage!.addCollection(collection);
-
-			if (this.sequencer) {
-				const opWithCid: CommitData["ops"][number] = {
-					...op,
-					cid: recordCid,
-				};
-				if (existingCid) opWithCid.prev = existingCid;
-
-				const commitData: CommitData = {
-					did: updatedRepo.did,
-					commit: commit.cid,
-					rev: commit.rev,
-					since: prevRev,
-					prevData,
-					newBlocks: commit.newBlocks,
-					relevantBlocks: commit.relevantBlocks,
-					ops: [opWithCid],
-				};
-
-				const event = await this.sequencer.sequenceCommit(commitData);
-				await this.broadcastEvent(event);
-			}
-
-			this.repo = updatedRepo;
-
-			return {
-				uri: `at://${updatedRepo.did}/${collection}/${rkey}`,
-				cid: recordCid.toString(),
-				commit: {
-					cid: updatedRepo.cid.toString(),
-					rev: updatedRepo.commit.rev,
-				},
-				...(validationStatus !== undefined ? { validationStatus } : {}),
-			};
-		} catch (err) {
-			this.invalidateRepoCache();
-			throw err;
-		}
-	}
-
-	/**
-	 * RPC method: Apply multiple writes (batch create/update/delete)
-	 */
-	async rpcApplyWrites(
-		writes: Array<{
-			$type: string;
-			collection: string;
-			rkey?: string;
-			value?: unknown;
-			validationStatus?: ValidationStatus;
-		}>,
-	): Promise<{
-		commit: { cid: string; rev: string };
-		results: Array<{
-			$type: string;
-			uri?: string;
-			cid?: string;
-			validationStatus?: ValidationStatus;
+	async getFirehoseStatus(): Promise<{
+		subscribers: Array<{
+			connectedAt: number;
+			cursor: number;
+			ip: string | null;
 		}>;
+		latestSeq: number | null;
 	}> {
-		await this.ensureActive();
-
-		// Spec limit: at most 200 operations per #commit.
-		if (writes.length > MAX_OPS_PER_COMMIT) {
-			throw new Error(
-				`InvalidRequest: applyWrites accepts at most ${MAX_OPS_PER_COMMIT} operations per call, got ${writes.length}`,
-			);
-		}
-
-		const repo = await this.getRepo();
-		const keypair = await this.getKeypair();
-
-		// Convert input writes to RecordWriteOp format
-		const ops: RecordWriteOp[] = [];
-		const results: Array<{
-			$type: string;
-			uri?: string;
-			cid?: string;
-			validationStatus?: ValidationStatus;
-			collection: string;
-			rkey: string;
-			action: WriteOpAction;
-		}> = [];
-
-		// Track rkeys this batch will write so two auto-generated creates in
-		// the same batch don't pick the same rkey.
-		const reservedRkeys = new Set<string>();
-
-		for (const write of writes) {
-			if (write.$type === "com.atproto.repo.applyWrites#create") {
-				const autoGenerated = write.rkey === undefined;
-				let rkey = write.rkey ?? tidNow();
-				for (let attempt = 0; attempt < 5; attempt++) {
-					const composite = `${write.collection}/${rkey}`;
-					const collidesInBatch = reservedRkeys.has(composite);
-					const collidesInRepo =
-						!collidesInBatch &&
-						(await repo.data.get(composite)) !== null;
-					if (!collidesInBatch && !collidesInRepo) break;
-					if (!autoGenerated) {
-						throw new RecordAlreadyExistsError(composite);
-					}
-					if (attempt === 4) {
-						throw new Error(
-							`Failed to allocate unique rkey for ${write.collection} after 5 attempts`,
-						);
-					}
-					rkey = tidNow();
-				}
-				reservedRkeys.add(`${write.collection}/${rkey}`);
-				const op: RecordCreateOp = {
-					action: WriteOpAction.Create,
-					collection: write.collection,
-					rkey,
-					record: jsonToLex(write.value) as RepoRecord,
-				};
-				ops.push(op);
-				results.push({
-					$type: "com.atproto.repo.applyWrites#createResult",
-					collection: write.collection,
-					rkey,
-					action: WriteOpAction.Create,
-					validationStatus: write.validationStatus,
-				});
-			} else if (write.$type === "com.atproto.repo.applyWrites#update") {
-				if (!write.rkey) {
-					throw new Error("Update requires rkey");
-				}
-				const op: RecordUpdateOp = {
-					action: WriteOpAction.Update,
-					collection: write.collection,
-					rkey: write.rkey,
-					record: jsonToLex(write.value) as RepoRecord,
-				};
-				ops.push(op);
-				results.push({
-					$type: "com.atproto.repo.applyWrites#updateResult",
-					collection: write.collection,
-					rkey: write.rkey,
-					action: WriteOpAction.Update,
-					validationStatus: write.validationStatus,
-				});
-			} else if (write.$type === "com.atproto.repo.applyWrites#delete") {
-				if (!write.rkey) {
-					throw new Error("Delete requires rkey");
-				}
-				const op: RecordDeleteOp = {
-					action: WriteOpAction.Delete,
-					collection: write.collection,
-					rkey: write.rkey,
-				};
-				ops.push(op);
-				results.push({
-					$type: "com.atproto.repo.applyWrites#deleteResult",
-					collection: write.collection,
-					rkey: write.rkey,
-					action: WriteOpAction.Delete,
-				});
-			} else {
-				throw new Error(`Unknown write type: ${write.$type}`);
-			}
-		}
-
-		// Capture prev CIDs for every update/delete *before* the write, so the
-		// firehose can emit ops[].prev per sync 1.1. Matches reference PDS
-		// behaviour: prev is read from pre-batch MST state only, so a delete
-		// for a record that was also created earlier in the same batch will
-		// have no prev (the record didn't exist before the batch).
-		const prevCids = new Map<string, CID>();
-		for (const op of ops) {
-			if (op.action === WriteOpAction.Create) continue;
-			const key = `${op.collection}/${op.rkey}`;
-			if (prevCids.has(key)) continue;
-			const cid = await repo.data.get(key);
-			if (cid) prevCids.set(key, cid);
-		}
-
-		// Precompute every create/update record's CID. The lexicon marks
-		// `cid` as required on createResult / updateResult, and we can't rely
-		// on the post-commit MST: a create that is deleted later in the same
-		// batch leaves no entry. cidForRecord is deterministic from the
-		// record bytes and matches what formatCommit stores in the MST.
-		const opCids: Array<CID | undefined> = new Array(ops.length);
-		for (let i = 0; i < ops.length; i++) {
-			const op = ops[i]!;
-			if (op.action !== WriteOpAction.Delete) {
-				opCids[i] = await cidForRecord(op.record);
-			}
-		}
-
-		const prevRev = repo.commit.rev;
-		const prevData = repo.commit.data;
-		const commit = await repo.formatCommit(ops, keypair);
-		const updatedRepo = await repo.applyCommit(commit);
-
-		try {
-			for (const op of ops) {
-				if (op.action !== WriteOpAction.Delete) {
-					this.storage!.addCollection(op.collection);
-				}
-			}
-
-			const finalResults: Array<{
-				$type: string;
-				uri?: string;
-				cid?: string;
-				validationStatus?: ValidationStatus;
-			}> = [];
-			const opsWithCids: CommitData["ops"] = [];
-
-			for (let i = 0; i < results.length; i++) {
-				const result = results[i]!;
-				const op = ops[i]!;
-				const prev = prevCids.get(`${op.collection}/${op.rkey}`);
-
-				if (result.action === WriteOpAction.Delete) {
-					finalResults.push({
-						$type: result.$type,
-					});
-					opsWithCids.push({
-						...op,
-						cid: null,
-						...(prev ? { prev } : {}),
-					});
-				} else {
-					const recordCid = opCids[i]!;
-					finalResults.push({
-						$type: result.$type,
-						uri: `at://${updatedRepo.did}/${result.collection}/${result.rkey}`,
-						cid: recordCid.toString(),
-						...(result.validationStatus !== undefined
-							? { validationStatus: result.validationStatus }
-							: {}),
-					});
-					opsWithCids.push({
-						...op,
-						cid: recordCid,
-						...(prev ? { prev } : {}),
-					});
-				}
-			}
-
-			if (this.sequencer) {
-				const commitData: CommitData = {
-					did: updatedRepo.did,
-					commit: commit.cid,
-					rev: commit.rev,
-					since: prevRev,
-					prevData,
-					newBlocks: commit.newBlocks,
-					relevantBlocks: commit.relevantBlocks,
-					ops: opsWithCids,
-				};
-
-				const event = await this.sequencer.sequenceCommit(commitData);
-				await this.broadcastEvent(event);
-			}
-
-			this.repo = updatedRepo;
-
-			// For any collection touched by a delete, drop the cache entry if it's
-			// now empty. Runs after addCollection so a batch that creates + deletes
-			// in the same collection still walks the MST as the source of truth.
-			const deletedCollections = new Set<string>();
-			for (const op of ops) {
-				if (op.action === WriteOpAction.Delete) {
-					deletedCollections.add(op.collection);
-				}
-			}
-			for (const collection of deletedCollections) {
-				let collectionStillHasRecords = false;
-				for await (const remaining of updatedRepo.walkRecords(`${collection}/`)) {
-					if (remaining.collection !== collection) break;
-					collectionStillHasRecords = true;
-					break;
-				}
-				if (!collectionStillHasRecords) {
-					this.storage!.removeCollection(collection);
-				}
-			}
-
-			return {
-				commit: {
-					cid: updatedRepo.cid.toString(),
-					rev: updatedRepo.commit.rev,
-				},
-				results: finalResults,
-			};
-		} catch (err) {
-			this.invalidateRepoCache();
-			throw err;
-		}
-	}
-
-	/**
-	 * RPC method: Get repo status
-	 */
-	async rpcGetRepoStatus(): Promise<{
-		did: string;
-		head: string;
-		rev: string;
-	}> {
-		const repo = await this.getRepo();
+		const sockets = this.ctx.getWebSockets();
+		await this.ensureStorageInitialized();
+		const seq = this.sequencer!.getLatestSeq();
 		return {
-			did: repo.did,
-			head: repo.cid.toString(),
-			rev: repo.commit.rev,
+			subscribers: sockets.map((ws) => {
+				const attachment = ws.deserializeAttachment() as {
+					cursor: number;
+					connectedAt: number;
+					ip: string | null;
+				};
+				return {
+					connectedAt: attachment.connectedAt,
+					cursor: attachment.cursor,
+					ip: attachment.ip ?? null,
+				};
+			}),
+			latestSeq: seq || null,
 		};
 	}
 
@@ -860,326 +211,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 */
 	private async handleGetRepo(): Promise<Response> {
 		const storage = await this.getStorage();
-		const root = await storage.getRoot();
-
-		if (!root) {
-			return Response.json(
-				{ error: "RepoNotFound", message: "No repository root found" },
-				{ status: 404 },
-			);
-		}
-
-		// Lazily iterate SQLite rows — the cursor is already lazy,
-		// only .toArray() would materialize everything in memory.
-		const cursor = this.ctx.storage.sql.exec("SELECT cid, bytes FROM blocks");
-
-		async function* blocks(): AsyncGenerator<CarBlock> {
-			for (const row of cursor) {
-				yield {
-					cid: CID.parse(row.cid as string),
-					bytes: new Uint8Array(row.bytes as ArrayBuffer),
-				};
-			}
-		}
-
-		const carIter = writeCarStream(root, blocks())[Symbol.asyncIterator]();
-
-		const stream = new ReadableStream<Uint8Array>({
-			async pull(controller) {
-				const { value, done } = await carIter.next();
-				if (done) {
-					controller.close();
-				} else {
-					controller.enqueue(value);
-				}
-			},
-		});
-
-		return new Response(stream, {
-			headers: { "Content-Type": "application/vnd.ipld.car" },
-		});
-	}
-
-	/**
-	 * RPC method: Get specific blocks by CID as CAR file
-	 * Used for partial sync and migration.
-	 */
-	async rpcGetBlocks(cids: string[]): Promise<Uint8Array> {
-		const storage = await this.getStorage();
-		const root = await storage.getRoot();
-
-		if (!root) {
-			throw new Error("No repository root found");
-		}
-
-		// Get requested blocks
-		const blocks = new BlockMap();
-		for (const cidStr of cids) {
-			const cid = CID.parse(cidStr);
-			const bytes = await storage.getBytes(cid);
-			if (bytes) {
-				blocks.set(cid, bytes);
-			}
-		}
-
-		// Return CAR file with requested blocks
-		return blocksToCarFile(root, blocks);
-	}
-
-	/**
-	 * RPC method: Get record with proof as CAR file.
-	 * Returns the commit block and all MST blocks needed to verify
-	 * the existence (or non-existence) of a record.
-	 * Used by com.atproto.sync.getRecord for record verification.
-	 */
-	async rpcGetRecordProof(
-		collection: string,
-		rkey: string,
-	): Promise<Uint8Array> {
-		const storage = await this.getStorage();
-		const root = await storage.getRoot();
-
-		if (!root) {
-			throw new Error("No repository root found");
-		}
-
-		// Use @atproto/repo's getRecords to generate the proof CAR
-		// This returns an async iterable of CAR chunks
-		const carChunks: Uint8Array[] = [];
-		for await (const chunk of getRecords(storage, root, [
-			{ collection, rkey },
-		])) {
-			carChunks.push(chunk);
-		}
-
-		// Concatenate all chunks into a single Uint8Array
-		const totalLength = carChunks.reduce((acc, chunk) => acc + chunk.length, 0);
-		const result = new Uint8Array(totalLength);
-		let offset = 0;
-		for (const chunk of carChunks) {
-			result.set(chunk, offset);
-			offset += chunk.length;
-		}
-
-		return result;
-	}
-
-	/**
-	 * RPC method: Import repo from CAR file
-	 * This is used for account migration - importing an existing repository
-	 * from another PDS.
-	 */
-	async rpcImportRepo(carBytes: Uint8Array): Promise<{
-		did: string;
-		rev: string;
-		cid: string;
-	}> {
-		await this.ensureStorageInitialized();
-
-		// Check if account is active - only allow imports on deactivated accounts
-		const isActive = await this.storage!.getActive();
-		const existingRoot = await this.storage!.getRoot();
-
-		if (isActive && existingRoot) {
-			// Account is active - reject import to prevent accidental overwrites
-			throw new Error(
-				"Repository already exists. Cannot import over existing repository.",
-			);
-		}
-
-		// If deactivated and repo exists, clear it first
-		if (existingRoot) {
-			await this.storage!.destroy();
-			this.repo = null;
-			this.repoInitialized = false;
-		}
-
-		// Use official @atproto/repo utilities to read and validate CAR
-		// readCarWithRoot validates single root requirement and returns BlockMap
-		const { root: rootCid, blocks } = await readCarWithRoot(carBytes);
-
-		// Import all blocks into storage using putMany (more efficient than individual putBlock)
-		const importRev = tidNow();
-		await this.storage!.putMany(blocks, importRev);
-
-		// Load the repo to verify it's valid and get the actual revision
-		this.keypair = await Secp256k1Keypair.import(this.env.SIGNING_KEY);
-		this.repo = await Repo.load(this.storage!, rootCid);
-
-		// Persist the root CID in storage so getRoot() works correctly
-		await this.storage!.updateRoot(rootCid, this.repo.commit.rev);
-
-		// Verify the DID matches to prevent incorrect migrations
-		if (this.repo.did !== this.env.DID) {
-			// Clean up imported blocks
-			await this.storage!.destroy();
-			throw new Error(
-				`DID mismatch: CAR file contains DID ${this.repo.did}, but expected ${this.env.DID}`,
-			);
-		}
-
-		this.repoInitialized = true;
-
-		// Extract blob references and collection names from all imported records
-		const seenCollections = new Set<string>();
-		for await (const record of this.repo.walkRecords()) {
-			if (!seenCollections.has(record.collection)) {
-				seenCollections.add(record.collection);
-				this.storage!.addCollection(record.collection);
-			}
-			const blobCids = extractBlobCids(record.record);
-			if (blobCids.length > 0) {
-				const uri = `at://${this.repo.did}/${record.collection}/${record.rkey}`;
-				this.storage!.addRecordBlobs(uri, blobCids);
-			}
-		}
-
-		return {
-			did: this.repo.did,
-			rev: this.repo.commit.rev,
-			cid: rootCid.toString(),
-		};
-	}
-
-	/**
-	 * RPC method: Record an already-stored blob's metadata.
-	 *
-	 * The blob bytes are written to R2 by the stateless Worker, not here.
-	 * This DO is single-threaded and also holds the relay's firehose
-	 * WebSocket; awaiting an R2 put inside it (R2 latency is independent of
-	 * object size — even a small image can stall) pins the input gate, and
-	 * Cloudflare resets the object when a storage op can't complete in time,
-	 * dropping the firehose and desyncing the relay. Only the tiny tracking
-	 * row needs the DO's SQLite.
-	 */
-	async rpcTrackBlob(
-		cid: string,
-		size: number,
-		mimeType: string,
-	): Promise<void> {
-		const storage = await this.getStorage();
-		storage.trackImportedBlob(cid, size, mimeType);
-	}
-
-	/**
-	 * RPC method: Get a blob from R2
-	 */
-	async rpcGetBlob(cidStr: string): Promise<R2ObjectBody | null> {
-		if (!this.blobStore) {
-			throw new Error("Blob storage not configured");
-		}
-		return this.blobStore.getBlob(cidStr);
-	}
-
-	/**
-	 * Encode a firehose frame (header + body CBOR).
-	 */
-	private encodeFrame(header: object, body: object): Uint8Array {
-		const headerBytes = cborEncode(header as any);
-		const bodyBytes = cborEncode(body as any);
-
-		const frame = new Uint8Array(headerBytes.length + bodyBytes.length);
-		frame.set(headerBytes, 0);
-		frame.set(bodyBytes, headerBytes.length);
-
-		return frame;
-	}
-
-	/**
-	 * Encode any event frame based on its type.
-	 */
-	private encodeEventFrame(event: SeqEvent): Uint8Array {
-		const header = { op: 1, t: `#${event.type}` };
-		return this.encodeFrame(header, event.event);
-	}
-
-	/**
-	 * Encode an error frame.
-	 */
-	private encodeErrorFrame(error: string, message: string): Uint8Array {
-		const header = { op: -1 };
-		const body = { error, message };
-		return this.encodeFrame(header, body);
-	}
-
-	/**
-	 * Encode an #info message (op:1, t:'#info'). Used for non-fatal
-	 * conditions like OutdatedCursor where the stream continues.
-	 */
-	private encodeInfoFrame(name: string, message: string): Uint8Array {
-		const header = { op: 1, t: "#info" };
-		const body = { name, message };
-		return this.encodeFrame(header, body);
-	}
-
-	/**
-	 * Backfill firehose events from a cursor.
-	 */
-	private async backfillFirehose(ws: WebSocket, cursor: number): Promise<void> {
-		if (!this.sequencer) {
-			throw new Error("Sequencer not initialized");
-		}
-
-		const latestSeq = this.sequencer.getLatestSeq();
-
-		if (cursor > latestSeq) {
-			const frame = this.encodeErrorFrame(
-				"FutureCursor",
-				"Cursor is in the future",
-			);
-			ws.send(frame);
-			ws.close(1008, "FutureCursor");
-			return;
-		}
-
-		// If the cursor predates the oldest retained event, warn the client
-		// with #info OutdatedCursor and resume from the earliest available
-		// event. The stream stays open — they just miss the pruned range.
-		const earliestSeq = this.sequencer.getEarliestSeq();
-		let effectiveCursor = cursor;
-		if (earliestSeq !== null && cursor < earliestSeq - 1) {
-			const info = this.encodeInfoFrame(
-				"OutdatedCursor",
-				"Requested cursor exceeded retention window; some events skipped",
-			);
-			ws.send(info);
-			effectiveCursor = earliestSeq - 1;
-		}
-
-		const events = await this.sequencer.getEventsSince(effectiveCursor, 1000);
-
-		for (const event of events) {
-			const frame = this.encodeEventFrame(event);
-			ws.send(frame);
-		}
-
-		if (events.length > 0) {
-			const lastEvent = events[events.length - 1];
-			if (lastEvent) {
-				const attachment = ws.deserializeAttachment() as { cursor: number };
-				attachment.cursor = lastEvent.seq;
-				ws.serializeAttachment(attachment);
-			}
-		}
-	}
-
-	/**
-	 * Broadcast a sequenced event to all connected firehose clients.
-	 */
-	private async broadcastEvent(event: SeqEvent): Promise<void> {
-		const frame = this.encodeEventFrame(event);
-
-		for (const ws of this.ctx.getWebSockets()) {
-			try {
-				ws.send(frame);
-
-				const attachment = ws.deserializeAttachment() as { cursor: number };
-				attachment.cursor = event.seq;
-				ws.serializeAttachment(attachment);
-			} catch (e) {
-				console.error("Error broadcasting to WebSocket:", e);
-			}
-		}
+		return getRepoCar(this.ctx.storage.sql, storage);
 	}
 
 	/**
@@ -1209,7 +241,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		// Backfill if cursor provided
 		if (cursor !== null) {
-			await this.backfillFirehose(server, cursor);
+			await this.firehose!.backfill(server, cursor);
 		}
 
 		return new Response(null, {
@@ -1248,512 +280,6 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * RPC method: Get user preferences
-	 */
-	async rpcGetPreferences(): Promise<{ preferences: unknown[] }> {
-		const storage = await this.getStorage();
-		const preferences = await storage.getPreferences();
-		return { preferences };
-	}
-
-	/**
-	 * RPC method: Put user preferences
-	 */
-	async rpcPutPreferences(preferences: unknown[]): Promise<void> {
-		const storage = await this.getStorage();
-		await storage.putPreferences(preferences);
-	}
-
-	/**
-	 * RPC method: Get stored email
-	 */
-	async rpcGetEmail(): Promise<{ email: string | null }> {
-		const storage = await this.getStorage();
-		return { email: storage.getEmail() };
-	}
-
-	/**
-	 * RPC method: Update stored email
-	 */
-	async rpcUpdateEmail(email: string): Promise<void> {
-		const storage = await this.getStorage();
-		storage.setEmail(email);
-	}
-
-	/**
-	 * RPC method: Get account activation state
-	 */
-	async rpcGetActive(): Promise<boolean> {
-		const storage = await this.getStorage();
-		return storage.getActive();
-	}
-
-	/**
-	 * RPC method: Activate account.
-	 * Emits #account + #identity + #sync per sync 1.1, so relays pick up
-	 * the new state without polling. #sync is only emitted when a repo
-	 * root exists (i.e. after migration import or initial commit).
-	 */
-	async rpcActivateAccount(): Promise<void> {
-		const storage = await this.getStorage();
-		const wasActive = await storage.getActive();
-		await storage.setActive(true);
-		if (wasActive || !this.sequencer) return;
-
-		const account = await this.sequencer.sequenceAccount({
-			did: this.env.DID,
-			active: true,
-		});
-		await this.broadcastEvent(account);
-
-		const identity = await this.sequencer.sequenceIdentity({
-			did: this.env.DID,
-		});
-		await this.broadcastEvent(identity);
-
-		const root = await storage.getRoot();
-		if (root) {
-			const commitBytes = await storage.getBytes(root);
-			if (commitBytes) {
-				const repo = await this.getRepo();
-				const blocks = new BlockMap();
-				blocks.set(root, commitBytes);
-				const sync = await this.sequencer.sequenceSync({
-					did: this.env.DID,
-					rev: repo.commit.rev,
-					cid: root,
-					blocks,
-				});
-				await this.broadcastEvent(sync);
-			}
-		}
-	}
-
-	/**
-	 * RPC method: Deactivate account.
-	 * Emits #account(active=false, status='deactivated') per sync 1.1.
-	 */
-	async rpcDeactivateAccount(): Promise<void> {
-		const storage = await this.getStorage();
-		const wasActive = await storage.getActive();
-		await storage.setActive(false);
-		if (!wasActive || !this.sequencer) return;
-
-		const account = await this.sequencer.sequenceAccount({
-			did: this.env.DID,
-			active: false,
-			status: "deactivated",
-		});
-		await this.broadcastEvent(account);
-	}
-
-	// ============================================
-	// Migration Progress RPC Methods
-	// ============================================
-
-	/**
-	 * RPC method: Count blocks in storage
-	 */
-	async rpcCountBlocks(): Promise<number> {
-		const storage = await this.getStorage();
-		return storage.countBlocks();
-	}
-
-	/**
-	 * RPC method: Count records in repository
-	 */
-	async rpcCountRecords(): Promise<number> {
-		const repo = await this.getRepo();
-		let count = 0;
-		for await (const _record of repo.walkRecords()) {
-			count++;
-		}
-		return count;
-	}
-
-	/**
-	 * RPC method: Count expected blobs (referenced in records)
-	 */
-	async rpcCountExpectedBlobs(): Promise<number> {
-		const storage = await this.getStorage();
-		return storage.countExpectedBlobs();
-	}
-
-	/**
-	 * RPC method: Count imported blobs
-	 */
-	async rpcCountImportedBlobs(): Promise<number> {
-		const storage = await this.getStorage();
-		return storage.countImportedBlobs();
-	}
-
-	/**
-	 * RPC method: List missing blobs (referenced but not imported)
-	 */
-	async rpcListMissingBlobs(
-		limit: number = 500,
-		cursor?: string,
-	): Promise<{
-		blobs: Array<{ cid: string; recordUri: string }>;
-		cursor?: string;
-	}> {
-		const storage = await this.getStorage();
-		return storage.listMissingBlobs(limit, cursor);
-	}
-
-	/**
-	 * RPC method: Reset migration state.
-	 * Clears imported repo and blob tracking to allow re-import.
-	 * Only works when account is deactivated.
-	 */
-	async rpcResetMigration(): Promise<{
-		blocksDeleted: number;
-		blobsCleared: number;
-	}> {
-		const storage = await this.getStorage();
-
-		// Only allow reset on deactivated accounts
-		const isActive = await storage.getActive();
-		if (isActive) {
-			throw new Error(
-				"AccountActive: Cannot reset migration on an active account. Deactivate first.",
-			);
-		}
-
-		// Get counts before deletion for reporting
-		const blocksDeleted = await storage.countBlocks();
-		const blobsCleared = storage.countImportedBlobs();
-
-		// Clear all blocks and reset repo state
-		await storage.destroy();
-
-		// Clear blob tracking tables
-		storage.clearBlobTracking();
-
-		// Reset in-memory repo reference so it gets reinitialized on next access
-		this.repo = null;
-		this.repoInitialized = false;
-
-		return { blocksDeleted, blobsCleared };
-	}
-
-	/**
-	 * Emit an identity event to notify downstream services to refresh identity cache.
-	 * `handle` is optional per sync 1.1.
-	 */
-	async rpcEmitIdentityEvent(handle?: string): Promise<{ seq: number }> {
-		await this.ensureStorageInitialized();
-		const event = await this.sequencer!.sequenceIdentity({
-			did: this.env.DID,
-			...(handle ? { handle } : {}),
-		});
-		await this.broadcastEvent(event);
-		return { seq: event.seq };
-	}
-
-	// ============================================
-	// Health Check RPC Methods
-	// ============================================
-
-	/**
-	 * RPC method: Health check - verifies storage is accessible
-	 */
-	async rpcHealthCheck(): Promise<{ ok: true }> {
-		this.ctx.storage.sql.exec("SELECT 1").toArray();
-		return { ok: true };
-	}
-
-	/**
-	 * RPC method: Firehose status - returns subscriber count and latest sequence
-	 */
-	async rpcGetFirehoseStatus(): Promise<{
-		subscribers: Array<{
-			connectedAt: number;
-			cursor: number;
-			ip: string | null;
-		}>;
-		latestSeq: number | null;
-	}> {
-		const sockets = this.ctx.getWebSockets();
-		await this.ensureStorageInitialized();
-		const seq = this.sequencer!.getLatestSeq();
-		return {
-			subscribers: sockets.map((ws) => {
-				const attachment = ws.deserializeAttachment() as {
-					cursor: number;
-					connectedAt: number;
-					ip: string | null;
-				};
-				return {
-					connectedAt: attachment.connectedAt,
-					cursor: attachment.cursor,
-					ip: attachment.ip ?? null,
-				};
-			}),
-			latestSeq: seq || null,
-		};
-	}
-
-	// ============================================
-	// OAuth Storage RPC Methods
-	// These methods proxy to SqliteOAuthStorage since we can't serialize the storage object
-	// ============================================
-
-	/** Save an authorization code */
-	async rpcSaveAuthCode(
-		code: string,
-		data: import("@getcirrus/oauth-provider").AuthCodeData,
-	): Promise<void> {
-		const storage = await this.getOAuthStorage();
-		await storage.saveAuthCode(code, data);
-	}
-
-	/** Get authorization code data */
-	async rpcGetAuthCode(
-		code: string,
-	): Promise<import("@getcirrus/oauth-provider").AuthCodeData | null> {
-		const storage = await this.getOAuthStorage();
-		return storage.getAuthCode(code);
-	}
-
-	/** Delete an authorization code */
-	async rpcDeleteAuthCode(code: string): Promise<void> {
-		const storage = await this.getOAuthStorage();
-		await storage.deleteAuthCode(code);
-	}
-
-	/** Save token data */
-	async rpcSaveTokens(
-		data: import("@getcirrus/oauth-provider").TokenData,
-	): Promise<void> {
-		const storage = await this.getOAuthStorage();
-		await storage.saveTokens(data);
-	}
-
-	/** Get token data by access token */
-	async rpcGetTokenByAccess(
-		accessToken: string,
-	): Promise<import("@getcirrus/oauth-provider").TokenData | null> {
-		const storage = await this.getOAuthStorage();
-		return storage.getTokenByAccess(accessToken);
-	}
-
-	/** Get token data by refresh token */
-	async rpcGetTokenByRefresh(
-		refreshToken: string,
-	): Promise<import("@getcirrus/oauth-provider").TokenData | null> {
-		const storage = await this.getOAuthStorage();
-		return storage.getTokenByRefresh(refreshToken);
-	}
-
-	/** Revoke a token */
-	async rpcRevokeToken(accessToken: string): Promise<void> {
-		const storage = await this.getOAuthStorage();
-		await storage.revokeToken(accessToken);
-	}
-
-	/** Revoke all tokens for a user */
-	async rpcRevokeAllTokens(sub: string): Promise<void> {
-		const storage = await this.getOAuthStorage();
-		await storage.revokeAllTokens(sub);
-	}
-
-	/** Save client metadata */
-	async rpcSaveClient(
-		clientId: string,
-		metadata: import("@getcirrus/oauth-provider").ClientMetadata,
-	): Promise<void> {
-		const storage = await this.getOAuthStorage();
-		await storage.saveClient(clientId, metadata);
-	}
-
-	/** Get client metadata */
-	async rpcGetClient(
-		clientId: string,
-	): Promise<import("@getcirrus/oauth-provider").ClientMetadata | null> {
-		const storage = await this.getOAuthStorage();
-		return storage.getClient(clientId);
-	}
-
-	/** Save PAR data */
-	async rpcSavePAR(
-		requestUri: string,
-		data: import("@getcirrus/oauth-provider").PARData,
-	): Promise<void> {
-		const storage = await this.getOAuthStorage();
-		await storage.savePAR(requestUri, data);
-	}
-
-	/** Get PAR data */
-	async rpcGetPAR(
-		requestUri: string,
-	): Promise<import("@getcirrus/oauth-provider").PARData | null> {
-		const storage = await this.getOAuthStorage();
-		return storage.getPAR(requestUri);
-	}
-
-	/** Delete PAR data */
-	async rpcDeletePAR(requestUri: string): Promise<void> {
-		const storage = await this.getOAuthStorage();
-		await storage.deletePAR(requestUri);
-	}
-
-	/** Check and save DPoP nonce */
-	async rpcCheckAndSaveNonce(nonce: string): Promise<boolean> {
-		const storage = await this.getOAuthStorage();
-		return storage.checkAndSaveNonce(nonce);
-	}
-
-	/**
-	 * Look up a cached permission-set lexicon by NSID. Returns the cached
-	 * value (with `stale: true` when past its 24h soft-expiry) or null when
-	 * not cached or hard-expired.
-	 */
-	async rpcGetPermissionSet(
-		nsid: string,
-	): Promise<import("./oauth-storage.js").CachedPermissionSet | null> {
-		const storage = await this.getOAuthStorage();
-		return storage.getPermissionSet(nsid);
-	}
-
-	/** Cache a fetched permission-set lexicon. */
-	async rpcSavePermissionSet(
-		nsid: string,
-		set: import("@getcirrus/oauth-provider").LexiconPermissionSet,
-	): Promise<void> {
-		const storage = await this.getOAuthStorage();
-		storage.savePermissionSet(nsid, set);
-	}
-
-	// ============================================
-	// Passkey RPC Methods
-	// ============================================
-
-	/** Save a passkey credential */
-	async rpcSavePasskey(
-		credentialId: string,
-		publicKey: Uint8Array,
-		counter: number,
-		name?: string,
-	): Promise<void> {
-		const storage = await this.getStorage();
-		storage.savePasskey(credentialId, publicKey, counter, name);
-	}
-
-	/** Get a passkey by credential ID */
-	async rpcGetPasskey(credentialId: string): Promise<{
-		credentialId: string;
-		publicKey: Uint8Array;
-		counter: number;
-		name: string | null;
-		createdAt: string;
-		lastUsedAt: string | null;
-	} | null> {
-		const storage = await this.getStorage();
-		return storage.getPasskey(credentialId);
-	}
-
-	/** List all passkeys */
-	async rpcListPasskeys(): Promise<
-		Array<{
-			credentialId: string;
-			name: string | null;
-			createdAt: string;
-			lastUsedAt: string | null;
-		}>
-	> {
-		const storage = await this.getStorage();
-		return storage.listPasskeys();
-	}
-
-	/** Delete a passkey */
-	async rpcDeletePasskey(credentialId: string): Promise<boolean> {
-		const storage = await this.getStorage();
-		return storage.deletePasskey(credentialId);
-	}
-
-	/** Update passkey counter after authentication */
-	async rpcUpdatePasskeyCounter(
-		credentialId: string,
-		counter: number,
-	): Promise<void> {
-		const storage = await this.getStorage();
-		storage.updatePasskeyCounter(credentialId, counter);
-	}
-
-	/** Check if passkeys exist */
-	async rpcHasPasskeys(): Promise<boolean> {
-		const storage = await this.getStorage();
-		return storage.hasPasskeys();
-	}
-
-	/** Save a registration token */
-	async rpcSavePasskeyToken(
-		token: string,
-		challenge: string,
-		expiresAt: number,
-		name?: string,
-	): Promise<void> {
-		const storage = await this.getStorage();
-		storage.savePasskeyToken(token, challenge, expiresAt, name);
-	}
-
-	/** Consume a registration token */
-	async rpcConsumePasskeyToken(
-		token: string,
-	): Promise<{ challenge: string; name: string | null } | null> {
-		const storage = await this.getStorage();
-		return storage.consumePasskeyToken(token);
-	}
-
-	/** Save a WebAuthn challenge for passkey authentication */
-	async rpcSaveWebAuthnChallenge(challenge: string): Promise<void> {
-		const oauthStorage = await this.getOAuthStorage();
-		oauthStorage.saveWebAuthnChallenge(challenge);
-	}
-
-	/** Consume a WebAuthn challenge (single-use) */
-	async rpcConsumeWebAuthnChallenge(challenge: string): Promise<boolean> {
-		const oauthStorage = await this.getOAuthStorage();
-		return oauthStorage.consumeWebAuthnChallenge(challenge);
-	}
-
-	// ============================================
-	// App Password RPC Methods
-	// ============================================
-
-	/** Save an app password (bcrypt hash) */
-	async rpcSaveAppPassword(
-		name: string,
-		passwordHash: string,
-	): Promise<void> {
-		const storage = await this.getStorage();
-		storage.saveAppPassword(name, passwordHash);
-	}
-
-	/** List all app passwords (names and dates only) */
-	async rpcListAppPasswords(): Promise<
-		Array<{ name: string; createdAt: string }>
-	> {
-		const storage = await this.getStorage();
-		return storage.listAppPasswords();
-	}
-
-	/** Delete an app password by name */
-	async rpcDeleteAppPassword(name: string): Promise<boolean> {
-		const storage = await this.getStorage();
-		return storage.deleteAppPassword(name);
-	}
-
-	/** Get all app password hashes for login verification */
-	async rpcGetAppPasswordHashes(): Promise<
-		Array<{ name: string; passwordHash: string }>
-	> {
-		const storage = await this.getStorage();
-		return storage.getAppPasswordHashes();
-	}
-
-	/**
 	 * HTTP fetch handler for WebSocket upgrades and streaming responses.
 	 * Used instead of RPC when the response can't be serialized (WebSocket)
 	 * or when streaming is needed to avoid buffering large payloads (getRepo).
@@ -1770,73 +296,4 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		// All other requests should use RPC methods, not fetch
 		return new Response("Method not allowed", { status: 405 });
 	}
-}
-
-/**
- * Serialize a record for JSON by converting CID objects to { $link: "..." } format.
- * CBOR-decoded records contain raw CID objects that need conversion for JSON serialization.
- */
-function serializeRecord(obj: unknown): unknown {
-	if (obj === null || obj === undefined) return obj;
-
-	// Check if this is a CID object using @atproto/lex-data helper
-	const cid = asCid(obj);
-	if (cid) {
-		return { $link: cid.toString() };
-	}
-
-	// Convert Uint8Array to { $bytes: "<base64>" }
-	if (obj instanceof Uint8Array) {
-		let binary = "";
-		for (let i = 0; i < obj.length; i++) {
-			binary += String.fromCharCode(obj[i]!);
-		}
-		return { $bytes: btoa(binary) };
-	}
-
-	if (Array.isArray(obj)) {
-		return obj.map(serializeRecord);
-	}
-
-	if (typeof obj === "object") {
-		const result: Record<string, unknown> = {};
-		for (const [key, value] of Object.entries(obj)) {
-			result[key] = serializeRecord(value);
-		}
-		return result;
-	}
-
-	return obj;
-}
-
-/**
- * Extract blob CIDs from a record by recursively searching for blob references.
- * Blob refs have the structure: { $type: "blob", ref: CID, mimeType, size }
- */
-function extractBlobCids(obj: unknown): string[] {
-	const cids: string[] = [];
-
-	function walk(value: unknown): void {
-		if (value === null || value === undefined) return;
-
-		// Check if this is a blob reference using @atproto/lex-data helper
-		if (isBlobRef(value)) {
-			cids.push(value.ref.toString());
-			return; // No need to recurse into blob ref properties
-		}
-
-		if (Array.isArray(value)) {
-			for (const item of value) {
-				walk(item);
-			}
-		} else if (typeof value === "object") {
-			// Recursively walk all properties
-			for (const key of Object.keys(value as Record<string, unknown>)) {
-				walk((value as Record<string, unknown>)[key]);
-			}
-		}
-	}
-
-	walk(obj);
-	return cids;
 }

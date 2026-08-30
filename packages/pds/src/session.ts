@@ -23,6 +23,16 @@ function createSecretKey(secret: string): Uint8Array {
 	return new TextEncoder().encode(secret);
 }
 
+export interface SessionTokenOptions {
+	/**
+	 * Marks a session created with an app password. App passwords are a
+	 * deprecated credential class; surfaces like atproto spaces refuse
+	 * them. Carried as the `apf` claim on both token types so refresh
+	 * preserves it. The public repo path ignores it.
+	 */
+	appPassword?: boolean;
+}
+
 /**
  * Create an access token (short-lived, 2 hours)
  */
@@ -30,10 +40,14 @@ export async function createAccessToken(
 	jwtSecret: string,
 	userDid: string,
 	serviceDid: string,
+	options: SessionTokenOptions = {},
 ): Promise<string> {
 	const secret = createSecretKey(jwtSecret);
 
-	return new SignJWT({ scope: "com.atproto.access" })
+	return new SignJWT({
+		scope: "com.atproto.access",
+		...(options.appPassword ? { apf: true } : {}),
+	})
 		.setProtectedHeader({ alg: "HS256", typ: "at+jwt" })
 		.setIssuedAt()
 		.setAudience(serviceDid)
@@ -49,11 +63,15 @@ export async function createRefreshToken(
 	jwtSecret: string,
 	userDid: string,
 	serviceDid: string,
+	options: SessionTokenOptions = {},
 ): Promise<string> {
 	const secret = createSecretKey(jwtSecret);
 	const jti = crypto.randomUUID();
 
-	return new SignJWT({ scope: "com.atproto.refresh" })
+	return new SignJWT({
+		scope: "com.atproto.refresh",
+		...(options.appPassword ? { apf: true } : {}),
+	})
 		.setProtectedHeader({ alg: "HS256", typ: "refresh+jwt" })
 		.setIssuedAt()
 		.setAudience(serviceDid)

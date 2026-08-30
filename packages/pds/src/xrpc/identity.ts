@@ -52,6 +52,19 @@ export function buildDidDocument(env: PDSEnv) {
 				type: "AtprotoPersonalDataServer",
 				serviceEndpoint: `https://${env.PDS_HOSTNAME}`,
 			},
+			// Spaces alpha: advertise the space host endpoint. No dedicated
+			// #atproto_space verification key is added — the proposal falls
+			// back to #atproto, and a second key would create a rotation and
+			// backup story for no benefit on a single-user PDS.
+			...(env.SPACES_ENABLED === "true"
+				? [
+						{
+							id: "#atproto_space_host",
+							type: "AtprotoSpaceHost",
+							serviceEndpoint: `https://${env.PDS_HOSTNAME}`,
+						},
+					]
+				: []),
 		],
 	};
 }

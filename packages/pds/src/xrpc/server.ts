@@ -82,8 +82,9 @@ export async function createSession(
 	}
 
 	// Try app password first if it matches the format
+	let usedAppPassword = false;
 	if (isAppPassword(password)) {
-		const appPasswords = await accountDO.rpcGetAppPasswordHashes();
+		const appPasswords = await accountDO.account().getAppPasswordHashes();
 		let matched = false;
 		for (const ap of appPasswords) {
 			const valid = await verifyPassword(password, ap.passwordHash);
@@ -101,12 +102,10 @@ export async function createSession(
 				401,
 			);
 		}
+		usedAppPassword = true;
 	} else {
 		// Verify account password
-		const passwordValid = await verifyPassword(
-			password,
-			c.env.PASSWORD_HASH,
-		);
+		const passwordValid = await verifyPassword(password, c.env.PASSWORD_HASH);
 		if (!passwordValid) {
 			return c.json(
 				{
@@ -120,18 +119,21 @@ export async function createSession(
 
 	// Create tokens
 	const serviceDid = `did:web:${c.env.PDS_HOSTNAME}`;
+	const tokenOptions = { appPassword: usedAppPassword };
 	const accessJwt = await createAccessToken(
 		c.env.JWT_SECRET,
 		c.env.DID,
 		serviceDid,
+		tokenOptions,
 	);
 	const refreshJwt = await createRefreshToken(
 		c.env.JWT_SECRET,
 		c.env.DID,
 		serviceDid,
+		tokenOptions,
 	);
 
-	const { email: storedEmail } = await accountDO.rpcGetEmail();
+	const storedEmail = await accountDO.account().getEmail();
 	const email = storedEmail || c.env.EMAIL;
 
 	return c.json({
@@ -185,19 +187,22 @@ export async function refreshSession(
 			);
 		}
 
-		// Create new tokens
+		// Create new tokens, preserving the app-password marker.
+		const tokenOptions = { appPassword: payload.apf === true };
 		const accessJwt = await createAccessToken(
 			c.env.JWT_SECRET,
 			c.env.DID,
 			serviceDid,
+			tokenOptions,
 		);
 		const refreshJwt = await createRefreshToken(
 			c.env.JWT_SECRET,
 			c.env.DID,
 			serviceDid,
+			tokenOptions,
 		);
 
-		const { email: storedEmail } = await accountDO.rpcGetEmail();
+		const storedEmail = await accountDO.account().getEmail();
 		const email = storedEmail || c.env.EMAIL;
 
 		return c.json({
@@ -250,7 +255,7 @@ export async function getSession(
 	}
 
 	const buildResponse = async () => {
-		const { email: storedEmail } = await accountDO.rpcGetEmail();
+		const storedEmail = await accountDO.account().getEmail();
 		const email = storedEmail || c.env.EMAIL;
 		return c.json({
 			handle: c.env.HANDLE,
@@ -357,16 +362,16 @@ export async function checkAccountStatus(
 ): Promise<Response> {
 	try {
 		// Check if repo exists and get activation state
-		const status = await accountDO.rpcGetRepoStatus();
-		const active = await accountDO.rpcGetActive();
+		const status = await accountDO.repo().getStatus();
+		const active = await accountDO.repo().getActive();
 
 		// Get counts for migration progress tracking
 		const [repoBlocks, indexedRecords, expectedBlobs, importedBlobs] =
 			await Promise.all([
-				accountDO.rpcCountBlocks(),
-				accountDO.rpcCountRecords(),
-				accountDO.rpcCountExpectedBlobs(),
-				accountDO.rpcCountImportedBlobs(),
+				accountDO.repo().countBlocks(),
+				accountDO.repo().countRecords(),
+				accountDO.repo().countExpectedBlobs(),
+				accountDO.repo().countImportedBlobs(),
 			]);
 
 		// Account is considered "activated" if it's currently active OR has content
@@ -441,7 +446,7 @@ export async function activateAccount(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	try {
-		await accountDO.rpcActivateAccount();
+		await accountDO.repo().activateAccount();
 		return c.json({ success: true });
 	} catch (err) {
 		return c.json(
@@ -462,7 +467,7 @@ export async function deactivateAccount(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	try {
-		await accountDO.rpcDeactivateAccount();
+		await accountDO.repo().deactivateAccount();
 		return c.json({ success: true });
 	} catch (err) {
 		return c.json(
@@ -514,7 +519,7 @@ export async function updateEmail(
 		);
 	}
 
-	await accountDO.rpcUpdateEmail(body.email);
+	await accountDO.account().setEmail(body.email);
 	return c.json({});
 }
 
@@ -527,7 +532,7 @@ export async function resetMigration(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	try {
-		const result = await accountDO.rpcResetMigration();
+		const result = await accountDO.repo().resetMigration();
 		return c.json(result);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : "Unknown error";
@@ -577,7 +582,7 @@ export async function createAppPassword(
 	const name = body.name.trim();
 
 	// Check for duplicate names
-	const existing = await accountDO.rpcListAppPasswords();
+	const existing = await accountDO.account().listAppPasswords();
 	if (existing.some((p) => p.name === name)) {
 		return c.json(
 			{
@@ -591,7 +596,7 @@ export async function createAppPassword(
 	const password = generateAppPassword();
 	const passwordHash = await bcryptHash(password, 10);
 
-	await accountDO.rpcSaveAppPassword(name, passwordHash);
+	await accountDO.account().saveAppPassword(name, passwordHash);
 
 	return c.json({
 		name,
@@ -608,7 +613,7 @@ export async function listAppPasswords(
 	c: Context<AuthedAppEnv>,
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
-	const passwords = await accountDO.rpcListAppPasswords();
+	const passwords = await accountDO.account().listAppPasswords();
 	return c.json({
 		passwords: passwords.map((p) => ({
 			name: p.name,
@@ -650,7 +655,7 @@ export async function revokeAppPassword(
 		);
 	}
 
-	const deleted = await accountDO.rpcDeleteAppPassword(body.name);
+	const deleted = await accountDO.account().deleteAppPassword(body.name);
 	if (!deleted) {
 		return c.json(
 			{

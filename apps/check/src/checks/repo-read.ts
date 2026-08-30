@@ -8,6 +8,7 @@ import type { Did, Nsid } from "@atcute/lexicons/syntax";
 import { CarReader } from "@ipld/car";
 import { validateLexicon } from "../lib/xrpc";
 import type { Check, CheckOutcome } from "../types";
+import { verifyCar } from "../lib/verify"
 
 let cachedClient: { pds: string; client: Client } | undefined;
 
@@ -721,6 +722,31 @@ const getRepoCarValidates: Check = {
 	},
 };
 
+const getRepoCarVerifyCommitSignature: Check = {
+	id: "repo-read.verify-commit-signature.validates",
+	category: "repo-read",
+	label: "CAR file commit signature validates",
+	requires: ["pds", "did"],
+	run: async (ctx): Promise<CheckOutcome> => {
+		const didDoc = ctx.didDoc!
+		if (!repoCarBytes) {
+			return { status: "skip", message: "no CAR bytes to parse" };
+		}
+		const result = await verifyCar(repoCarBytes,didDoc)
+		if (result.ok) {
+			return {
+				status: "pass",
+				message: `Commit object Signature validates`,
+			};
+		} else {
+			return {
+				status: "fail",
+				message: result.message,
+			};
+		}
+	}
+};
+
 export const repoReadChecks: Check[] = [
 	describeRepo,
 	describeRepoValidates,
@@ -733,4 +759,5 @@ export const repoReadChecks: Check[] = [
 	listRecordsCursor,
 	getRepoCar,
 	getRepoCarValidates,
+	getRepoCarVerifyCommitSignature,
 ];

@@ -1,5 +1,9 @@
 import type { AuthVariables } from "./middleware/auth";
 import type { AccountDurableObject } from "./account-do";
+import type {
+	SpaceDurableObject,
+	SpaceIndexDurableObject,
+} from "./spaces";
 
 /**
  * Data location options for Durable Object placement.
@@ -59,6 +63,16 @@ export interface PDSEnv {
 	ACCOUNT: DurableObjectNamespace<AccountDurableObject>;
 	/** R2 bucket for blob storage (optional) */
 	BLOBS?: R2Bucket;
+	/**
+	 * Atproto spaces (alpha). Unset or anything but "true" disables every
+	 * space and simplespace route; they fall through to the proxy like any
+	 * unknown method.
+	 */
+	SPACES_ENABLED?: string;
+	/** Durable Object namespace for spaces (one per space URI). */
+	SPACES?: DurableObjectNamespace<SpaceDurableObject>;
+	/** Durable Object namespace for the space index singleton. */
+	SPACES_INDEX?: DurableObjectNamespace<SpaceIndexDurableObject>;
 	/** Account email address (optional, used by some clients) */
 	EMAIL?: string;
 	/** Initial activation state for new accounts (default: true) */

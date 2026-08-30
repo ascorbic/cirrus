@@ -1,5 +1,17 @@
 # @getcirrus/pds
 
+## 0.19.0
+
+### Minor Changes
+
+- [#219](https://github.com/ascorbic/cirrus/pull/219) [`5762e22`](https://github.com/ascorbic/cirrus/commit/5762e22a9ece71a83eb4b3d67ae5a773c637ee7d) Thanks [@ascorbic](https://github.com/ascorbic)! - Atproto spaces (alpha), behind the `SPACES_ENABLED` flag: space and simplespace endpoints, space Durable Objects, delegation and credential issuance, `space:` OAuth scopes with consent-screen support, the `pds spaces` CLI, a dashboard panel, and blob upload staging (uploads land in `staged/` until a record references them — add the R2 lifecycle rule documented in the wrangler template).
+
+### Patch Changes
+
+- Updated dependencies [[`5762e22`](https://github.com/ascorbic/cirrus/commit/5762e22a9ece71a83eb4b3d67ae5a773c637ee7d), [`5762e22`](https://github.com/ascorbic/cirrus/commit/5762e22a9ece71a83eb4b3d67ae5a773c637ee7d)]:
+  - @getcirrus/spaces@0.1.0
+  - @getcirrus/oauth-provider@0.6.0
+
 ## 0.18.0
 
 ### Minor Changes

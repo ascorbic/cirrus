@@ -821,7 +821,9 @@ describe("XRPC Service Proxying", () => {
 		): Promise<void> {
 			const stub = env.ACCOUNT.get(env.ACCOUNT.idFromName("account"));
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				await instance.rpcSaveTokens({
+				await (
+					await instance.authStore()
+				).saveTokens({
 					accessToken,
 					refreshToken: `refresh-${accessToken}`,
 					clientId: "did:web:client.example.com",
@@ -1195,7 +1197,9 @@ describe("XRPC Service Proxying", () => {
 
 			const stub = env.ACCOUNT.get(env.ACCOUNT.idFromName("account"));
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				await instance.rpcSaveTokens({
+				await (
+					await instance.authStore()
+				).saveTokens({
 					accessToken,
 					refreshToken: `refresh-${accessToken}`,
 					clientId: "did:web:client.example.com",

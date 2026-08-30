@@ -29,7 +29,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup PNPM
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -44,17 +44,12 @@ jobs:
         run: pnpm run build
       - run: pnpm run check
 
-      # Update npm to latest version so that OIDC works correctly
-      - name: Update npm
-        run: npm install -g npm@latest
-
       - name: Create Release Pull Request or Publish to npm
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@v2
         with:
-          version: pnpm changeset version
-          publish: pnpm changeset publish
-          commit: "ci: release"
-          title: "ci: release"
-        env:
-          GITHUB_TOKEN: ${{ steps.get-token.outputs.token }}
+          version-script: pnpm changeset version
+          publish-script: pnpm changeset publish
+          commit-message: "ci: release"
+          pr-title: "ci: release"
+          github-token: ${{ steps.get-token.outputs.token }}

@@ -1,0 +1,34 @@
+{
+	// Test configuration for the spaces engine fixture worker
+	"name": "spaces-test",
+	"main": "index.ts",
+	"compatibility_date": "2025-12-02",
+	"compatibility_flags": ["nodejs_compat"],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "SPACES",
+				"class_name": "TestSpaceDurableObject",
+			},
+			{
+				"name": "SPACES_INDEX",
+				"class_name": "TestSpaceIndexDurableObject",
+			},
+		],
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"TestSpaceDurableObject",
+				"TestSpaceIndexDurableObject",
+			],
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "BLOBS",
+			"bucket_name": "test-blobs",
+		},
+	],
+}

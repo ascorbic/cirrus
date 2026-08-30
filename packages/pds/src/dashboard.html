@@ -322,6 +322,72 @@
 				}
 			}
 
+			/* Spaces panel */
+			.spaces-alpha {
+				font-size: 0.6rem;
+				color: var(--amber);
+				border: 1px solid var(--amber);
+				padding: 0 0.3em;
+				border-radius: 3px;
+				vertical-align: middle;
+			}
+			.space-row {
+				display: flex;
+				flex-wrap: wrap;
+				align-items: baseline;
+				gap: 0.5em;
+				padding: 0.35em 0;
+				border-bottom: 1px solid var(--border);
+				font-size: 0.8rem;
+			}
+			.space-row:last-child {
+				border-bottom: none;
+			}
+			.space-uri {
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+				max-width: 100%;
+			}
+			.space-meta {
+				color: var(--text-dim, #888);
+				font-size: 0.72rem;
+			}
+			.space-actions button,
+			.spaces-token button,
+			.space-members button {
+				background: transparent;
+				color: inherit;
+				border: 1px solid var(--border);
+				border-radius: 3px;
+				padding: 0.1em 0.5em;
+				font: inherit;
+				font-size: 0.72rem;
+				cursor: pointer;
+			}
+			.space-actions button:hover,
+			.space-members button:hover {
+				border-color: var(--red);
+				color: var(--red);
+			}
+			.space-members {
+				width: 100%;
+				display: flex;
+				gap: 0.4em;
+				align-items: center;
+			}
+			.space-members input {
+				background: transparent;
+				border: 1px solid var(--border);
+				border-radius: 3px;
+				color: inherit;
+				font: inherit;
+				font-size: 0.72rem;
+				padding: 0.1em 0.4em;
+				flex: 1;
+				min-width: 8em;
+			}
+
 			/* Scrollbar */
 			.events-list::-webkit-scrollbar {
 				width: 4px;
@@ -362,6 +428,15 @@
 					<span class="status-text">CHECKING</span>
 				</div>
 				<div class="relay-rev" id="relay-rev"></div>
+			</div>
+		</section>
+
+		<section class="panels" id="spaces-section" style="display: none">
+			<div class="panel" style="grid-column: 1 / -1">
+				<h2>SPACES <span class="spaces-alpha">ALPHA</span></h2>
+				<div id="spaces-body">
+					<span class="empty-state">Loading&hellip;</span>
+				</div>
 			</div>
 		</section>
 
@@ -699,6 +774,151 @@
 					document.addEventListener("DOMContentLoaded", init);
 				} else {
 					init();
+				}
+			}
+		</script>
+		<script>
+			// -- Spaces (alpha) panel --
+			{
+				const CONFIG = window.__CIRRUS_CONFIG || {};
+				const BASE = window.location.origin;
+				const section = document.getElementById("spaces-section");
+				const body = document.getElementById("spaces-body");
+
+				const tokenKey = "cirrus_spaces_token";
+				const getToken = (force) => {
+					let token = sessionStorage.getItem(tokenKey);
+					if (!token || force) {
+						token = window.prompt(
+							"Admin token (AUTH_TOKEN) for space management:",
+						);
+						if (token) sessionStorage.setItem(tokenKey, token);
+					}
+					return token;
+				};
+
+				const xrpc = async (method, nsid, opts = {}) => {
+					const token = getToken();
+					if (!token) throw new Error("No admin token");
+					const url = new URL(`${BASE}/xrpc/${nsid}`);
+					for (const [k, v] of Object.entries(opts.params || {})) {
+						url.searchParams.set(k, v);
+					}
+					const res = await fetch(url, {
+						method,
+						headers: {
+							Authorization: `Bearer ${token}`,
+							...(opts.body ? { "Content-Type": "application/json" } : {}),
+						},
+						...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
+					});
+					if (res.status === 401) {
+						sessionStorage.removeItem(tokenKey);
+						throw new Error("Invalid admin token");
+					}
+					if (!res.ok) {
+						const err = await res.json().catch(() => ({}));
+						throw new Error(err.message || `${nsid} failed (${res.status})`);
+					}
+					return res.json();
+				};
+
+				const el = (tag, cls, text) => {
+					const node = document.createElement(tag);
+					if (cls) node.className = cls;
+					if (text !== undefined) node.textContent = text;
+					return node;
+				};
+
+				const render = (status) => {
+					body.replaceChildren();
+					if (!status.spaces.length) {
+						body.append(el("span", "empty-state", "No spaces yet."));
+						return;
+					}
+					for (const space of status.spaces) {
+						const row = el("div", "space-row");
+						row.append(el("span", "space-uri", space.uri));
+						const flags = [space.role, space.state]
+							.concat(space.outdated ? ["OUTDATED"] : [])
+							.join(" · ");
+						row.append(
+							el(
+								"span",
+								"space-meta",
+								`${flags} · ${space.recordCount} records · ${space.memberCount} members`,
+							),
+						);
+						if (space.role === "authority" && space.state === "active") {
+							const actions = el("span", "space-actions");
+							const del = el("button", null, "delete");
+							del.addEventListener("click", async () => {
+								if (!window.confirm(`Delete ${space.uri}?`)) return;
+								try {
+									await xrpc(
+										"POST",
+										"com.atproto.simplespace.deleteSpace",
+										{ body: { space: space.uri } },
+									);
+									load();
+								} catch (err) {
+									window.alert(err.message);
+								}
+							});
+							actions.append(del);
+							row.append(actions);
+
+							const members = el("div", "space-members");
+							const input = el("input");
+							input.placeholder = "did:… to add/remove";
+							const mkBtn = (label, nsid) => {
+								const btn = el("button", null, label);
+								btn.addEventListener("click", async () => {
+									const did = input.value.trim();
+									if (!did) return;
+									try {
+										await xrpc("POST", nsid, {
+											body: { space: space.uri, did },
+										});
+										input.value = "";
+										load();
+									} catch (err) {
+										window.alert(err.message);
+									}
+								});
+								return btn;
+							};
+							members.append(
+								input,
+								mkBtn("add member", "com.atproto.simplespace.addMember"),
+								mkBtn(
+									"remove member",
+									"com.atproto.simplespace.removeMember",
+								),
+							);
+							row.append(members);
+						}
+						body.append(row);
+					}
+				};
+
+				const load = async () => {
+					try {
+						const status = await xrpc(
+							"GET",
+							"gg.mk.experimental.getSpacesStatus",
+						);
+						render(status);
+					} catch (err) {
+						body.replaceChildren(
+							el("span", "empty-state", `Spaces: ${err.message}`),
+						);
+					}
+				};
+
+				if (CONFIG.spacesEnabled) {
+					section.style.display = "";
+					load();
 				}
 			}
 		</script>

@@ -89,15 +89,23 @@ export {
 	ScopePermissionsTransition,
 	ScopesSet,
 	expandScope,
+	finalizeSpaceScopes,
 	parseScope,
+	parseSpaceScope,
 	permissionsFor,
 } from "./scopes.js";
-export type { ParseScopeOptions } from "./scopes.js";
+export type {
+	FinalizeSpaceScopesOptions,
+	ParseScopeOptions,
+	SpacePermissionType,
+} from "./scopes.js";
+export type { SpaceScopeInfo } from "./ui.js";
 
 // Permission sets
 export { createAtcutePermissionSetResolver } from "./permission-sets.js";
 export type {
 	CreateAtcutePermissionSetResolverOptions,
 	LexiconPermissionSet,
+	LexiconSpace,
 	PermissionSetResolver,
 } from "./permission-sets.js";

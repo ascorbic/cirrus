@@ -15,6 +15,7 @@ import { deactivateCommand } from "./commands/deactivate.js";
 import { statusCommand } from "./commands/status.js";
 import { emitIdentityCommand } from "./commands/emit-identity.js";
 import { dashboardCommand } from "./commands/dashboard.js";
+import { spacesCommand } from "./commands/spaces.js";
 
 const main = defineCommand({
 	meta: {
@@ -35,6 +36,7 @@ const main = defineCommand({
 		status: statusCommand,
 		"emit-identity": emitIdentityCommand,
 		dashboard: dashboardCommand,
+		spaces: spacesCommand,
 	},
 });
 
