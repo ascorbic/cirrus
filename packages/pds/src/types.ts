@@ -1,9 +1,6 @@
 import type { AuthVariables } from "./middleware/auth";
 import type { AccountDurableObject } from "./account-do";
-import type {
-	SpaceDurableObject,
-	SpaceIndexDurableObject,
-} from "./spaces";
+import type { SpaceDurableObject, SpaceIndexDurableObject } from "./spaces";
 
 /**
  * Data location options for Durable Object placement.
@@ -63,6 +60,12 @@ export interface PDSEnv {
 	ACCOUNT: DurableObjectNamespace<AccountDurableObject>;
 	/** R2 bucket for blob storage (optional) */
 	BLOBS?: R2Bucket;
+	/**
+	 * Comma-separated relay URLs to send requestCrawl to when a write
+	 * commits with no firehose subscriber connected. Defaults to
+	 * https://bsky.network
+	 */
+	RELAYS?: string;
 	/**
 	 * Atproto spaces (alpha). Unset or anything but "true" disables every
 	 * space and simplespace route; they fall through to the proxy like any
