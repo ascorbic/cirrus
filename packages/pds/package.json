@@ -64,7 +64,8 @@
 		"vite": "^6.4.1",
 		"vitest": "4.1.0-beta.1",
 		"wrangler": "^4.93.0",
-		"ws": "^8.18.3"
+		"ws": "^8.18.3",
+		"@getcirrus/space-conformance": "workspace:*"
 	},
 	"repository": {
 		"type": "git",
