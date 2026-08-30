@@ -90,7 +90,7 @@ app.use(
 	cors({
 		origin: "*",
 		allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-		allowHeaders: ["*"],
+		// Note: No allowHeaders; using "*" wildcard doesn't cover Authorization, so let Hono reflect the requested headers instead
 		exposeHeaders: ["Content-Type"],
 		maxAge: 86400,
 	}),
