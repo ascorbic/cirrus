@@ -10,7 +10,7 @@ import {
 	type ValidationStatus,
 } from "../validation.js";
 import { detectContentType } from "../format.js";
-import { BlobStore, extractJsonBlobCids } from "../blobs.js";
+import { BlobStore, extractJsonBlobCids } from "../repo/blobs.js";
 import { buildScopeChecker, requireScope } from "../middleware/auth.js";
 
 /**

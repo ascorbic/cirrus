@@ -8,7 +8,7 @@ import type {
 	SeqIdentityEvent,
 	SeqSyncEvent,
 	SeqAccountEvent,
-} from "../src/sequencer";
+} from "../src/repo/sequencer";
 
 /**
  * Decode a firehose frame into header and body.

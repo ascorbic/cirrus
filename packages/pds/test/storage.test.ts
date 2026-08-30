@@ -4,7 +4,7 @@ import { CID } from "@atproto/lex-data";
 import { encode, cidForCbor, type LexValue } from "@atproto/lex-cbor";
 import { BlockMap, CidSet } from "@atproto/repo";
 import { AccountDurableObject } from "../src/account-do";
-import { SqliteRepoStorage } from "../src/storage";
+import { SqliteRepoStorage } from "../src/repo/storage";
 import { SqliteOAuthStorage } from "../src/oauth-storage";
 import { REFRESH_TOKEN_TTL } from "@getcirrus/oauth-provider";
 

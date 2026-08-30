@@ -20,10 +20,11 @@ import { Secp256k1Keypair } from "@atproto/crypto";
 import { CID, asCid, isBlobRef } from "@atproto/lex-data";
 import { now as tidNow } from "@atcute/tid";
 import { encode as cborEncode } from "./cbor-compat";
-import { SqliteRepoStorage } from "./storage";
+import { SqliteRepoStorage } from "./repo/storage";
 import { SqliteOAuthStorage } from "./oauth-storage";
-import { Sequencer, type SeqEvent, type CommitData } from "./sequencer";
-import { BlobStore } from "./blobs";
+import { Sequencer, type SeqEvent, type CommitData } from "./repo/sequencer";
+import { BlobStore } from "./repo/blobs";
+import { AccountStore } from "./account/store";
 import { jsonToLex } from "@atproto/lex-json";
 import type { PDSEnv } from "./types";
 import { RecordAlreadyExistsError, type ValidationStatus } from "./validation";
@@ -42,6 +43,7 @@ const MAX_OPS_PER_COMMIT = 200;
  */
 export class AccountDurableObject extends DurableObject<PDSEnv> {
 	private storage: SqliteRepoStorage | null = null;
+	private accountStore: AccountStore | null = null;
 	private oauthStorage: SqliteOAuthStorage | null = null;
 	private repo: Repo | null = null;
 	private keypair: Secp256k1Keypair | null = null;
@@ -83,6 +85,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 				this.storage = new SqliteRepoStorage(this.ctx.storage.sql);
 				this.storage.initSchema(initialActive);
+				this.accountStore = new AccountStore(this.ctx.storage.sql);
+				this.accountStore.initSchema();
 				this.oauthStorage = new SqliteOAuthStorage(this.ctx.storage.sql);
 				this.oauthStorage.initSchema();
 				this.sequencer = new Sequencer(this.ctx.storage.sql);
@@ -104,8 +108,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * Run cleanup on storage to remove expired entries
 	 */
 	private runCleanup(): void {
-		if (this.storage) {
-			this.storage.cleanupPasskeyTokens();
+		if (this.accountStore) {
+			this.accountStore.cleanupPasskeyTokens();
 		}
 		if (this.oauthStorage) {
 			this.oauthStorage.cleanup();
@@ -162,6 +166,14 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async getStorage(): Promise<SqliteRepoStorage> {
 		await this.ensureStorageInitialized();
 		return this.storage!;
+	}
+
+	/**
+	 * Get the account store for person-account data.
+	 */
+	async getAccountStore(): Promise<AccountStore> {
+		await this.ensureStorageInitialized();
+		return this.accountStore!;
 	}
 
 	/**
@@ -1256,8 +1268,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * RPC method: Get user preferences
 	 */
 	async rpcGetPreferences(): Promise<{ preferences: unknown[] }> {
-		const storage = await this.getStorage();
-		const preferences = await storage.getPreferences();
+		const store = await this.getAccountStore();
+		const preferences = await store.getPreferences();
 		return { preferences };
 	}
 
@@ -1265,24 +1277,24 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * RPC method: Put user preferences
 	 */
 	async rpcPutPreferences(preferences: unknown[]): Promise<void> {
-		const storage = await this.getStorage();
-		await storage.putPreferences(preferences);
+		const store = await this.getAccountStore();
+		await store.putPreferences(preferences);
 	}
 
 	/**
 	 * RPC method: Get stored email
 	 */
 	async rpcGetEmail(): Promise<{ email: string | null }> {
-		const storage = await this.getStorage();
-		return { email: storage.getEmail() };
+		const store = await this.getAccountStore();
+		return { email: store.getEmail() };
 	}
 
 	/**
 	 * RPC method: Update stored email
 	 */
 	async rpcUpdateEmail(email: string): Promise<void> {
-		const storage = await this.getStorage();
-		storage.setEmail(email);
+		const store = await this.getAccountStore();
+		store.setEmail(email);
 	}
 
 	/**
@@ -1641,8 +1653,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		counter: number,
 		name?: string,
 	): Promise<void> {
-		const storage = await this.getStorage();
-		storage.savePasskey(credentialId, publicKey, counter, name);
+		const store = await this.getAccountStore();
+		store.savePasskey(credentialId, publicKey, counter, name);
 	}
 
 	/** Get a passkey by credential ID */
@@ -1654,8 +1666,8 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		createdAt: string;
 		lastUsedAt: string | null;
 	} | null> {
-		const storage = await this.getStorage();
-		return storage.getPasskey(credentialId);
+		const store = await this.getAccountStore();
+		return store.getPasskey(credentialId);
 	}
 
 	/** List all passkeys */
@@ -1667,14 +1679,14 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			lastUsedAt: string | null;
 		}>
 	> {
-		const storage = await this.getStorage();
-		return storage.listPasskeys();
+		const store = await this.getAccountStore();
+		return store.listPasskeys();
 	}
 
 	/** Delete a passkey */
 	async rpcDeletePasskey(credentialId: string): Promise<boolean> {
-		const storage = await this.getStorage();
-		return storage.deletePasskey(credentialId);
+		const store = await this.getAccountStore();
+		return store.deletePasskey(credentialId);
 	}
 
 	/** Update passkey counter after authentication */
@@ -1682,14 +1694,14 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		credentialId: string,
 		counter: number,
 	): Promise<void> {
-		const storage = await this.getStorage();
-		storage.updatePasskeyCounter(credentialId, counter);
+		const store = await this.getAccountStore();
+		store.updatePasskeyCounter(credentialId, counter);
 	}
 
 	/** Check if passkeys exist */
 	async rpcHasPasskeys(): Promise<boolean> {
-		const storage = await this.getStorage();
-		return storage.hasPasskeys();
+		const store = await this.getAccountStore();
+		return store.hasPasskeys();
 	}
 
 	/** Save a registration token */
@@ -1699,16 +1711,16 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		expiresAt: number,
 		name?: string,
 	): Promise<void> {
-		const storage = await this.getStorage();
-		storage.savePasskeyToken(token, challenge, expiresAt, name);
+		const store = await this.getAccountStore();
+		store.savePasskeyToken(token, challenge, expiresAt, name);
 	}
 
 	/** Consume a registration token */
 	async rpcConsumePasskeyToken(
 		token: string,
 	): Promise<{ challenge: string; name: string | null } | null> {
-		const storage = await this.getStorage();
-		return storage.consumePasskeyToken(token);
+		const store = await this.getAccountStore();
+		return store.consumePasskeyToken(token);
 	}
 
 	/** Save a WebAuthn challenge for passkey authentication */
@@ -1732,30 +1744,30 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		name: string,
 		passwordHash: string,
 	): Promise<void> {
-		const storage = await this.getStorage();
-		storage.saveAppPassword(name, passwordHash);
+		const store = await this.getAccountStore();
+		store.saveAppPassword(name, passwordHash);
 	}
 
 	/** List all app passwords (names and dates only) */
 	async rpcListAppPasswords(): Promise<
 		Array<{ name: string; createdAt: string }>
 	> {
-		const storage = await this.getStorage();
-		return storage.listAppPasswords();
+		const store = await this.getAccountStore();
+		return store.listAppPasswords();
 	}
 
 	/** Delete an app password by name */
 	async rpcDeleteAppPassword(name: string): Promise<boolean> {
-		const storage = await this.getStorage();
-		return storage.deleteAppPassword(name);
+		const store = await this.getAccountStore();
+		return store.deleteAppPassword(name);
 	}
 
 	/** Get all app password hashes for login verification */
 	async rpcGetAppPasswordHashes(): Promise<
 		Array<{ name: string; passwordHash: string }>
 	> {
-		const storage = await this.getStorage();
-		return storage.getAppPasswordHashes();
+		const store = await this.getAccountStore();
+		return store.getAppPasswordHashes();
 	}
 
 	/**
