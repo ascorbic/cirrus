@@ -63,10 +63,10 @@ export function recordRun(run: Run): void {
 		fail,
 		total: applicable,
 	};
-	const next = [entry, ...runs().filter((r) => r.target !== entry.target)].slice(
-		0,
-		MAX_ENTRIES,
-	);
+	const next = [
+		entry,
+		...runs().filter((r) => r.target !== entry.target),
+	].slice(0, MAX_ENTRIES);
 	setRuns(next);
 	write(next);
 }

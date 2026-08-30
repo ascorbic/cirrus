@@ -62,6 +62,9 @@ importers:
       '@atcute/oauth-browser-client':
         specifier: ^4.0.0
         version: 4.0.0(@atcute/identity-resolver@2.0.0(@atcute/identity@2.0.0(@atcute/lexicons@2.0.0)(typescript@6.0.3))(@atcute/lexicons@2.0.0)(typescript@6.0.3))(@atcute/lexicons@2.0.0)(typescript@6.0.3)
+      '@getcirrus/space-conformance':
+        specifier: workspace:*
+        version: link:../../packages/space-conformance
       '@ipld/car':
         specifier: ^5.4.6
         version: 5.4.6

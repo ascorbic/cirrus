@@ -132,9 +132,7 @@ const protectedResourceValidates: Check = {
 			};
 		}
 		const issues: string[] = [];
-		const expectedResource = ctx.pds
-			? trimTrailingSlash(ctx.pds)
-			: undefined;
+		const expectedResource = ctx.pds ? trimTrailingSlash(ctx.pds) : undefined;
 		const resource = protectedResource.resource;
 		if (typeof resource !== "string" || resource.length === 0) {
 			issues.push("missing field: resource");
@@ -142,9 +140,7 @@ const protectedResourceValidates: Check = {
 			expectedResource &&
 			trimTrailingSlash(resource) !== expectedResource
 		) {
-			issues.push(
-				`resource: expected ${expectedResource}, got ${resource}`,
-			);
+			issues.push(`resource: expected ${expectedResource}, got ${resource}`);
 		}
 		const servers = protectedResource.authorization_servers;
 		if (!Array.isArray(servers) || servers.length === 0) {
@@ -335,9 +331,7 @@ const authServerValidates: Check = {
 					);
 				}
 				if (!grants.includes("refresh_token")) {
-					warnings.push(
-						"grant_types_supported: should include refresh_token",
-					);
+					warnings.push("grant_types_supported: should include refresh_token");
 				}
 			}
 		}
@@ -459,7 +453,9 @@ const jwksValidates: Check = {
 			}
 			// kty is required per RFC 7517 §4.1
 			if (typeof key.kty !== "string" || (key.kty as string).length === 0) {
-				hardFailures.push(`keys[${i}]: missing field kty (required by RFC 7517 §4.1)`);
+				hardFailures.push(
+					`keys[${i}]: missing field kty (required by RFC 7517 §4.1)`,
+				);
 			}
 			// kid is recommended for key rotation; warn if absent
 			if (typeof key.kid !== "string" || (key.kid as string).length === 0) {

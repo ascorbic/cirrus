@@ -19,6 +19,9 @@
 			"ignore": ["test/fixtures/**"],
 			"ignoreDependencies": ["wrangler"]
 		},
+		"apps/check": {
+			"entry": ["src/worker.ts"]
+		},
 		"packages/create-pds": {
 			"ignore": ["templates/**"]
 		}
