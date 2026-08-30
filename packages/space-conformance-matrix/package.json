@@ -1,0 +1,17 @@
+{
+	"name": "@getcirrus/space-conformance-matrix",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Runs @getcirrus/space-conformance against the atproto reference PDS (via @atproto/dev-env) so the suite is calibrated against the implementation every space must interoperate with.",
+	"scripts": {
+		"test": "vitest run",
+		"check": "tsc --noEmit -p tsconfig.json"
+	},
+	"devDependencies": {
+		"@atproto/dev-env": "0.0.0-spaces-alpha-20260818163953",
+		"@getcirrus/space-conformance": "workspace:*",
+		"typescript": "^5.9.3",
+		"vitest": "4.1.0-beta.1"
+	}
+}

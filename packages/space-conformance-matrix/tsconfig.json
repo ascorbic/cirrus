@@ -1,0 +1,10 @@
+{
+	"extends": "../../tsconfig.json",
+	"compilerOptions": {
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"noEmit": true,
+		"lib": ["es2022", "dom"]
+	},
+	"include": ["src", "test", "vitest.config.ts"]
+}
