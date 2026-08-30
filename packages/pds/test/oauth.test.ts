@@ -46,9 +46,7 @@ describe("OAuth 2.1 Endpoints", () => {
 				env,
 			);
 			const metadata = await response.json();
-			expect(metadata.jwks_uri).toBe(
-				`https://${env.PDS_HOSTNAME}/oauth/jwks`,
-			);
+			expect(metadata.jwks_uri).toBe(`https://${env.PDS_HOSTNAME}/oauth/jwks`);
 		});
 
 		it("should serve an empty JWKS at the advertised URL", async () => {
@@ -273,18 +271,17 @@ describe("OAuth 2.1 Endpoints", () => {
 		it("round-trips a saved permission set", async () => {
 			const id = env.ACCOUNT.newUniqueId();
 			const stub = env.ACCOUNT.get(id);
-			await runInDurableObject(
-				stub,
-				async (instance: AccountDurableObject) => {
-					await instance.rpcSavePermissionSet("com.example.basic", fakeSet);
-					const cached = await instance.rpcGetPermissionSet(
-						"com.example.basic",
-					);
-					expect(cached).not.toBeNull();
-					expect(cached!.set.title).toBe("Basic");
-					expect(cached!.stale).toBe(false);
-				},
-			);
+			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+				await (
+					await instance.authStore()
+				).savePermissionSet("com.example.basic", fakeSet);
+				const cached = await (
+					await instance.authStore()
+				).getPermissionSet("com.example.basic");
+				expect(cached).not.toBeNull();
+				expect(cached!.set.title).toBe("Basic");
+				expect(cached!.stale).toBe(false);
+			});
 		});
 
 		it("marks the entry stale after the 24h soft-expiry", async () => {
@@ -292,18 +289,17 @@ describe("OAuth 2.1 Endpoints", () => {
 			const stub = env.ACCOUNT.get(id);
 			vi.useFakeTimers();
 			vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-			await runInDurableObject(
-				stub,
-				async (instance: AccountDurableObject) => {
-					await instance.rpcSavePermissionSet("com.example.basic", fakeSet);
-					vi.setSystemTime(new Date("2026-01-02T01:00:00Z"));
-					const cached = await instance.rpcGetPermissionSet(
-						"com.example.basic",
-					);
-					expect(cached).not.toBeNull();
-					expect(cached!.stale).toBe(true);
-				},
-			);
+			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+				await (
+					await instance.authStore()
+				).savePermissionSet("com.example.basic", fakeSet);
+				vi.setSystemTime(new Date("2026-01-02T01:00:00Z"));
+				const cached = await (
+					await instance.authStore()
+				).getPermissionSet("com.example.basic");
+				expect(cached).not.toBeNull();
+				expect(cached!.stale).toBe(true);
+			});
 		});
 
 		it("drops the entry once past the 90-day hard-expiry", async () => {
@@ -311,17 +307,16 @@ describe("OAuth 2.1 Endpoints", () => {
 			const stub = env.ACCOUNT.get(id);
 			vi.useFakeTimers();
 			vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-			await runInDurableObject(
-				stub,
-				async (instance: AccountDurableObject) => {
-					await instance.rpcSavePermissionSet("com.example.basic", fakeSet);
-					vi.setSystemTime(new Date("2026-04-15T00:00:00Z"));
-					const cached = await instance.rpcGetPermissionSet(
-						"com.example.basic",
-					);
-					expect(cached).toBeNull();
-				},
-			);
+			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
+				await (
+					await instance.authStore()
+				).savePermissionSet("com.example.basic", fakeSet);
+				vi.setSystemTime(new Date("2026-04-15T00:00:00Z"));
+				const cached = await (
+					await instance.authStore()
+				).getPermissionSet("com.example.basic");
+				expect(cached).toBeNull();
+			});
 		});
 	});
 });

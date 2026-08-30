@@ -3,7 +3,7 @@ import {
 	type AuthCodeData,
 	type ClientMetadata,
 	type OAuthStorage,
-  type LexiconPermissionSet,
+	type LexiconPermissionSet,
 	type PARData,
 	type TokenData,
 	REFRESH_TOKEN_TTL,
@@ -207,10 +207,7 @@ export class SqliteOAuthStorage extends RpcTarget implements OAuthStorage {
 	cleanup(): void {
 		const now = Date.now();
 		this.sql.exec("DELETE FROM oauth_auth_codes WHERE expires_at < ?", now);
-		this.sql.exec(
-			"DELETE FROM oauth_tokens WHERE refresh_expires_at < ?",
-			now,
-		);
+		this.sql.exec("DELETE FROM oauth_tokens WHERE refresh_expires_at < ?", now);
 		this.sql.exec("DELETE FROM oauth_par_requests WHERE expires_at < ?", now);
 		this.sql.exec(
 			"DELETE FROM oauth_permission_sets WHERE expires_at < ?",

@@ -14,12 +14,8 @@ import {
 } from "@getcirrus/oauth-provider";
 import type {
 	OAuthStorage,
-	AuthCodeData,
 	LexiconPermissionSet,
 	PermissionSetResolver,
-	TokenData,
-	ClientMetadata,
-	PARData,
 } from "@getcirrus/oauth-provider";
 import {
 	CompositeDidDocumentResolver,
@@ -69,7 +65,7 @@ function getNetworkPermissionSetResolver(): PermissionSetResolver {
  * Note: cirrus PDS is single-tenant per Worker isolate (one account DID
  * per deployment), so an NSID-keyed inflight map is correct — every
  * resolver call within an isolate targets the same `accountDO` and the
- * subsequent `rpcSavePermissionSet` writes to the right cache. If cirrus
+ * subsequent `savePermissionSet` writes to the right cache. If cirrus
  * ever becomes multi-tenant, this map needs to be keyed by `${did}:${nsid}`
  * or each observer needs to fan out their own save.
  */
@@ -79,7 +75,9 @@ function createCachedPermissionSetResolver(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): PermissionSetResolver {
 	const network = getNetworkPermissionSetResolver();
-	const fetchAndStore = (nsid: string): Promise<LexiconPermissionSet | null> => {
+	const fetchAndStore = (
+		nsid: string,
+	): Promise<LexiconPermissionSet | null> => {
 		const existing = inflightRefresh.get(nsid);
 		if (existing) return existing;
 		const p = (async () => {

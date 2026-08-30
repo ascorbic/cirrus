@@ -105,10 +105,7 @@ export async function createSession(
 		usedAppPassword = true;
 	} else {
 		// Verify account password
-		const passwordValid = await verifyPassword(
-			password,
-			c.env.PASSWORD_HASH,
-		);
+		const passwordValid = await verifyPassword(password, c.env.PASSWORD_HASH);
 		if (!passwordValid) {
 			return c.json(
 				{

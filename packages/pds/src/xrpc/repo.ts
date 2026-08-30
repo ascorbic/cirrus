@@ -344,12 +344,9 @@ export async function createRecord(
 	await promoteRecordBlobs(c, [validated.record]);
 
 	try {
-		const result = await accountDO.repo().createRecord(
-			collection,
-			rkey,
-			validated.record,
-			validated.status,
-		);
+		const result = await accountDO
+			.repo()
+			.createRecord(collection, rkey, validated.record, validated.status);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
@@ -459,12 +456,9 @@ export async function putRecord(
 	await promoteRecordBlobs(c, [validated.record]);
 
 	try {
-		const result = await accountDO.repo().putRecord(
-			collection,
-			rkey,
-			validated.record,
-			validated.status,
-		);
+		const result = await accountDO
+			.repo()
+			.putRecord(collection, rkey, validated.record, validated.status);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
@@ -707,11 +701,9 @@ export async function uploadBlob(
 	// whether the CID is referenced and we promote here in that case.
 	const blobStore = new BlobStore(c.env.BLOBS, c.env.DID);
 	const blobRef = await blobStore.putBlob(bytes, contentType);
-	const { referenced } = await accountDO.repo().trackBlob(
-		blobRef.ref.$link,
-		blobRef.size,
-		blobRef.mimeType,
-	);
+	const { referenced } = await accountDO
+		.repo()
+		.trackBlob(blobRef.ref.$link, blobRef.size, blobRef.mimeType);
 	if (referenced) {
 		await blobStore.promoteBlob(blobRef.ref.$link);
 	}
@@ -816,10 +808,9 @@ export async function listMissingBlobs(
 
 	const limit = limitStr ? Math.min(Number.parseInt(limitStr, 10), 500) : 500;
 
-	const result = await accountDO.repo().listMissingBlobs(
-		limit,
-		cursor || undefined,
-	);
+	const result = await accountDO
+		.repo()
+		.listMissingBlobs(limit, cursor || undefined);
 
 	return c.json(result);
 }

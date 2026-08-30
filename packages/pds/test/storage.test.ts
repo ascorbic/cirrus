@@ -152,8 +152,6 @@ describe("SqliteRepoStorage", () => {
 		});
 	});
 
-
-
 	describe("applyCommit", () => {
 		it("applies a commit with new blocks", async () => {
 			const id = env.ACCOUNT.newUniqueId();
@@ -326,11 +324,15 @@ describe("Collections cache", () => {
 		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 			await instance.getStorage();
 
-			await instance.rpcCreateRecord("app.bsky.feed.post", "rkey-1", {
+			await (
+				await instance.repo()
+			).createRecord("app.bsky.feed.post", "rkey-1", {
 				text: "first",
 				createdAt: new Date().toISOString(),
 			});
-			await instance.rpcCreateRecord("app.bsky.feed.like", "rkey-2", {
+			await (
+				await instance.repo()
+			).createRecord("app.bsky.feed.like", "rkey-2", {
 				subject: {
 					uri: `at://${env.DID}/app.bsky.feed.post/rkey-1`,
 					cid: "bafyreigh2akiscaildc7ypw7e6tqocp3vy3uwgyq37e6kz3sm6f5l3hbjm",
@@ -344,7 +346,9 @@ describe("Collections cache", () => {
 				"app.bsky.feed.post",
 			]);
 
-			await instance.rpcDeleteRecord("app.bsky.feed.like", "rkey-2");
+			await (
+				await instance.repo()
+			).deleteRecord("app.bsky.feed.like", "rkey-2");
 
 			expect(storage.getCollections()).toEqual(["app.bsky.feed.post"]);
 		});
@@ -357,34 +361,44 @@ describe("Collections cache", () => {
 		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 			await instance.getStorage();
 
-			await instance.rpcCreateRecord("app.bsky.feed.post", "rkey-1", {
+			await (
+				await instance.repo()
+			).createRecord("app.bsky.feed.post", "rkey-1", {
 				text: "first",
 				createdAt: new Date().toISOString(),
 			});
-			await instance.rpcCreateRecord("app.bsky.feed.post", "rkey-2", {
+			await (
+				await instance.repo()
+			).createRecord("app.bsky.feed.post", "rkey-2", {
 				text: "second",
 				createdAt: new Date().toISOString(),
 			});
 
-			await instance.rpcDeleteRecord("app.bsky.feed.post", "rkey-1");
+			await (
+				await instance.repo()
+			).deleteRecord("app.bsky.feed.post", "rkey-1");
 
 			const storage = await instance.getStorage();
 			expect(storage.getCollections()).toEqual(["app.bsky.feed.post"]);
 
-			await instance.rpcDeleteRecord("app.bsky.feed.post", "rkey-2");
+			await (
+				await instance.repo()
+			).deleteRecord("app.bsky.feed.post", "rkey-2");
 
 			expect(storage.getCollections()).toEqual([]);
 		});
 	});
 
-	it("rpcApplyWrites: removes collection when batch deletes its last record", async () => {
+	it("applyWrites: removes collection when batch deletes its last record", async () => {
 		const id = env.ACCOUNT.newUniqueId();
 		const stub = env.ACCOUNT.get(id);
 
 		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 			await instance.getStorage();
 
-			await instance.rpcCreateRecord("app.bsky.feed.post", "rkey-1", {
+			await (
+				await instance.repo()
+			).createRecord("app.bsky.feed.post", "rkey-1", {
 				text: "first",
 				createdAt: new Date().toISOString(),
 			});
@@ -392,7 +406,9 @@ describe("Collections cache", () => {
 			const storage = await instance.getStorage();
 			expect(storage.getCollections()).toEqual(["app.bsky.feed.post"]);
 
-			await instance.rpcApplyWrites([
+			await (
+				await instance.repo()
+			).applyWrites([
 				{
 					$type: "com.atproto.repo.applyWrites#delete",
 					collection: "app.bsky.feed.post",
@@ -404,14 +420,16 @@ describe("Collections cache", () => {
 		});
 	});
 
-	it("rpcApplyWrites: keeps collection when batch creates and deletes leave records", async () => {
+	it("applyWrites: keeps collection when batch creates and deletes leave records", async () => {
 		const id = env.ACCOUNT.newUniqueId();
 		const stub = env.ACCOUNT.get(id);
 
 		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 			await instance.getStorage();
 
-			await instance.rpcCreateRecord("app.bsky.feed.post", "rkey-1", {
+			await (
+				await instance.repo()
+			).createRecord("app.bsky.feed.post", "rkey-1", {
 				text: "first",
 				createdAt: new Date().toISOString(),
 			});
@@ -419,7 +437,9 @@ describe("Collections cache", () => {
 			const storage = await instance.getStorage();
 			expect(storage.getCollections()).toEqual(["app.bsky.feed.post"]);
 
-			await instance.rpcApplyWrites([
+			await (
+				await instance.repo()
+			).applyWrites([
 				{
 					$type: "com.atproto.repo.applyWrites#delete",
 					collection: "app.bsky.feed.post",
@@ -441,18 +461,22 @@ describe("Collections cache", () => {
 		});
 	});
 
-	it("rpcApplyWrites: empties only the collection whose records were all deleted", async () => {
+	it("applyWrites: empties only the collection whose records were all deleted", async () => {
 		const id = env.ACCOUNT.newUniqueId();
 		const stub = env.ACCOUNT.get(id);
 
 		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 			await instance.getStorage();
 
-			await instance.rpcCreateRecord("app.bsky.feed.post", "rkey-1", {
+			await (
+				await instance.repo()
+			).createRecord("app.bsky.feed.post", "rkey-1", {
 				text: "first",
 				createdAt: new Date().toISOString(),
 			});
-			await instance.rpcCreateRecord("app.bsky.feed.like", "rkey-2", {
+			await (
+				await instance.repo()
+			).createRecord("app.bsky.feed.like", "rkey-2", {
 				subject: {
 					uri: `at://${env.DID}/app.bsky.feed.post/rkey-1`,
 					cid: "bafyreigh2akiscaildc7ypw7e6tqocp3vy3uwgyq37e6kz3sm6f5l3hbjm",
@@ -466,7 +490,9 @@ describe("Collections cache", () => {
 				"app.bsky.feed.post",
 			]);
 
-			await instance.rpcApplyWrites([
+			await (
+				await instance.repo()
+			).applyWrites([
 				{
 					$type: "com.atproto.repo.applyWrites#delete",
 					collection: "app.bsky.feed.like",
@@ -524,7 +550,6 @@ describe("AccountDurableObject", () => {
 	});
 });
 
-
 describe("SqliteOAuthStorage", () => {
 	it("preserves refresh-valid tokens when access token has expired", async () => {
 		const id = env.ACCOUNT.newUniqueId();
@@ -553,7 +578,9 @@ describe("SqliteOAuthStorage", () => {
 			);
 			expect(tokenByRefresh).not.toBeNull();
 			expect(tokenByRefresh?.refreshToken).toBe(tokenData.refreshToken);
-			expect(await oauthStorage.getTokenByAccess(tokenData.accessToken)).toBeNull();
+			expect(
+				await oauthStorage.getTokenByAccess(tokenData.accessToken),
+			).toBeNull();
 		});
 	});
 
@@ -562,8 +589,9 @@ describe("SqliteOAuthStorage", () => {
 		const stub = env.ACCOUNT.get(id);
 
 		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-			const sql = (instance as unknown as { ctx: { storage: { sql: SqlStorage } } })
-				.ctx.storage.sql;
+			const sql = (
+				instance as unknown as { ctx: { storage: { sql: SqlStorage } } }
+			).ctx.storage.sql;
 			const now = Date.now();
 			const issuedAt = now - 2 * 60 * 60 * 1000;
 			const expiresAt = now - 60 * 1000;
