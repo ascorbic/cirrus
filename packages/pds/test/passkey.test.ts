@@ -16,7 +16,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 				const challenge = "test-challenge-" + crypto.randomUUID();
 
 				oauthStorage.saveWebAuthnChallenge(challenge);
@@ -31,7 +31,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 				const challenge = "test-challenge-" + crypto.randomUUID();
 
 				oauthStorage.saveWebAuthnChallenge(challenge);
@@ -51,7 +51,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 
 				const isValid = oauthStorage.consumeWebAuthnChallenge(
 					"unknown-challenge-" + crypto.randomUUID(),
@@ -66,7 +66,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 				const challenge = "test-challenge-" + crypto.randomUUID();
 
 				// Save challenge with mocked time
@@ -89,7 +89,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 				const challenge = "test-challenge-" + crypto.randomUUID();
 
 				const now = Date.now();
@@ -111,7 +111,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 
 				const challenge1 = "challenge-1-" + crypto.randomUUID();
 				const challenge2 = "challenge-2-" + crypto.randomUUID();
@@ -287,7 +287,7 @@ describe("Passkey Security", () => {
 			const stub = env.ACCOUNT.get(id);
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-				const oauthStorage = await instance.getOAuthStorage();
+				const oauthStorage = await instance.authStore();
 
 				// Create some challenges
 				const now = Date.now();

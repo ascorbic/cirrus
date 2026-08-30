@@ -8,6 +8,7 @@ import { BlobStore } from "./repo/blobs";
 import { AccountStore } from "./account/store";
 import { Firehose } from "./repo/firehose";
 import { RepoEngine } from "./repo/engine";
+import { RepoFacet } from "./repo/facet";
 import { getRepoCar, getBlocksCar, getRecordProofCar } from "./repo/sync";
 import type { PDSEnv } from "./types";
 import type { ValidationStatus } from "./validation";
@@ -28,6 +29,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	private sequencer: Sequencer | null = null;
 	private firehose: Firehose | null = null;
 	private engine: RepoEngine | null = null;
+	private repoFacet: RepoFacet | null = null;
 	private blobStore: BlobStore | null = null;
 	private storageInitialized = false;
 
@@ -80,6 +82,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 					lock: (fn) => this.ctx.blockConcurrencyWhile(fn),
 					broadcast: (event) => this.firehose!.broadcast(event),
 				});
+				this.repoFacet = new RepoFacet(this.engine, this.storage);
 				this.storageInitialized = true;
 
 				// Run cleanup on initialization
@@ -137,17 +140,26 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * Get the account store for person-account data.
+	 * RPC facet: repository operations (records, sync, migration, blobs).
 	 */
-	async getAccountStore(): Promise<AccountStore> {
+	async repo(): Promise<RepoFacet> {
+		await this.ensureStorageInitialized();
+		return this.repoFacet!;
+	}
+
+	/**
+	 * RPC facet: person-account data (passkeys, app passwords, preferences, email).
+	 */
+	async account(): Promise<AccountStore> {
 		await this.ensureStorageInitialized();
 		return this.accountStore!;
 	}
 
 	/**
-	 * Get the OAuth storage adapter for OAuth operations.
+	 * RPC facet: OAuth storage (codes, tokens, clients, PAR, nonces,
+	 * permission sets, WebAuthn challenges).
 	 */
-	async getOAuthStorage(): Promise<SqliteOAuthStorage> {
+	async authStore(): Promise<SqliteOAuthStorage> {
 		await this.ensureStorageInitialized();
 		return this.oauthStorage!;
 	}
@@ -463,7 +475,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * RPC method: Get user preferences
 	 */
 	async rpcGetPreferences(): Promise<{ preferences: unknown[] }> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		const preferences = await store.getPreferences();
 		return { preferences };
 	}
@@ -472,7 +484,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * RPC method: Put user preferences
 	 */
 	async rpcPutPreferences(preferences: unknown[]): Promise<void> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		await store.putPreferences(preferences);
 	}
 
@@ -480,7 +492,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * RPC method: Get stored email
 	 */
 	async rpcGetEmail(): Promise<{ email: string | null }> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		return { email: store.getEmail() };
 	}
 
@@ -488,7 +500,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	 * RPC method: Update stored email
 	 */
 	async rpcUpdateEmail(email: string): Promise<void> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		store.setEmail(email);
 	}
 
@@ -645,7 +657,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		code: string,
 		data: import("@getcirrus/oauth-provider").AuthCodeData,
 	): Promise<void> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		await storage.saveAuthCode(code, data);
 	}
 
@@ -653,13 +665,13 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcGetAuthCode(
 		code: string,
 	): Promise<import("@getcirrus/oauth-provider").AuthCodeData | null> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		return storage.getAuthCode(code);
 	}
 
 	/** Delete an authorization code */
 	async rpcDeleteAuthCode(code: string): Promise<void> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		await storage.deleteAuthCode(code);
 	}
 
@@ -667,7 +679,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcSaveTokens(
 		data: import("@getcirrus/oauth-provider").TokenData,
 	): Promise<void> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		await storage.saveTokens(data);
 	}
 
@@ -675,7 +687,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcGetTokenByAccess(
 		accessToken: string,
 	): Promise<import("@getcirrus/oauth-provider").TokenData | null> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		return storage.getTokenByAccess(accessToken);
 	}
 
@@ -683,19 +695,19 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcGetTokenByRefresh(
 		refreshToken: string,
 	): Promise<import("@getcirrus/oauth-provider").TokenData | null> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		return storage.getTokenByRefresh(refreshToken);
 	}
 
 	/** Revoke a token */
 	async rpcRevokeToken(accessToken: string): Promise<void> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		await storage.revokeToken(accessToken);
 	}
 
 	/** Revoke all tokens for a user */
 	async rpcRevokeAllTokens(sub: string): Promise<void> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		await storage.revokeAllTokens(sub);
 	}
 
@@ -704,7 +716,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		clientId: string,
 		metadata: import("@getcirrus/oauth-provider").ClientMetadata,
 	): Promise<void> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		await storage.saveClient(clientId, metadata);
 	}
 
@@ -712,7 +724,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcGetClient(
 		clientId: string,
 	): Promise<import("@getcirrus/oauth-provider").ClientMetadata | null> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		return storage.getClient(clientId);
 	}
 
@@ -721,7 +733,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		requestUri: string,
 		data: import("@getcirrus/oauth-provider").PARData,
 	): Promise<void> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		await storage.savePAR(requestUri, data);
 	}
 
@@ -729,19 +741,19 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcGetPAR(
 		requestUri: string,
 	): Promise<import("@getcirrus/oauth-provider").PARData | null> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		return storage.getPAR(requestUri);
 	}
 
 	/** Delete PAR data */
 	async rpcDeletePAR(requestUri: string): Promise<void> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		await storage.deletePAR(requestUri);
 	}
 
 	/** Check and save DPoP nonce */
 	async rpcCheckAndSaveNonce(nonce: string): Promise<boolean> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		return storage.checkAndSaveNonce(nonce);
 	}
 
@@ -753,7 +765,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcGetPermissionSet(
 		nsid: string,
 	): Promise<import("./oauth-storage.js").CachedPermissionSet | null> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		return storage.getPermissionSet(nsid);
 	}
 
@@ -762,7 +774,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		nsid: string,
 		set: import("@getcirrus/oauth-provider").LexiconPermissionSet,
 	): Promise<void> {
-		const storage = await this.getOAuthStorage();
+		const storage = await this.authStore();
 		storage.savePermissionSet(nsid, set);
 	}
 
@@ -777,7 +789,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		counter: number,
 		name?: string,
 	): Promise<void> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		store.savePasskey(credentialId, publicKey, counter, name);
 	}
 
@@ -790,7 +802,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		createdAt: string;
 		lastUsedAt: string | null;
 	} | null> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		return store.getPasskey(credentialId);
 	}
 
@@ -803,13 +815,13 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 			lastUsedAt: string | null;
 		}>
 	> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		return store.listPasskeys();
 	}
 
 	/** Delete a passkey */
 	async rpcDeletePasskey(credentialId: string): Promise<boolean> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		return store.deletePasskey(credentialId);
 	}
 
@@ -818,13 +830,13 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		credentialId: string,
 		counter: number,
 	): Promise<void> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		store.updatePasskeyCounter(credentialId, counter);
 	}
 
 	/** Check if passkeys exist */
 	async rpcHasPasskeys(): Promise<boolean> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		return store.hasPasskeys();
 	}
 
@@ -835,7 +847,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 		expiresAt: number,
 		name?: string,
 	): Promise<void> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		store.savePasskeyToken(token, challenge, expiresAt, name);
 	}
 
@@ -843,19 +855,19 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcConsumePasskeyToken(
 		token: string,
 	): Promise<{ challenge: string; name: string | null } | null> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		return store.consumePasskeyToken(token);
 	}
 
 	/** Save a WebAuthn challenge for passkey authentication */
 	async rpcSaveWebAuthnChallenge(challenge: string): Promise<void> {
-		const oauthStorage = await this.getOAuthStorage();
+		const oauthStorage = await this.authStore();
 		oauthStorage.saveWebAuthnChallenge(challenge);
 	}
 
 	/** Consume a WebAuthn challenge (single-use) */
 	async rpcConsumeWebAuthnChallenge(challenge: string): Promise<boolean> {
-		const oauthStorage = await this.getOAuthStorage();
+		const oauthStorage = await this.authStore();
 		return oauthStorage.consumeWebAuthnChallenge(challenge);
 	}
 
@@ -865,7 +877,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 	/** Save an app password (bcrypt hash) */
 	async rpcSaveAppPassword(name: string, passwordHash: string): Promise<void> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		store.saveAppPassword(name, passwordHash);
 	}
 
@@ -873,13 +885,13 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcListAppPasswords(): Promise<
 		Array<{ name: string; createdAt: string }>
 	> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		return store.listAppPasswords();
 	}
 
 	/** Delete an app password by name */
 	async rpcDeleteAppPassword(name: string): Promise<boolean> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		return store.deleteAppPassword(name);
 	}
 
@@ -887,7 +899,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	async rpcGetAppPasswordHashes(): Promise<
 		Array<{ name: string; passwordHash: string }>
 	> {
-		const store = await this.getAccountStore();
+		const store = await this.account();
 		return store.getAppPasswordHashes();
 	}
 

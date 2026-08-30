@@ -531,7 +531,7 @@ describe("SqliteOAuthStorage", () => {
 		const stub = env.ACCOUNT.get(id);
 
 		await runInDurableObject(stub, async (instance: AccountDurableObject) => {
-			const oauthStorage = await instance.getOAuthStorage();
+			const oauthStorage = await instance.authStore();
 			const now = Date.now();
 			const tokenData = {
 				accessToken: "expired-access-token",

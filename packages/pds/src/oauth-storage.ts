@@ -1,3 +1,4 @@
+import { RpcTarget } from "cloudflare:workers";
 import {
 	type AuthCodeData,
 	type ClientMetadata,
@@ -24,9 +25,15 @@ export interface CachedPermissionSet {
  *
  * Implements the OAuthStorage interface from @getcirrus/oauth-provider,
  * storing OAuth data in SQLite tables within a Durable Object.
+ *
+ * Extends RpcTarget so the Durable Object can hand it to the Worker as a
+ * stub (via authStore()) — callers invoke storage methods directly over
+ * RPC instead of going through per-method proxies on the DO class.
  */
-export class SqliteOAuthStorage implements OAuthStorage {
-	constructor(private sql: SqlStorage) {}
+export class SqliteOAuthStorage extends RpcTarget implements OAuthStorage {
+	constructor(private sql: SqlStorage) {
+		super();
+	}
 
 	/**
 	 * Initialize the OAuth database schema. Should be called once on DO startup.
