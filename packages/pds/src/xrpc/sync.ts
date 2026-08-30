@@ -79,8 +79,8 @@ export async function getRepoStatus(
 	}
 
 	const [data, active] = await Promise.all([
-		accountDO.rpcGetRepoStatus(),
-		accountDO.rpcGetActive(),
+		accountDO.repo().getStatus(),
+		accountDO.repo().getActive(),
 	]);
 
 	if (active) {
@@ -103,7 +103,7 @@ export async function listRepos(
 	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	// Single-user PDS - just return our one repo
-	const data = await accountDO.rpcGetRepoStatus();
+	const data = await accountDO.repo().getStatus();
 
 	return c.json({
 		repos: [
@@ -152,8 +152,8 @@ export async function getLatestCommit(
 	}
 
 	const [data, active] = await Promise.all([
-		accountDO.rpcGetRepoStatus(),
-		accountDO.rpcGetActive(),
+		accountDO.repo().getStatus(),
+		accountDO.repo().getActive(),
 	]);
 
 	if (!active) {
@@ -276,7 +276,7 @@ export async function getBlocks(
 		);
 	}
 
-	const carBytes = await accountDO.rpcGetBlocks(cidsParam);
+	const carBytes = await accountDO.repo().getBlocks(cidsParam);
 
 	return new Response(carBytes, {
 		status: 200,
@@ -460,7 +460,7 @@ export async function getRecord(
 	}
 
 	try {
-		const carBytes = await accountDO.rpcGetRecordProof(collection, rkey);
+		const carBytes = await accountDO.repo().getRecordProof(collection, rkey);
 
 		return new Response(carBytes, {
 			status: 200,

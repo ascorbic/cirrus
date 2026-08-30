@@ -1,3 +1,5 @@
+import { RpcTarget } from "cloudflare:workers";
+
 /**
  * Convert SQLite's `datetime('now')` output ("YYYY-MM-DD HH:MM:SS" in UTC) to
  * an RFC 3339 / ISO 8601 string for lexicon-compliant API responses. Returns
@@ -17,9 +19,14 @@ function sqliteDatetimeToIso(value: string): string {
  * passkeys, and app passwords. Shares the Durable Object's SQLite database
  * with SqliteRepoStorage; the email accessors read the email column of the
  * repo_state table, whose schema SqliteRepoStorage owns.
+ *
+ * Extends RpcTarget so the Durable Object can hand it to the Worker as a
+ * stub (via account()) — callers invoke store methods directly over RPC.
  */
-export class AccountStore {
-	constructor(private sql: SqlStorage) {}
+export class AccountStore extends RpcTarget {
+	constructor(private sql: SqlStorage) {
+		super();
+	}
 
 	initSchema(): void {
 		this.sql.exec(`

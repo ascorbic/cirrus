@@ -54,7 +54,9 @@ describe("Firehose (subscribeRepos)", () => {
 				const seqBefore = sequencer.getLatestSeq();
 
 				// Create a record
-				await instance.rpcCreateRecord("app.bsky.feed.post", "test-seq-123", {
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "test-seq-123", {
 					text: "Test sequencing",
 					createdAt: new Date().toISOString(),
 				});
@@ -92,7 +94,9 @@ describe("Firehose (subscribeRepos)", () => {
 				const sequencer = (instance as any).sequencer;
 
 				// Create a record first
-				await instance.rpcCreateRecord("app.bsky.feed.post", "to-delete-seq", {
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "to-delete-seq", {
 					text: "Will be deleted",
 					createdAt: new Date().toISOString(),
 				});
@@ -100,7 +104,9 @@ describe("Firehose (subscribeRepos)", () => {
 				const seqBeforeDelete = sequencer.getLatestSeq();
 
 				// Delete it
-				await instance.rpcDeleteRecord("app.bsky.feed.post", "to-delete-seq");
+				await (
+					await instance.repo()
+				).deleteRecord("app.bsky.feed.post", "to-delete-seq");
 
 				// Check that delete was sequenced
 				const seqAfterDelete = sequencer.getLatestSeq();
@@ -137,14 +143,12 @@ describe("Firehose (subscribeRepos)", () => {
 
 				// Create some events
 				for (let i = 0; i < 3; i++) {
-					await instance.rpcCreateRecord(
-						"app.bsky.feed.post",
-						`backfill-${i}`,
-						{
-							text: `Backfill ${i}`,
-							createdAt: new Date().toISOString(),
-						},
-					);
+					await (
+						await instance.repo()
+					).createRecord("app.bsky.feed.post", `backfill-${i}`, {
+						text: `Backfill ${i}`,
+						createdAt: new Date().toISOString(),
+					});
 				}
 
 				// Get events since the cursor
@@ -166,15 +170,13 @@ describe("Firehose (subscribeRepos)", () => {
 				const seqBefore = sequencer.getLatestSeq();
 
 				// Create a record
-				const result = await instance.rpcCreateRecord(
-					"app.bsky.feed.post",
-					"blocks-test-123",
-					{
-						$type: "app.bsky.feed.post",
-						text: "Test blocks content",
-						createdAt: new Date().toISOString(),
-					},
-				);
+				const result = await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "blocks-test-123", {
+					$type: "app.bsky.feed.post",
+					text: "Test blocks content",
+					createdAt: new Date().toISOString(),
+				});
 
 				// Get the event
 				const events = await sequencer.getEventsSince(seqBefore, 10);
@@ -221,7 +223,9 @@ describe("Firehose (subscribeRepos)", () => {
 				const seqBefore = sequencer.getLatestSeq();
 
 				// Create a record
-				await instance.rpcCreateRecord("app.bsky.feed.post", "non-empty-test", {
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "non-empty-test", {
 					$type: "app.bsky.feed.post",
 					text: "Must have blocks",
 					createdAt: new Date().toISOString(),
@@ -253,14 +257,12 @@ describe("Firehose (subscribeRepos)", () => {
 
 				// Create 3 new records
 				for (let i = 0; i < 3; i++) {
-					await instance.rpcCreateRecord(
-						"app.bsky.feed.post",
-						`cursor-test-${i}`,
-						{
-							text: `Post ${i}`,
-							createdAt: new Date().toISOString(),
-						},
-					);
+					await (
+						await instance.repo()
+					).createRecord("app.bsky.feed.post", `cursor-test-${i}`, {
+						text: `Post ${i}`,
+						createdAt: new Date().toISOString(),
+					});
 				}
 
 				// Get events since the old cursor
@@ -288,14 +290,12 @@ describe("Firehose (subscribeRepos)", () => {
 
 				// Create 10 records
 				for (let i = 0; i < 10; i++) {
-					await instance.rpcCreateRecord(
-						"app.bsky.feed.post",
-						`limit-test-${i}`,
-						{
-							text: `Post ${i}`,
-							createdAt: new Date().toISOString(),
-						},
-					);
+					await (
+						await instance.repo()
+					).createRecord("app.bsky.feed.post", `limit-test-${i}`, {
+						text: `Post ${i}`,
+						createdAt: new Date().toISOString(),
+					});
 				}
 
 				// Request only 5 events
@@ -313,21 +313,19 @@ describe("Firehose (subscribeRepos)", () => {
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 				await instance.getStorage();
 				const sequencer = (instance as any).sequencer;
-				const encodeEventFrame = (instance as any).firehose.encodeEventFrame.bind(
-					(instance as any).firehose,
-				);
+				const encodeEventFrame = (
+					instance as any
+				).firehose.encodeEventFrame.bind((instance as any).firehose);
 
 				const seqBefore = sequencer.getLatestSeq();
 
 				// Create a record to get a commit event
-				await instance.rpcCreateRecord(
-					"app.bsky.feed.post",
-					"frame-type-test",
-					{
-						text: "Test frame type",
-						createdAt: new Date().toISOString(),
-					},
-				);
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "frame-type-test", {
+					text: "Test frame type",
+					createdAt: new Date().toISOString(),
+				});
 
 				// Get the event
 				const events = await sequencer.getEventsSince(seqBefore, 1);
@@ -354,9 +352,9 @@ describe("Firehose (subscribeRepos)", () => {
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 				await instance.getStorage();
-				const encodeEventFrame = (instance as any).firehose.encodeEventFrame.bind(
-					(instance as any).firehose,
-				);
+				const encodeEventFrame = (
+					instance as any
+				).firehose.encodeEventFrame.bind((instance as any).firehose);
 
 				// Create a mock identity event to test encoding
 				const identityEvent: SeqIdentityEvent = {
@@ -392,15 +390,17 @@ describe("Firehose (subscribeRepos)", () => {
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 				await instance.getStorage();
-				const encodeEventFrame = (instance as any).firehose.encodeEventFrame.bind(
-					(instance as any).firehose,
-				);
+				const encodeEventFrame = (
+					instance as any
+				).firehose.encodeEventFrame.bind((instance as any).firehose);
 				const sequencer = (instance as any).sequencer;
 
 				const seqBefore = sequencer.getLatestSeq();
 
 				// Create a record
-				await instance.rpcCreateRecord("app.bsky.feed.post", "dispatch-test", {
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "dispatch-test", {
 					text: "Test dispatch",
 					createdAt: new Date().toISOString(),
 				});
@@ -441,7 +441,9 @@ describe("Firehose (subscribeRepos)", () => {
 				await instance.getStorage();
 
 				// Emit an identity event
-				const result = await instance.rpcEmitIdentityEvent(env.HANDLE);
+				const result = await (
+					await instance.repo()
+				).emitIdentityEvent(env.HANDLE);
 
 				expect(result).toHaveProperty("seq");
 				expect(typeof result.seq).toBe("number");
@@ -458,12 +460,12 @@ describe("Firehose (subscribeRepos)", () => {
 				const sequencer = (instance as any).sequencer;
 				const seqBefore = sequencer.getLatestSeq();
 
-				await instance.rpcEmitIdentityEvent();
+				await (await instance.repo()).emitIdentityEvent();
 
 				const events = await sequencer.getEventsSince(seqBefore, 10);
-				const identityEvent = events.find(
-					(e: any) => e.type === "identity",
-				) as SeqIdentityEvent | undefined;
+				const identityEvent = events.find((e: any) => e.type === "identity") as
+					| SeqIdentityEvent
+					| undefined;
 				expect(identityEvent).toBeDefined();
 				expect(identityEvent!.event.did).toBe(env.DID);
 				expect(identityEvent!.event.handle).toBeUndefined();
@@ -481,22 +483,18 @@ describe("Firehose (subscribeRepos)", () => {
 				const sequencer = (instance as any).sequencer;
 				const seqBefore = sequencer.getLatestSeq();
 
-				await instance.rpcCreateRecord(
-					"app.bsky.feed.post",
-					"prevdata-test-1",
-					{
-						text: "first",
-						createdAt: new Date().toISOString(),
-					},
-				);
-				await instance.rpcCreateRecord(
-					"app.bsky.feed.post",
-					"prevdata-test-2",
-					{
-						text: "second",
-						createdAt: new Date().toISOString(),
-					},
-				);
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "prevdata-test-1", {
+					text: "first",
+					createdAt: new Date().toISOString(),
+				});
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "prevdata-test-2", {
+					text: "second",
+					createdAt: new Date().toISOString(),
+				});
 
 				const events = (await sequencer.getEventsSince(
 					seqBefore,
@@ -536,7 +534,9 @@ describe("Firehose (subscribeRepos)", () => {
 				const sequencer = (instance as any).sequencer;
 				const seqBefore = sequencer.getLatestSeq();
 
-				await instance.rpcCreateRecord("app.bsky.feed.post", "toobig-test", {
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "toobig-test", {
 					text: "small",
 					createdAt: new Date().toISOString(),
 				});
@@ -557,32 +557,27 @@ describe("Firehose (subscribeRepos)", () => {
 				await instance.getStorage();
 				const sequencer = (instance as any).sequencer;
 
-				const createResult = await instance.rpcCreateRecord(
-					"app.bsky.feed.post",
-					"prev-test-record",
-					{
-						text: "v1",
-						createdAt: new Date().toISOString(),
-					},
-				);
+				const createResult = await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "prev-test-record", {
+					text: "v1",
+					createdAt: new Date().toISOString(),
+				});
 				const originalCid = createResult.cid;
 
 				const seqBeforeUpdate = sequencer.getLatestSeq();
-				const updateResult = await instance.rpcPutRecord(
-					"app.bsky.feed.post",
-					"prev-test-record",
-					{
-						text: "v2",
-						createdAt: new Date().toISOString(),
-					},
-				);
+				const updateResult = await (
+					await instance.repo()
+				).putRecord("app.bsky.feed.post", "prev-test-record", {
+					text: "v2",
+					createdAt: new Date().toISOString(),
+				});
 				const updatedCid = updateResult.cid;
 
 				const seqBeforeDelete = sequencer.getLatestSeq();
-				await instance.rpcDeleteRecord(
-					"app.bsky.feed.post",
-					"prev-test-record",
-				);
+				await (
+					await instance.repo()
+				).deleteRecord("app.bsky.feed.post", "prev-test-record");
 
 				const updateEvents = (await sequencer.getEventsSince(
 					seqBeforeUpdate,
@@ -607,7 +602,9 @@ describe("Firehose (subscribeRepos)", () => {
 
 				// Sanity: creates have no prev field.
 				const seqBeforeCreate = sequencer.getLatestSeq();
-				await instance.rpcCreateRecord("app.bsky.feed.post", "no-prev-test", {
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "no-prev-test", {
 					text: "fresh",
 					createdAt: new Date().toISOString(),
 				});
@@ -630,11 +627,15 @@ describe("Firehose (subscribeRepos)", () => {
 				const sequencer = (instance as any).sequencer;
 				const seqBefore = sequencer.getLatestSeq();
 
-				await instance.rpcCreateRecord("app.bsky.feed.post", "prevdata-link-a", {
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "prevdata-link-a", {
 					text: "a",
 					createdAt: new Date().toISOString(),
 				});
-				await instance.rpcCreateRecord("app.bsky.feed.post", "prevdata-link-b", {
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "prevdata-link-b", {
 					text: "b",
 					createdAt: new Date().toISOString(),
 				});
@@ -679,9 +680,9 @@ describe("Firehose (subscribeRepos)", () => {
 						createdAt: new Date().toISOString(),
 					},
 				}));
-				await expect(instance.rpcApplyWrites(writes)).rejects.toThrow(
-					/at most 200 operations/,
-				);
+				await expect(
+					(await instance.repo()).applyWrites(writes),
+				).rejects.toThrow(/at most 200 operations/);
 			});
 		});
 	});
@@ -696,13 +697,15 @@ describe("Firehose (subscribeRepos)", () => {
 				const sequencer = (instance as any).sequencer;
 
 				// Make sure there's a repo root so activate can emit #sync.
-				await instance.rpcCreateRecord("app.bsky.feed.post", "ensure-root", {
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "ensure-root", {
 					text: "x",
 					createdAt: new Date().toISOString(),
 				});
 
 				const seqBeforeDeactivate = sequencer.getLatestSeq();
-				await instance.rpcDeactivateAccount();
+				await (await instance.repo()).deactivateAccount();
 				const deactivateEvents = await sequencer.getEventsSince(
 					seqBeforeDeactivate,
 					10,
@@ -715,7 +718,7 @@ describe("Firehose (subscribeRepos)", () => {
 				expect(accountEvt!.event.status).toBe("deactivated");
 
 				const seqBeforeActivate = sequencer.getLatestSeq();
-				await instance.rpcActivateAccount();
+				await (await instance.repo()).activateAccount();
 				const activateEvents = await sequencer.getEventsSince(
 					seqBeforeActivate,
 					10,
@@ -726,9 +729,9 @@ describe("Firehose (subscribeRepos)", () => {
 				const identity = activateEvents.find(
 					(e: any) => e.type === "identity",
 				) as SeqIdentityEvent | undefined;
-				const sync = activateEvents.find(
-					(e: any) => e.type === "sync",
-				) as SeqSyncEvent | undefined;
+				const sync = activateEvents.find((e: any) => e.type === "sync") as
+					| SeqSyncEvent
+					| undefined;
 
 				expect(account).toBeDefined();
 				expect(account!.event.active).toBe(true);
@@ -759,9 +762,9 @@ describe("Firehose (subscribeRepos)", () => {
 				await instance.getStorage();
 				const sequencer = (instance as any).sequencer;
 
-				await instance.rpcActivateAccount(); // ensure active
+				await (await instance.repo()).activateAccount(); // ensure active
 				const seqBefore = sequencer.getLatestSeq();
-				await instance.rpcActivateAccount(); // no-op
+				await (await instance.repo()).activateAccount(); // no-op
 				expect(sequencer.getLatestSeq()).toBe(seqBefore);
 			});
 		});
@@ -772,9 +775,9 @@ describe("Firehose (subscribeRepos)", () => {
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 				await instance.getStorage();
-				const encodeEventFrame = (instance as any).firehose.encodeEventFrame.bind(
-					(instance as any).firehose,
-				);
+				const encodeEventFrame = (
+					instance as any
+				).firehose.encodeEventFrame.bind((instance as any).firehose);
 
 				const accountEvt: SeqAccountEvent = {
 					seq: 1,
@@ -823,16 +826,18 @@ describe("Firehose (subscribeRepos)", () => {
 				);
 
 				// Generate a few events so getEarliestSeq is non-null.
-				await instance.rpcCreateRecord(
-					"app.bsky.feed.post",
-					"outdated-cursor-seed-1",
-					{ text: "a", createdAt: new Date().toISOString() },
-				);
-				await instance.rpcCreateRecord(
-					"app.bsky.feed.post",
-					"outdated-cursor-seed-2",
-					{ text: "b", createdAt: new Date().toISOString() },
-				);
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "outdated-cursor-seed-1", {
+					text: "a",
+					createdAt: new Date().toISOString(),
+				});
+				await (
+					await instance.repo()
+				).createRecord("app.bsky.feed.post", "outdated-cursor-seed-2", {
+					text: "b",
+					createdAt: new Date().toISOString(),
+				});
 
 				// Prune so the earliest seq is no longer 1; cursor of 0
 				// becomes "before the retention window".

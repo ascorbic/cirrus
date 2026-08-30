@@ -163,7 +163,9 @@ describe("Session Authentication", () => {
 			const accessToken = `oauth-test-${crypto.randomUUID()}`;
 			const refreshToken = `refresh-test-${crypto.randomUUID()}`;
 			const stub = env.ACCOUNT.get(env.ACCOUNT.idFromName("account"));
-			await stub.rpcSaveTokens({
+			await (
+				await stub.authStore()
+			).saveTokens({
 				accessToken,
 				refreshToken,
 				clientId: "https://example.com/client-metadata.json",

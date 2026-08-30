@@ -9,7 +9,6 @@ import {
 	generateKeyPair,
 } from "jose";
 
-
 async function createValidDpopProof(options: {
 	accessToken: string;
 	method: string;
@@ -143,7 +142,6 @@ describe("XRPC Endpoints", () => {
 			});
 		});
 
-
 		it("returns DPoP invalid_token challenge for expired OAuth access tokens", async () => {
 			const now = Date.now();
 			const id = env.ACCOUNT.idFromName("account");
@@ -156,7 +154,9 @@ describe("XRPC Endpoints", () => {
 				url: requestUrl,
 			});
 
-			await stub.rpcSaveTokens({
+			await (
+				await stub.authStore()
+			).saveTokens({
 				accessToken,
 				refreshToken: "expired-dpop-refresh-token",
 				clientId: "did:web:app.example",
@@ -1629,15 +1629,12 @@ describe("XRPC Endpoints", () => {
 			expect(data.rev).toBeUndefined();
 
 			await worker.fetch(
-				new Request(
-					"http://pds.test/xrpc/com.atproto.server.activateAccount",
-					{
-						method: "POST",
-						headers: {
-							Authorization: `Bearer ${env.AUTH_TOKEN}`,
-						},
+				new Request("http://pds.test/xrpc/com.atproto.server.activateAccount", {
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${env.AUTH_TOKEN}`,
 					},
-				),
+				}),
 				env,
 			);
 		});

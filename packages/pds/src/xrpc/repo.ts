@@ -149,7 +149,7 @@ export async function describeRepo(
 		);
 	}
 
-	const data = await accountDO.rpcDescribeRepo();
+	const data = await accountDO.repo().describeRepo();
 
 	return c.json({
 		did: c.env.DID,
@@ -208,7 +208,7 @@ export async function getRecord(
 		);
 	}
 
-	const result = await accountDO.rpcGetRecord(collection, rkey);
+	const result = await accountDO.repo().getRecord(collection, rkey);
 
 	if (!result) {
 		return c.json(
@@ -268,7 +268,7 @@ export async function listRecords(
 	const limit = Math.min(limitStr ? Number.parseInt(limitStr, 10) : 50, 100);
 	const reverse = reverseStr === "true";
 
-	const result = await accountDO.rpcListRecords(collection, {
+	const result = await accountDO.repo().listRecords(collection, {
 		limit,
 		cursor,
 		reverse,
@@ -344,12 +344,9 @@ export async function createRecord(
 	await promoteRecordBlobs(c, [validated.record]);
 
 	try {
-		const result = await accountDO.rpcCreateRecord(
-			collection,
-			rkey,
-			validated.record,
-			validated.status,
-		);
+		const result = await accountDO
+			.repo()
+			.createRecord(collection, rkey, validated.record, validated.status);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
@@ -394,7 +391,7 @@ export async function deleteRecord(
 	if (scopeError) return scopeError;
 
 	try {
-		const result = await accountDO.rpcDeleteRecord(collection, rkey);
+		const result = await accountDO.repo().deleteRecord(collection, rkey);
 
 		return c.json(result ?? {});
 	} catch (err) {
@@ -459,12 +456,9 @@ export async function putRecord(
 	await promoteRecordBlobs(c, [validated.record]);
 
 	try {
-		const result = await accountDO.rpcPutRecord(
-			collection,
-			rkey,
-			validated.record,
-			validated.status,
-		);
+		const result = await accountDO
+			.repo()
+			.putRecord(collection, rkey, validated.record, validated.status);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
@@ -590,7 +584,7 @@ export async function applyWrites(
 
 		// Worker validates against a candidate TID so restrictive keySchemas
 		// reject unrkeyed creates here. DO picks the final rkey when none
-		// was supplied (see rpcApplyWrites collision-retry logic).
+		// was supplied (see applyWrites collision-retry logic).
 		const candidateRkey = write.rkey ?? tidNow();
 
 		try {
@@ -621,7 +615,7 @@ export async function applyWrites(
 	);
 
 	try {
-		const result = await accountDO.rpcApplyWrites(preparedWrites);
+		const result = await accountDO.repo().applyWrites(preparedWrites);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
@@ -703,15 +697,13 @@ export async function uploadBlob(
 	//
 	// Uploads land in `staged/` and are promoted when a record write
 	// references them. During migration the referencing records were already
-	// imported, so no later write will promote — rpcTrackBlob reports
+	// imported, so no later write will promote — trackBlob reports
 	// whether the CID is referenced and we promote here in that case.
 	const blobStore = new BlobStore(c.env.BLOBS, c.env.DID);
 	const blobRef = await blobStore.putBlob(bytes, contentType);
-	const { referenced } = await accountDO.rpcTrackBlob(
-		blobRef.ref.$link,
-		blobRef.size,
-		blobRef.mimeType,
-	);
+	const { referenced } = await accountDO
+		.repo()
+		.trackBlob(blobRef.ref.$link, blobRef.size, blobRef.mimeType);
 	if (referenced) {
 		await blobStore.promoteBlob(blobRef.ref.$link);
 	}
@@ -762,7 +754,7 @@ export async function importRepo(
 	}
 
 	try {
-		const result = await accountDO.rpcImportRepo(carBytes);
+		const result = await accountDO.repo().importRepo(carBytes);
 		return c.json(result);
 	} catch (err) {
 		if (err instanceof Error) {
@@ -816,10 +808,9 @@ export async function listMissingBlobs(
 
 	const limit = limitStr ? Math.min(Number.parseInt(limitStr, 10), 500) : 500;
 
-	const result = await accountDO.rpcListMissingBlobs(
-		limit,
-		cursor || undefined,
-	);
+	const result = await accountDO
+		.repo()
+		.listMissingBlobs(limit, cursor || undefined);
 
 	return c.json(result);
 }
