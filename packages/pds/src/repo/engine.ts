@@ -950,7 +950,7 @@ export class RepoEngine {
  * Serialize a record for JSON by converting CID objects to { $link: "..." } format.
  * CBOR-decoded records contain raw CID objects that need conversion for JSON serialization.
  */
-export function serializeRecord(obj: unknown): unknown {
+function serializeRecord(obj: unknown): unknown {
 	if (obj === null || obj === undefined) return obj;
 
 	// Check if this is a CID object using @atproto/lex-data helper
@@ -987,7 +987,7 @@ export function serializeRecord(obj: unknown): unknown {
  * Extract blob CIDs from a record by recursively searching for blob references.
  * Blob refs have the structure: { $type: "blob", ref: CID, mimeType, size }
  */
-export function extractBlobCids(obj: unknown): string[] {
+function extractBlobCids(obj: unknown): string[] {
 	const cids: string[] = [];
 
 	function walk(value: unknown): void {
