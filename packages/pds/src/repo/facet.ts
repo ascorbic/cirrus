@@ -31,9 +31,12 @@ export class RepoFacet extends RpcTarget {
 		rkey: string,
 	): Promise<{
 		cid: string;
-		record: unknown;
+		record: Rpc.Serializable<any>;
 	} | null> {
-		return this.engine.getRecord(collection, rkey);
+		return this.engine.getRecord(collection, rkey) as Promise<{
+			cid: string;
+			record: Rpc.Serializable<any>;
+		} | null>;
 	}
 
 	listRecords(

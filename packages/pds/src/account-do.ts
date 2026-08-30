@@ -611,7 +611,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	/**
 	 * RPC method: Health check - verifies storage is accessible
 	 */
-	async rpcHealthCheck(): Promise<{ ok: true }> {
+	async healthCheck(): Promise<{ ok: true }> {
 		this.ctx.storage.sql.exec("SELECT 1").toArray();
 		return { ok: true };
 	}
@@ -619,7 +619,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	/**
 	 * RPC method: Firehose status - returns subscriber count and latest sequence
 	 */
-	async rpcGetFirehoseStatus(): Promise<{
+	async getFirehoseStatus(): Promise<{
 		subscribers: Array<{
 			connectedAt: number;
 			cursor: number;

@@ -36,73 +36,6 @@ import {
 } from "./passkey";
 
 /**
- * Proxy storage class that delegates to DO RPC methods
- *
- * This is needed because SqliteOAuthStorage instances contain a SQL connection
- * that can't be serialized across the DO RPC boundary. Instead, we delegate each
- * storage operation to individual RPC methods that pass only serializable data.
- */
-class DOProxyOAuthStorage implements OAuthStorage {
-	constructor(private accountDO: DurableObjectStub<AccountDurableObject>) {}
-
-	async saveAuthCode(code: string, data: AuthCodeData): Promise<void> {
-		await this.accountDO.rpcSaveAuthCode(code, data);
-	}
-
-	async getAuthCode(code: string): Promise<AuthCodeData | null> {
-		return this.accountDO.rpcGetAuthCode(code);
-	}
-
-	async deleteAuthCode(code: string): Promise<void> {
-		await this.accountDO.rpcDeleteAuthCode(code);
-	}
-
-	async saveTokens(data: TokenData): Promise<void> {
-		await this.accountDO.rpcSaveTokens(data);
-	}
-
-	async getTokenByAccess(accessToken: string): Promise<TokenData | null> {
-		return this.accountDO.rpcGetTokenByAccess(accessToken);
-	}
-
-	async getTokenByRefresh(refreshToken: string): Promise<TokenData | null> {
-		return this.accountDO.rpcGetTokenByRefresh(refreshToken);
-	}
-
-	async revokeToken(accessToken: string): Promise<void> {
-		await this.accountDO.rpcRevokeToken(accessToken);
-	}
-
-	async revokeAllTokens(sub: string): Promise<void> {
-		await this.accountDO.rpcRevokeAllTokens(sub);
-	}
-
-	async saveClient(clientId: string, metadata: ClientMetadata): Promise<void> {
-		await this.accountDO.rpcSaveClient(clientId, metadata);
-	}
-
-	async getClient(clientId: string): Promise<ClientMetadata | null> {
-		return this.accountDO.rpcGetClient(clientId);
-	}
-
-	async savePAR(requestUri: string, data: PARData): Promise<void> {
-		await this.accountDO.rpcSavePAR(requestUri, data);
-	}
-
-	async getPAR(requestUri: string): Promise<PARData | null> {
-		return this.accountDO.rpcGetPAR(requestUri);
-	}
-
-	async deletePAR(requestUri: string): Promise<void> {
-		await this.accountDO.rpcDeletePAR(requestUri);
-	}
-
-	async checkAndSaveNonce(nonce: string): Promise<boolean> {
-		return this.accountDO.rpcCheckAndSaveNonce(nonce);
-	}
-}
-
-/**
  * Build a network-backed permission-set resolver. Constructed once per
  * isolate; `@atcute/lexicon-resolver` is stateless beyond the cache it
  * doesn't have, so it's safe to share.
@@ -153,10 +86,9 @@ function createCachedPermissionSetResolver(
 			try {
 				const fresh = await network.resolve(nsid);
 				if (fresh)
-					await accountDO.rpcSavePermissionSet(
-						nsid,
-						fresh as LexiconPermissionSet,
-					);
+					await accountDO
+						.authStore()
+						.savePermissionSet(nsid, fresh as LexiconPermissionSet);
 				return fresh;
 			} finally {
 				inflightRefresh.delete(nsid);
@@ -167,7 +99,7 @@ function createCachedPermissionSetResolver(
 	};
 	return {
 		async resolve(nsid) {
-			const cached = await accountDO.rpcGetPermissionSet(nsid);
+			const cached = await accountDO.authStore().getPermissionSet(nsid);
 			if (cached && !cached.stale) return cached.set;
 			if (cached?.stale) {
 				waitUntil(
@@ -194,7 +126,10 @@ function createCachedPermissionSetResolver(
  */
 export function getProvider(env: PDSEnv): ATProtoOAuthProvider {
 	const accountDO = getAccountDO(env);
-	const storage = new DOProxyOAuthStorage(accountDO);
+	// Pipelined stub: methods called on it are sent together with the
+	// authStore() call, so handing it out synchronously costs no extra
+	// round trip.
+	const storage: OAuthStorage = accountDO.authStore();
 	const issuer = `https://${env.PDS_HOSTNAME}`;
 
 	return new ATProtoOAuthProvider({
@@ -416,12 +351,12 @@ export function createOAuthApp(
 		const accountDO = getAccountDO(c.env);
 
 		// First try as access token
-		await accountDO.rpcRevokeToken(token);
+		await accountDO.authStore().revokeToken(token);
 
 		// Also check if it's a refresh token and revoke the associated access token
-		const tokenData = await accountDO.rpcGetTokenByRefresh(token);
+		const tokenData = await accountDO.authStore().getTokenByRefresh(token);
 		if (tokenData) {
-			await accountDO.rpcRevokeToken(tokenData.accessToken);
+			await accountDO.authStore().revokeToken(tokenData.accessToken);
 		}
 
 		// Always return success (per RFC 7009)

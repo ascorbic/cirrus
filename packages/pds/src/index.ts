@@ -131,7 +131,7 @@ app.get("/.well-known/atproto-did", (c) => {
 app.get("/xrpc/_health", async (c) => {
 	try {
 		const accountDO = getAccountDO(c.env);
-		await accountDO.rpcHealthCheck();
+		await accountDO.healthCheck();
 		return c.json({ status: "ok", version: `cirrus ${version}` });
 	} catch {
 		return c.json({ status: "unhealthy", version: `cirrus ${version}` }, 503);
@@ -388,13 +388,13 @@ app.get(
 // Actor preferences
 app.get("/xrpc/app.bsky.actor.getPreferences", requireAuth, async (c) => {
 	const accountDO = getAccountDO(c.env);
-	const result = await accountDO.rpcGetPreferences();
-	return c.json(result);
+	const preferences = await accountDO.account().getPreferences();
+	return c.json({ preferences });
 });
 app.post("/xrpc/app.bsky.actor.putPreferences", requireAuth, async (c) => {
 	const body = await c.req.json<{ preferences: unknown[] }>();
 	const accountDO = getAccountDO(c.env);
-	await accountDO.rpcPutPreferences(body.preferences);
+	await accountDO.account().putPreferences(body.preferences);
 	return c.json({});
 });
 
@@ -418,7 +418,7 @@ app.post(
 	requireAuth,
 	async (c) => {
 		const accountDO = getAccountDO(c.env);
-		const result = await accountDO.rpcEmitIdentityEvent(c.env.HANDLE);
+		const result = await accountDO.repo().emitIdentityEvent(c.env.HANDLE);
 		return c.json(result);
 	},
 );
@@ -429,7 +429,7 @@ app.get(
 	requireAuth,
 	async (c) => {
 		const accountDO = getAccountDO(c.env);
-		return c.json(await accountDO.rpcGetFirehoseStatus());
+		return c.json(await accountDO.getFirehoseStatus());
 	},
 );
 
