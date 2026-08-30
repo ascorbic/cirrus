@@ -19,12 +19,12 @@ type RepoRecord = Record<string, unknown>;
 import { Secp256k1Keypair } from "@atproto/crypto";
 import { CID, asCid, isBlobRef } from "@atproto/lex-data";
 import { now as tidNow } from "@atcute/tid";
-import { encode as cborEncode } from "./cbor-compat";
 import { SqliteRepoStorage } from "./repo/storage";
 import { SqliteOAuthStorage } from "./oauth-storage";
 import { Sequencer, type SeqEvent, type CommitData } from "./repo/sequencer";
 import { BlobStore } from "./repo/blobs";
 import { AccountStore } from "./account/store";
+import { Firehose } from "./repo/firehose";
 import { jsonToLex } from "@atproto/lex-json";
 import type { PDSEnv } from "./types";
 import { RecordAlreadyExistsError, type ValidationStatus } from "./validation";
@@ -48,6 +48,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	private repo: Repo | null = null;
 	private keypair: Secp256k1Keypair | null = null;
 	private sequencer: Sequencer | null = null;
+	private firehose: Firehose | null = null;
 	private blobStore: BlobStore | null = null;
 	private storageInitialized = false;
 	private repoInitialized = false;
@@ -90,6 +91,9 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 				this.oauthStorage = new SqliteOAuthStorage(this.ctx.storage.sql);
 				this.oauthStorage.initSchema();
 				this.sequencer = new Sequencer(this.ctx.storage.sql);
+				this.firehose = new Firehose(this.sequencer, () =>
+					this.ctx.getWebSockets(),
+				);
 				this.storageInitialized = true;
 
 				// Run cleanup on initialization
@@ -1089,114 +1093,10 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 	}
 
 	/**
-	 * Encode a firehose frame (header + body CBOR).
-	 */
-	private encodeFrame(header: object, body: object): Uint8Array {
-		const headerBytes = cborEncode(header as any);
-		const bodyBytes = cborEncode(body as any);
-
-		const frame = new Uint8Array(headerBytes.length + bodyBytes.length);
-		frame.set(headerBytes, 0);
-		frame.set(bodyBytes, headerBytes.length);
-
-		return frame;
-	}
-
-	/**
-	 * Encode any event frame based on its type.
-	 */
-	private encodeEventFrame(event: SeqEvent): Uint8Array {
-		const header = { op: 1, t: `#${event.type}` };
-		return this.encodeFrame(header, event.event);
-	}
-
-	/**
-	 * Encode an error frame.
-	 */
-	private encodeErrorFrame(error: string, message: string): Uint8Array {
-		const header = { op: -1 };
-		const body = { error, message };
-		return this.encodeFrame(header, body);
-	}
-
-	/**
-	 * Encode an #info message (op:1, t:'#info'). Used for non-fatal
-	 * conditions like OutdatedCursor where the stream continues.
-	 */
-	private encodeInfoFrame(name: string, message: string): Uint8Array {
-		const header = { op: 1, t: "#info" };
-		const body = { name, message };
-		return this.encodeFrame(header, body);
-	}
-
-	/**
-	 * Backfill firehose events from a cursor.
-	 */
-	private async backfillFirehose(ws: WebSocket, cursor: number): Promise<void> {
-		if (!this.sequencer) {
-			throw new Error("Sequencer not initialized");
-		}
-
-		const latestSeq = this.sequencer.getLatestSeq();
-
-		if (cursor > latestSeq) {
-			const frame = this.encodeErrorFrame(
-				"FutureCursor",
-				"Cursor is in the future",
-			);
-			ws.send(frame);
-			ws.close(1008, "FutureCursor");
-			return;
-		}
-
-		// If the cursor predates the oldest retained event, warn the client
-		// with #info OutdatedCursor and resume from the earliest available
-		// event. The stream stays open — they just miss the pruned range.
-		const earliestSeq = this.sequencer.getEarliestSeq();
-		let effectiveCursor = cursor;
-		if (earliestSeq !== null && cursor < earliestSeq - 1) {
-			const info = this.encodeInfoFrame(
-				"OutdatedCursor",
-				"Requested cursor exceeded retention window; some events skipped",
-			);
-			ws.send(info);
-			effectiveCursor = earliestSeq - 1;
-		}
-
-		const events = await this.sequencer.getEventsSince(effectiveCursor, 1000);
-
-		for (const event of events) {
-			const frame = this.encodeEventFrame(event);
-			ws.send(frame);
-		}
-
-		if (events.length > 0) {
-			const lastEvent = events[events.length - 1];
-			if (lastEvent) {
-				const attachment = ws.deserializeAttachment() as { cursor: number };
-				attachment.cursor = lastEvent.seq;
-				ws.serializeAttachment(attachment);
-			}
-		}
-	}
-
-	/**
 	 * Broadcast a sequenced event to all connected firehose clients.
 	 */
 	private async broadcastEvent(event: SeqEvent): Promise<void> {
-		const frame = this.encodeEventFrame(event);
-
-		for (const ws of this.ctx.getWebSockets()) {
-			try {
-				ws.send(frame);
-
-				const attachment = ws.deserializeAttachment() as { cursor: number };
-				attachment.cursor = event.seq;
-				ws.serializeAttachment(attachment);
-			} catch (e) {
-				console.error("Error broadcasting to WebSocket:", e);
-			}
-		}
+		await this.firehose!.broadcast(event);
 	}
 
 	/**
@@ -1226,7 +1126,7 @@ export class AccountDurableObject extends DurableObject<PDSEnv> {
 
 		// Backfill if cursor provided
 		if (cursor !== null) {
-			await this.backfillFirehose(server, cursor);
+			await this.firehose!.backfill(server, cursor);
 		}
 
 		return new Response(null, {
