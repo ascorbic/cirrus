@@ -31,7 +31,7 @@ describe("pokeRelaysIfUnheard", () => {
 		const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		await pokeRelaysIfUnheard(env, fakeAccountDO(0));
+		await pokeRelaysIfUnheard({ ...env, RELAYS: undefined }, fakeAccountDO(0));
 
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const [url, init] = fetchMock.mock.calls[0]! as unknown as [
@@ -133,7 +133,7 @@ describe("pokeRelaysIfUnheard", () => {
 
 		await vi.waitFor(() => {
 			expect(fetchMock).toHaveBeenCalledWith(
-				"https://bsky.network/xrpc/com.atproto.sync.requestCrawl",
+				"https://relay.invalid/xrpc/com.atproto.sync.requestCrawl",
 				expect.objectContaining({ method: "POST" }),
 			);
 		});

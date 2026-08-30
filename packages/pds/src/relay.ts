@@ -55,12 +55,16 @@ export function pokeRelaysIfUnheard(
 						headers: { "Content-Type": "application/json" },
 						body: JSON.stringify({ hostname: env.PDS_HOSTNAME }),
 					});
-				} catch {
-					// Unreachable relay: the next write retries after the poke interval.
+				} catch (err) {
+					// Invalid RELAYS entry or unreachable relay: the next write
+					// retries after the poke interval.
+					console.warn(`requestCrawl to ${relay.trim()} failed:`, err);
 				}
 			}),
 		);
-	})();
+	})().catch((err) => {
+		console.warn("Firehose subscriber check failed:", err);
+	});
 	try {
 		waitUntil(work);
 	} catch {
