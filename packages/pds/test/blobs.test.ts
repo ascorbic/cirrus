@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { env, worker } from "./helpers";
-import { extractJsonBlobCids } from "../src/blobs";
+import { extractJsonBlobCids } from "../src/repo/blobs";
 
 /**
  * Reference a blob from a record so it gets promoted from staging to its

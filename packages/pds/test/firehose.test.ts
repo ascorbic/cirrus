@@ -8,7 +8,7 @@ import type {
 	SeqIdentityEvent,
 	SeqSyncEvent,
 	SeqAccountEvent,
-} from "../src/sequencer";
+} from "../src/repo/sequencer";
 
 /**
  * Decode a firehose frame into header and body.
@@ -313,8 +313,8 @@ describe("Firehose (subscribeRepos)", () => {
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 				await instance.getStorage();
 				const sequencer = (instance as any).sequencer;
-				const encodeEventFrame = (instance as any).encodeEventFrame.bind(
-					instance,
+				const encodeEventFrame = (instance as any).firehose.encodeEventFrame.bind(
+					(instance as any).firehose,
 				);
 
 				const seqBefore = sequencer.getLatestSeq();
@@ -354,8 +354,8 @@ describe("Firehose (subscribeRepos)", () => {
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 				await instance.getStorage();
-				const encodeEventFrame = (instance as any).encodeEventFrame.bind(
-					instance,
+				const encodeEventFrame = (instance as any).firehose.encodeEventFrame.bind(
+					(instance as any).firehose,
 				);
 
 				// Create a mock identity event to test encoding
@@ -392,8 +392,8 @@ describe("Firehose (subscribeRepos)", () => {
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 				await instance.getStorage();
-				const encodeEventFrame = (instance as any).encodeEventFrame.bind(
-					instance,
+				const encodeEventFrame = (instance as any).firehose.encodeEventFrame.bind(
+					(instance as any).firehose,
 				);
 				const sequencer = (instance as any).sequencer;
 
@@ -772,8 +772,8 @@ describe("Firehose (subscribeRepos)", () => {
 
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 				await instance.getStorage();
-				const encodeEventFrame = (instance as any).encodeEventFrame.bind(
-					instance,
+				const encodeEventFrame = (instance as any).firehose.encodeEventFrame.bind(
+					(instance as any).firehose,
 				);
 
 				const accountEvt: SeqAccountEvent = {
@@ -818,8 +818,8 @@ describe("Firehose (subscribeRepos)", () => {
 			await runInDurableObject(stub, async (instance: AccountDurableObject) => {
 				await instance.getStorage();
 				const sequencer = (instance as any).sequencer;
-				const backfillFirehose = (instance as any).backfillFirehose.bind(
-					instance,
+				const backfillFirehose = (instance as any).firehose.backfill.bind(
+					(instance as any).firehose,
 				);
 
 				// Generate a few events so getEarliestSeq is non-null.
