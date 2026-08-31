@@ -198,8 +198,7 @@ const healthCheck: Check = {
 					evidence: {
 						request: { method: "GET", url },
 						response: { status: res.status, body },
-						error:
-							"_health convention is { status, version } — both missing",
+						error: "_health convention is { status, version } — both missing",
 					},
 				};
 			}

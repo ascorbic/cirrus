@@ -5,7 +5,9 @@ import type { Check, CheckOutcome } from "../types";
 
 let listBlobsResponse: ComAtprotoSyncListBlobs.$output | undefined;
 let firstBlobCid: string | undefined;
-let getBlobResponse: { contentType: string | null; byteLength: number } | undefined;
+let getBlobResponse:
+	| { contentType: string | null; byteLength: number }
+	| undefined;
 
 function reset() {
 	listBlobsResponse = undefined;
@@ -13,7 +15,11 @@ function reset() {
 	getBlobResponse = undefined;
 }
 
-function xrpcUrl(pds: string, nsid: string, params: Record<string, string>): string {
+function xrpcUrl(
+	pds: string,
+	nsid: string,
+	params: Record<string, string>,
+): string {
 	const qs = new URLSearchParams(params).toString();
 	return `${pds}/xrpc/${nsid}${qs ? `?${qs}` : ""}`;
 }

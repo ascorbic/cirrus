@@ -1,7 +1,7 @@
 {
 	"name": "@getcirrus/spaces",
 	"version": "0.1.0",
-	"description": "Atproto spaces engine (alpha) for Cloudflare Workers – permissioned repos, space hosting and credentials",
+	"description": "Atproto spaces engine (alpha) for Cloudflare Workers \u2013 permissioned repos, space hosting and credentials",
 	"type": "module",
 	"main": "dist/index.js",
 	"files": [
@@ -37,7 +37,8 @@
 		"tsdown": "^0.18.3",
 		"typescript": "^5.9.3",
 		"vitest": "4.1.0-beta.1",
-		"wrangler": "^4.93.0"
+		"wrangler": "^4.93.0",
+		"@getcirrus/space-conformance": "workspace:*"
 	},
 	"repository": {
 		"type": "git",

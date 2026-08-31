@@ -49,7 +49,9 @@ function generateFailuresMarkdown(run: Run): string {
 
 	lines.push("## Summary");
 	lines.push("");
-	lines.push(`- **${failures.length}** failure${failures.length === 1 ? "" : "s"}`);
+	lines.push(
+		`- **${failures.length}** failure${failures.length === 1 ? "" : "s"}`,
+	);
 	if (warnings.length > 0) {
 		lines.push(
 			`- **${warnings.length}** warning${warnings.length === 1 ? "" : "s"}`,
@@ -156,8 +158,7 @@ function downloadJson(run: Run): void {
 			status: r.status,
 			message: r.outcome?.message,
 			evidence: r.outcome?.evidence,
-			durationMs:
-				r.startedAt && r.endedAt ? r.endedAt - r.startedAt : null,
+			durationMs: r.startedAt && r.endedAt ? r.endedAt - r.startedAt : null,
 		})),
 	};
 	const slug = run.target.replace(/[^a-z0-9.-]/gi, "_");
@@ -200,11 +201,7 @@ function summarize(results: readonly CheckResult[]) {
 			pass++;
 			applicable++;
 		}
-		if (
-			r.status === "fail" ||
-			r.status === "error" ||
-			r.status === "warn"
-		) {
+		if (r.status === "fail" || r.status === "error" || r.status === "warn") {
 			applicable++;
 		}
 		if (r.status === "fail" || r.status === "error") fail++;
@@ -254,9 +251,7 @@ export function RunView(props: {
 					<section class="px-6 py-6 border-b border-line">
 						<div class="max-w-3xl mx-auto">
 							<div class="flex items-baseline justify-between gap-3">
-								<h1 class="text-lg font-bold break-all">
-									{props.run.target}
-								</h1>
+								<h1 class="text-lg font-bold break-all">{props.run.target}</h1>
 								<button
 									type="button"
 									onClick={props.onCancel}
@@ -281,9 +276,7 @@ export function RunView(props: {
 								<span>
 									{summary().done} / {summary().total} checks
 									<Show when={summary().fail > 0}>
-										<span class="text-fail ml-3">
-											{summary().fail} failing
-										</span>
+										<span class="text-fail ml-3">{summary().fail} failing</span>
 									</Show>
 								</span>
 								<span aria-live="polite">running…</span>
@@ -306,17 +299,11 @@ export function RunView(props: {
 
 			<main class="flex-1 px-6 py-6 pt-0">
 				<div class="max-w-3xl mx-auto">
-					<div
-						aria-live="polite"
-						aria-atomic="false"
-						class="sr-only"
-					>
+					<div aria-live="polite" aria-atomic="false" class="sr-only">
 						<For each={props.run.results}>
 							{(result) => (
 								<Show
-									when={
-										result.status === "fail" || result.status === "error"
-									}
+									when={result.status === "fail" || result.status === "error"}
 								>
 									{result.check.label} failed
 								</Show>
@@ -399,9 +386,7 @@ function ResultSummary(props: {
 						<div class="text-xs uppercase tracking-[0.2em] text-muted">
 							Result
 						</div>
-						<h1 class="text-lg font-bold break-all mt-1">
-							{props.run.target}
-						</h1>
+						<h1 class="text-lg font-bold break-all mt-1">{props.run.target}</h1>
 					</div>
 					<div class="flex items-center gap-6 tabular-nums">
 						<div class="text-right">
@@ -416,9 +401,7 @@ function ResultSummary(props: {
 								{props.summary.pass} / {props.summary.applicable}
 							</div>
 							<Show when={skipped() > 0}>
-								<div class="text-[10px] text-faint">
-									{skipped()} skipped
-								</div>
+								<div class="text-[10px] text-faint">{skipped()} skipped</div>
 							</Show>
 						</div>
 					</div>
@@ -470,9 +453,7 @@ function ResultSummary(props: {
 								onClick={props.onReadChecks}
 								class="border border-ink px-4 py-2 text-left hover:bg-ink hover:text-paper transition-colors flex justify-between items-baseline gap-3"
 							>
-								<span class="font-bold tracking-wider">
-									READ-ONLY CHECKS →
-								</span>
+								<span class="font-bold tracking-wider">READ-ONLY CHECKS →</span>
 								<span class="text-xs text-muted">
 									anonymous read checks against the same target
 								</span>

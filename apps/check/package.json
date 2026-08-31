@@ -26,7 +26,8 @@
 		"@ipld/car": "^5.4.6",
 		"idb-keyval": "^6.2.4",
 		"oauth4webapi": "^3.8.6",
-		"solid-js": "^1.9.13"
+		"solid-js": "^1.9.13",
+		"@getcirrus/space-conformance": "workspace:*"
 	},
 	"devDependencies": {
 		"@tailwindcss/vite": "^4.3.0",

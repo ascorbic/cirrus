@@ -1,12 +1,19 @@
-import * as CAR from '@atcute/car';
-import * as CBOR from '@atcute/cbor';
-import type { Bytes } from '@atcute/cbor';
-import { fromBytes as unwrapBytes } from '@atcute/cbor';
-import * as CID from '@atcute/cid';
-import { getPublicKeyFromDidController, verifySig } from '@atcute/crypto';
-import { getAtprotoVerificationMaterial, isAtprotoDid, isPlcDid, isWebDid, webDidToDocumentUrl, type DidDocument } from '@atcute/identity';
+import * as CAR from "@atcute/car";
+import * as CBOR from "@atcute/cbor";
+import type { Bytes } from "@atcute/cbor";
+import { fromBytes as unwrapBytes } from "@atcute/cbor";
+import * as CID from "@atcute/cid";
+import { getPublicKeyFromDidController, verifySig } from "@atcute/crypto";
+import {
+	getAtprotoVerificationMaterial,
+	isAtprotoDid,
+	isPlcDid,
+	isWebDid,
+	webDidToDocumentUrl,
+	type DidDocument,
+} from "@atcute/identity";
 
-import { isWellFormedCommit } from './types';
+import { isWellFormedCommit } from "./types";
 
 export interface VerifyOk {
 	ok: true;
@@ -22,12 +29,11 @@ interface ResolvedKey {
 export interface VerifyErr {
 	ok: false;
 	/** stage that failed, for a faithful error report */
-	stage: 'parse' | 'resolve' | 'verify' | 'unknown';
+	stage: "parse" | "resolve" | "verify" | "unknown";
 	message: string;
 }
 
 export type VerifyResult = VerifyOk | VerifyErr;
-
 
 /**
  * extract the root commit from a CAR, resolve its DID to a public key, and verify
@@ -42,7 +48,10 @@ export type VerifyResult = VerifyOk | VerifyErr;
  * on failure the decoded commit is still returned (when available) so the debug
  * view can show what was in it.
  */
-export const verifyCar = async (carBytes: Uint8Array, didDoc: DidDocument): Promise<VerifyResult> => {
+export const verifyCar = async (
+	carBytes: Uint8Array,
+	didDoc: DidDocument,
+): Promise<VerifyResult> => {
 	let commit: Record<string, unknown>;
 	let commitBytes: Uint8Array;
 	try {
@@ -52,7 +61,7 @@ export const verifyCar = async (carBytes: Uint8Array, didDoc: DidDocument): Prom
 	} catch (err) {
 		return {
 			ok: false,
-			stage: 'parse',
+			stage: "parse",
 			message: err instanceof Error ? err.message : String(err),
 		};
 	}
@@ -65,7 +74,7 @@ export const verifyCar = async (carBytes: Uint8Array, didDoc: DidDocument): Prom
 	} catch (err) {
 		return {
 			ok: false,
-			stage: 'resolve',
+			stage: "resolve",
 			message: err instanceof Error ? err.message : String(err),
 		};
 	}
@@ -82,14 +91,16 @@ export const verifyCar = async (carBytes: Uint8Array, didDoc: DidDocument): Prom
 	} catch (err) {
 		return {
 			ok: false,
-			stage: 'verify',
+			stage: "verify",
 			message: err instanceof Error ? err.message : String(err),
 		};
 	}
 };
 
 /** read the CAR root block and decode it as a commit */
-const extractCommit = (carBytes: Uint8Array): { commit: Record<string, unknown>; bytes: Uint8Array } => {
+const extractCommit = (
+	carBytes: Uint8Array,
+): { commit: Record<string, unknown>; bytes: Uint8Array } => {
 	const reader = CAR.fromUint8Array(carBytes);
 	const roots = reader.roots;
 	if (roots.length < 1) {
@@ -103,7 +114,7 @@ const extractCommit = (carBytes: Uint8Array): { commit: Record<string, unknown>;
 	}
 
 	if (roots.length == 0 || roots[0] === undefined) {
-		throw new Error(`car contains no roots`)
+		throw new Error(`car contains no roots`);
 	}
 
 	const rootCid = roots[0].$link;
@@ -113,7 +124,7 @@ const extractCommit = (carBytes: Uint8Array): { commit: Record<string, unknown>;
 	}
 
 	const decoded = CBOR.decode(commitBytes) as Record<string, unknown>;
-	if (decoded === null || typeof decoded !== 'object') {
+	if (decoded === null || typeof decoded !== "object") {
 		throw new Error(`root block did not decode to a map`);
 	}
 
@@ -128,18 +139,21 @@ const didDocUrlFor = (did: string): string => {
 	if (isWebDid(did)) {
 		return webDidToDocumentUrl(did).href;
 	}
-	return '';
+	return "";
 };
 
 /** resolve the commit's DID to a public key plus the material we display */
-const resolveKey = async (commit: Record<string, unknown>, didDoc: DidDocument): Promise<{
+const resolveKey = async (
+	commit: Record<string, unknown>,
+	didDoc: DidDocument,
+): Promise<{
 	found: ReturnType<typeof getPublicKeyFromDidController>;
 	resolved: ResolvedKey;
 	did: string;
 	didDocUrl: string;
 }> => {
-	const did = commit['did'];
-	if (typeof did !== 'string') {
+	const did = commit["did"];
+	if (typeof did !== "string") {
 		throw new Error(`commit has no string 'did' field`);
 	}
 	if (!isAtprotoDid(did)) {
@@ -147,7 +161,9 @@ const resolveKey = async (commit: Record<string, unknown>, didDoc: DidDocument):
 	}
 
 	if (did != didDoc.id) {
-		throw new Error(`commit 'did' ${did} is not equal to repo 'did' ${didDoc.id} `);
+		throw new Error(
+			`commit 'did' ${did} is not equal to repo 'did' ${didDoc.id} `,
+		);
 	}
 
 	const material = getAtprotoVerificationMaterial(didDoc);
@@ -158,7 +174,11 @@ const resolveKey = async (commit: Record<string, unknown>, didDoc: DidDocument):
 	const found = getPublicKeyFromDidController(material);
 	return {
 		found,
-		resolved: { type: found.type, jwtAlg: found.jwtAlg, publicKeyMultibase: material.publicKeyMultibase },
+		resolved: {
+			type: found.type,
+			jwtAlg: found.jwtAlg,
+			publicKeyMultibase: material.publicKeyMultibase,
+		},
 		did,
 		didDocUrl: didDocUrlFor(did),
 	};

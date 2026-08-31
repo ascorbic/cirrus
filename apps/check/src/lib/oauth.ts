@@ -13,6 +13,19 @@ import { createSignal } from "solid-js";
 import { actorResolver } from "./resolvers";
 
 const SCOPE = "atproto transition:generic";
+
+/**
+ * The extra grant the spaces conformance run signs in with: full record
+ * actions on any collection plus space create/update/delete management,
+ * scoped to the probe space type under the user's own authority
+ * (`authority` defaults to `self`). A PDS without the spaces alpha
+ * rejects the unknown scope at sign-in, which is the right failure — the
+ * suite is meaningless there.
+ */
+const SPACE_SCOPE =
+	"space:app.bsky.group?collection=*&manage=create&manage=update&manage=delete";
+export const SPACES_SCOPE = `${SCOPE} ${SPACE_SCOPE}`;
+
 const CALLBACK_PATH = "/oauth/callback";
 
 const isLoopback =
@@ -23,7 +36,9 @@ const REDIRECT_URI = `${location.origin}${CALLBACK_PATH}`;
 const CLIENT_ID = isLoopback
 	? `http://localhost?${new URLSearchParams({
 			redirect_uri: REDIRECT_URI,
-			scope: SCOPE,
+			// The loopback registration is the client_id itself, so it must
+			// carry the superset of every scope a flow may request.
+			scope: SPACES_SCOPE,
 		}).toString()}`
 	: `${location.origin}/client-metadata.json`;
 
@@ -38,10 +53,13 @@ const [currentDid, setCurrentDid] = createSignal<Did | null>(
 
 export const signedInDid = currentDid;
 
-export async function startLogin(identifier: string): Promise<never> {
+export async function startLogin(
+	identifier: string,
+	scope: string = SCOPE,
+): Promise<never> {
 	const url = await createAuthorizationUrl({
 		target: { type: "account", identifier: identifier as ActorIdentifier },
-		scope: SCOPE,
+		scope,
 	});
 	location.assign(url.toString());
 	throw new Error("redirecting");

@@ -6,9 +6,33 @@ packages:
 
 allowBuilds:
   "@atcute/time-ms": false
+  # The reference PDS (@atproto/pds, via @atproto/dev-env) stores data in
+  # better-sqlite3, a native module that must compile to load. cbor-extract
+  # and protobufjs ship pure-JS fallbacks, so their build scripts stay off.
+  better-sqlite3: true
+  cbor-extract: false
   core-js: false
   esbuild: false
+  protobufjs: false
   sharp: false
   workerd: false
+
+# @atproto/dev-env (the reference PDS harness the conformance matrix runs
+# against) transitively pulls the @atproto/lex* family. Each of those was
+# published twice in the spaces alpha: once as a broken bare `0.0.0` whose
+# manifest still carries unresolved `workspace:*` sibling specifiers (so it
+# cannot install outside the atproto monorepo), and once as a clean
+# `0.0.0-spaces-alpha-*` build. The dependency ranges are `^0.0.0-spaces-alpha-*`,
+# and by semver a bare `0.0.0` release outranks any `-prerelease`, so pnpm picks
+# the broken one. Pin the whole family to the clean timestamp build. Nothing
+# else in this repo uses these packages, so a global override is safe.
+overrides:
+  "@atproto/lex": "0.0.0-spaces-alpha-20260818163953"
+  "@atproto/lex-resolver": "0.0.0-spaces-alpha-20260818163953"
+  "@atproto/lex-client": "0.0.0-spaces-alpha-20260818163953"
+  "@atproto/lex-schema": "0.0.0-spaces-alpha-20260818163953"
+  "@atproto/lex-builder": "0.0.0-spaces-alpha-20260818163953"
+  "@atproto/lex-installer": "0.0.0-spaces-alpha-20260818163953"
+  "@atproto/lex-document": "0.0.0-spaces-alpha-20260818163953"
 
 linkWorkspacePackages: true

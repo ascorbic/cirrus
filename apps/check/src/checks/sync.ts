@@ -44,8 +44,7 @@ const getLatestCommit: Check = {
 			if (!res.ok) {
 				return {
 					status: "fail",
-					message:
-						`${res.data.error}: ${res.data.message ?? ""}`.trim(),
+					message: `${res.data.error}: ${res.data.message ?? ""}`.trim(),
 					evidence: {
 						request: { method: "GET", url },
 						response: { status: res.status, body: res.data },
@@ -107,8 +106,7 @@ const getRepoStatus: Check = {
 			if (!res.ok) {
 				return {
 					status: "fail",
-					message:
-						`${res.data.error}: ${res.data.message ?? ""}`.trim(),
+					message: `${res.data.error}: ${res.data.message ?? ""}`.trim(),
 					evidence: {
 						request: { method: "GET", url },
 						response: { status: res.status, body: res.data },
@@ -179,8 +177,7 @@ const getBlocks: Check = {
 			if (!res.ok) {
 				return {
 					status: "fail",
-					message:
-						`${res.data.error}: ${res.data.message ?? ""}`.trim(),
+					message: `${res.data.error}: ${res.data.message ?? ""}`.trim(),
 					evidence: {
 						request: { method: "GET", url },
 						response: { status: res.status, body: res.data },

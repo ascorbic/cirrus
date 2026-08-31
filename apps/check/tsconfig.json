@@ -5,7 +5,15 @@
 		"lib": ["es2022", "dom", "dom.iterable"],
 		"jsx": "preserve",
 		"jsxImportSource": "solid-js",
-		"types": ["vite/client"]
+		"types": ["vite/client"],
+		// Resolve the conformance package to its source, matching the Vite
+		// alias — so neither the type check nor the Workers Build depends on
+		// the package having been built to dist first.
+		"paths": {
+			"@getcirrus/space-conformance": [
+				"../../packages/space-conformance/src/index.ts"
+			]
+		}
 	},
 	"include": ["src", "vite.config.ts"]
 }

@@ -54,7 +54,9 @@ function sessionMismatch(ctx: {
 	return null;
 }
 
-function buildClient(agent: { handle: (path: string, init?: RequestInit) => Promise<Response> }) {
+function buildClient(agent: {
+	handle: (path: string, init?: RequestInit) => Promise<Response>;
+}) {
 	return new Client({ handler: agent });
 }
 

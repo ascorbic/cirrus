@@ -1,0 +1,7 @@
+{
+	"source": "https://github.com/bluesky-social/atproto",
+	"branch": "permissioned-data-alpha",
+	"commit": "4c33457",
+	"vendoredAt": "2026-08-28",
+	"note": "Vendored verbatim from lexicons/com/atproto/{space,simplespace}. Re-vendored by the weekly sync; a diff here identifies affected checks via their citations."
+}

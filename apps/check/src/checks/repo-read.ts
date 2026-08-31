@@ -8,7 +8,7 @@ import type { Did, Nsid } from "@atcute/lexicons/syntax";
 import { CarReader } from "@ipld/car";
 import { validateLexicon } from "../lib/xrpc";
 import type { Check, CheckOutcome } from "../types";
-import { verifyCar } from "../lib/verify"
+import { verifyCar } from "../lib/verify";
 
 let cachedClient: { pds: string; client: Client } | undefined;
 
@@ -34,7 +34,11 @@ let listRecordsBody: ComAtprotoRepoListRecords.$output | undefined;
 let getRecordBody: ComAtprotoRepoGetRecord.$output | undefined;
 let repoCarBytes: Uint8Array | undefined;
 
-function xrpcUrl(pds: string, nsid: string, params: Record<string, string>): string {
+function xrpcUrl(
+	pds: string,
+	nsid: string,
+	params: Record<string, string>,
+): string {
 	const qs = new URLSearchParams(params).toString();
 	return `${pds}/xrpc/${nsid}${qs ? `?${qs}` : ""}`;
 }
@@ -68,7 +72,8 @@ const describeRepo: Check = {
 			if (!res.ok) {
 				return {
 					status: "fail",
-					message: `${res.status} ${res.data.error}: ${res.data.message ?? ""}`.trim(),
+					message:
+						`${res.status} ${res.data.error}: ${res.data.message ?? ""}`.trim(),
 					evidence: {
 						request: { method: "GET", url },
 						response: { status: res.status, body: res.data },
@@ -154,7 +159,9 @@ const listRecords: Check = {
 		const pds = ctx.pds!;
 		const did = ctx.did!;
 		const collection =
-			collections && collections.length > 0 ? collections[0]! : "app.bsky.feed.post";
+			collections && collections.length > 0
+				? collections[0]!
+				: "app.bsky.feed.post";
 		const url = xrpcUrl(pds, "com.atproto.repo.listRecords", {
 			repo: did,
 			collection,
@@ -167,7 +174,8 @@ const listRecords: Check = {
 			if (!res.ok) {
 				return {
 					status: "fail",
-					message: `${res.status} ${res.data.error}: ${res.data.message ?? ""}`.trim(),
+					message:
+						`${res.status} ${res.data.error}: ${res.data.message ?? ""}`.trim(),
 					evidence: {
 						request: { method: "GET", url },
 						response: { status: res.status, body: res.data },
@@ -255,7 +263,8 @@ const getRecord: Check = {
 			if (!res.ok) {
 				return {
 					status: "fail",
-					message: `${res.status} ${res.data.error}: ${res.data.message ?? ""}`.trim(),
+					message:
+						`${res.status} ${res.data.error}: ${res.data.message ?? ""}`.trim(),
 					evidence: {
 						request: { method: "GET", url },
 						response: { status: res.status, body: res.data },
@@ -280,7 +289,10 @@ const getRecord: Check = {
 				message: `CID matches (${expectedCid.slice(0, 16)}…)`,
 				evidence: {
 					request: { method: "GET", url },
-					response: { status: res.status, body: { uri: res.data.uri, cid: res.data.cid } },
+					response: {
+						status: res.status,
+						body: { uri: res.data.uri, cid: res.data.cid },
+					},
 				},
 			};
 		} catch (error) {
@@ -360,7 +372,12 @@ const listRecordsCursor: Check = {
 				cursor,
 			});
 			const second = await client.get("com.atproto.repo.listRecords", {
-				params: { repo: did as Did, collection: collection as Nsid, limit: 1, cursor },
+				params: {
+					repo: did as Did,
+					collection: collection as Nsid,
+					limit: 1,
+					cursor,
+				},
 			});
 			if (!second.ok) {
 				return {
@@ -697,7 +714,10 @@ const getRepoCarValidates: Check = {
 				return {
 					status: "fail",
 					message: `${missingRoots.length} root CID(s) not present in block set`,
-					evidence: { expected: missingRoots, actual: [...cidStrings].slice(0, 5) },
+					evidence: {
+						expected: missingRoots,
+						actual: [...cidStrings].slice(0, 5),
+					},
 				};
 			}
 			return {
@@ -728,11 +748,11 @@ const getRepoCarVerifyCommitSignature: Check = {
 	label: "CAR file commit signature validates",
 	requires: ["pds", "did"],
 	run: async (ctx): Promise<CheckOutcome> => {
-		const didDoc = ctx.didDoc!
+		const didDoc = ctx.didDoc!;
 		if (!repoCarBytes) {
 			return { status: "skip", message: "no CAR bytes to parse" };
 		}
-		const result = await verifyCar(repoCarBytes,didDoc)
+		const result = await verifyCar(repoCarBytes, didDoc);
 		if (result.ok) {
 			return {
 				status: "pass",
@@ -744,7 +764,7 @@ const getRepoCarVerifyCommitSignature: Check = {
 				message: result.message,
 			};
 		}
-	}
+	},
 };
 
 export const repoReadChecks: Check[] = [

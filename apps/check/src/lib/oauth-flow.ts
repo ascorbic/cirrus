@@ -91,7 +91,9 @@ let activeScope: string = LEGACY_SCOPE;
 const CLIENT_METADATA_SCOPE = [
 	"atproto",
 	"transition:generic",
-	GRANULAR_SCOPE.split(" ").filter((s) => s !== "atproto").join(" "),
+	GRANULAR_SCOPE.split(" ")
+		.filter((s) => s !== "atproto")
+		.join(" "),
 	"include:site.standard.authFull",
 ]
 	.join(" ")
@@ -222,9 +224,7 @@ async function protectedFetchWithNonceRetry(
 
 	let res = await call();
 	if (res.status === 400 || res.status === 401 || res.status === 403) {
-		const challenge = (
-			res.headers.get("www-authenticate") ?? ""
-		).toLowerCase();
+		const challenge = (res.headers.get("www-authenticate") ?? "").toLowerCase();
 		let isNonceChallenge = challenge.includes("use_dpop_nonce");
 		if (!isNonceChallenge) {
 			try {
@@ -428,8 +428,7 @@ export function startPreRedirectFlow(target: string): FlowRun {
 		setStep(id, { status: "running", startedAt: Date.now() });
 		try {
 			const out = await fn();
-			if (out.patch)
-				setState(produce((s) => Object.assign(s, out.patch)));
+			if (out.patch) setState(produce((s) => Object.assign(s, out.patch)));
 			setStep(id, {
 				status: out.status,
 				message: out.message,
@@ -503,7 +502,10 @@ export function startPreRedirectFlow(target: string): FlowRun {
 						return {
 							status: "fail",
 							message: `HTTP ${res.status}`,
-							evidence: { request: { method: "GET", url }, response: { status: res.status } },
+							evidence: {
+								request: { method: "GET", url },
+								response: { status: res.status },
+							},
 						};
 					const body = (await res.json()) as Record<string, unknown>;
 					const servers = body.authorization_servers;
@@ -580,8 +582,7 @@ export function startPreRedirectFlow(target: string): FlowRun {
 				} catch (error) {
 					return {
 						status: "fail",
-						message:
-							error instanceof Error ? error.message : String(error),
+						message: error instanceof Error ? error.message : String(error),
 						evidence: { error: String(error) },
 					};
 				}
@@ -594,9 +595,7 @@ export function startPreRedirectFlow(target: string): FlowRun {
 				const get = (k: string) => (as as Record<string, unknown>)[k];
 
 				if (get("require_pushed_authorization_requests") !== true)
-					issues.push(
-						"require_pushed_authorization_requests must be true",
-					);
+					issues.push("require_pushed_authorization_requests must be true");
 				if (!get("pushed_authorization_request_endpoint"))
 					issues.push("pushed_authorization_request_endpoint missing");
 				const dpopAlgs = get("dpop_signing_alg_values_supported");
@@ -617,9 +616,7 @@ export function startPreRedirectFlow(target: string): FlowRun {
 					!(scopes as unknown[]).includes("atproto")
 				)
 					issues.push("scopes_supported missing atproto");
-				const authMethods = get(
-					"token_endpoint_auth_methods_supported",
-				);
+				const authMethods = get("token_endpoint_auth_methods_supported");
 				const authMethodArr = Array.isArray(authMethods)
 					? (authMethods as unknown[])
 					: [];
@@ -632,9 +629,7 @@ export function startPreRedirectFlow(target: string): FlowRun {
 						"token_endpoint_auth_methods_supported missing private_key_jwt (atproto spec requires both)",
 					);
 				if (get("client_id_metadata_document_supported") !== true)
-					issues.push(
-						"client_id_metadata_document_supported must be true",
-					);
+					issues.push("client_id_metadata_document_supported must be true");
 				if (get("authorization_response_iss_parameter_supported") !== true)
 					issues.push(
 						"authorization_response_iss_parameter_supported must be true (RFC 9207)",
@@ -699,11 +694,10 @@ export function startPreRedirectFlow(target: string): FlowRun {
 			// then to legacy. The user sees the richest scope set the AS will accept
 			// on the consent UI, and the boundary tests still run whenever granular
 			// works.
-			const probeDpop = oauth.DPoP(
-				{ [oauth.clockSkew]: 0 },
-				dpopKeyPair,
-			);
-			const probeScope = async (scope: string): Promise<oauth.ResponseBodyError | null> => {
+			const probeDpop = oauth.DPoP({ [oauth.clockSkew]: 0 }, dpopKeyPair);
+			const probeScope = async (
+				scope: string,
+			): Promise<oauth.ResponseBodyError | null> => {
 				const probeParams = {
 					client_id: clientId(),
 					redirect_uri: redirectUri(),
@@ -790,27 +784,23 @@ export function startPreRedirectFlow(target: string): FlowRun {
 					{ DPoP: dpop },
 				);
 
-			const parResponse = await runStep<Response>(
-				"flow.send-par",
-				async () => {
-					try {
-						const res = await sendPAR();
-						return {
-							status: "pass",
-							message: `HTTP ${res.status}`,
-							evidence: { response: { status: res.status } },
-							result: res,
-						};
-					} catch (error) {
-						return {
-							status: "fail",
-							message:
-								error instanceof Error ? error.message : String(error),
-							evidence: { error: String(error) },
-						};
-					}
-				},
-			);
+			const parResponse = await runStep<Response>("flow.send-par", async () => {
+				try {
+					const res = await sendPAR();
+					return {
+						status: "pass",
+						message: `HTTP ${res.status}`,
+						evidence: { response: { status: res.status } },
+						result: res,
+					};
+				} catch (error) {
+					return {
+						status: "fail",
+						message: error instanceof Error ? error.message : String(error),
+						evidence: { error: String(error) },
+					};
+				}
+			});
 			if (!parResponse) {
 				haltAndSkipRest();
 				return;
@@ -884,8 +874,7 @@ export function startPreRedirectFlow(target: string): FlowRun {
 						}
 						return {
 							status: "fail",
-							message:
-								error instanceof Error ? error.message : String(error),
+							message: error instanceof Error ? error.message : String(error),
 							evidence: { error: String(error) },
 						};
 					}
@@ -899,73 +888,70 @@ export function startPreRedirectFlow(target: string): FlowRun {
 			// 9b. Security probe: PAR must reject redirect_uri values that aren't
 			// registered in the client metadata. RFC 6749 §3.1.2.4 / §10.6 — failing
 			// this is an open-redirect / code-exfiltration vulnerability.
-			await runStep(
-				"flow.par-rejects-unregistered-redirect-uri",
-				async () => {
-					const evilRedirectUri =
-						"https://pdscheck-probe.invalid/unregistered-redirect";
-					const probeParams = {
-						client_id: clientId(),
-						redirect_uri: evilRedirectUri,
-						response_type: "code",
-						scope: activeScope,
-						code_challenge: codeChallenge,
-						code_challenge_method: "S256",
-						state: oauth.generateRandomState(),
+			await runStep("flow.par-rejects-unregistered-redirect-uri", async () => {
+				const evilRedirectUri =
+					"https://pdscheck-probe.invalid/unregistered-redirect";
+				const probeParams = {
+					client_id: clientId(),
+					redirect_uri: evilRedirectUri,
+					response_type: "code",
+					scope: activeScope,
+					code_challenge: codeChallenge,
+					code_challenge_method: "S256",
+					state: oauth.generateRandomState(),
+				};
+				const attempt = async () => {
+					const res = await oauth.pushedAuthorizationRequest(
+						state.authServer!,
+						{ client_id: clientId() },
+						oauth.None(),
+						probeParams,
+						{ DPoP: dpop },
+					);
+					return await oauth.processPushedAuthorizationResponse(
+						state.authServer!,
+						{ client_id: clientId() },
+						res,
+					);
+				};
+				try {
+					const accepted = await withNonceRetry(attempt);
+					return {
+						status: "fail",
+						message:
+							"AS accepted PAR with an unregistered redirect_uri — open-redirect / code-exfiltration risk (RFC 6749 §3.1.2.4)",
+						evidence: {
+							expected:
+								"400 invalid_request (or similar) — unregistered redirect_uri rejected",
+							actual: {
+								request_uri_issued: accepted.request_uri,
+								redirect_uri_probed: evilRedirectUri,
+							},
+							error:
+								"AS issued a request_uri for a redirect not declared in the client metadata. This lets an attacker craft an authorization URL that completes at a different domain.",
+						},
 					};
-					const attempt = async () => {
-						const res = await oauth.pushedAuthorizationRequest(
-							state.authServer!,
-							{ client_id: clientId() },
-							oauth.None(),
-							probeParams,
-							{ DPoP: dpop },
-						);
-						return await oauth.processPushedAuthorizationResponse(
-							state.authServer!,
-							{ client_id: clientId() },
-							res,
-						);
-					};
-					try {
-						const accepted = await withNonceRetry(attempt);
+				} catch (error) {
+					if (error instanceof oauth.ResponseBodyError) {
 						return {
-							status: "fail",
-							message:
-								"AS accepted PAR with an unregistered redirect_uri — open-redirect / code-exfiltration risk (RFC 6749 §3.1.2.4)",
+							status: "pass",
+							message: `correctly rejected: ${error.error}${error.cause?.error_description ? ` — ${error.cause.error_description}` : ""}`,
 							evidence: {
-								expected:
-									"400 invalid_request (or similar) — unregistered redirect_uri rejected",
-								actual: {
-									request_uri_issued: accepted.request_uri,
-									redirect_uri_probed: evilRedirectUri,
+								response: {
+									status: error.status,
+									body: error.cause,
 								},
-								error:
-									"AS issued a request_uri for a redirect not declared in the client metadata. This lets an attacker craft an authorization URL that completes at a different domain.",
 							},
 						};
-					} catch (error) {
-						if (error instanceof oauth.ResponseBodyError) {
-							return {
-								status: "pass",
-								message: `correctly rejected: ${error.error}${error.cause?.error_description ? ` — ${error.cause.error_description}` : ""}`,
-								evidence: {
-									response: {
-										status: error.status,
-										body: error.cause,
-									},
-								},
-							};
-						}
-						// Network error or unexpected throw — surface but don't fail
-						return {
-							status: "warn",
-							message: `probe inconclusive: ${error instanceof Error ? error.message : String(error)}`,
-							evidence: { error: String(error) },
-						};
 					}
-				},
-			);
+					// Network error or unexpected throw — surface but don't fail
+					return {
+						status: "warn",
+						message: `probe inconclusive: ${error instanceof Error ? error.message : String(error)}`,
+						evidence: { error: String(error) },
+					};
+				}
+			});
 
 			// 9c. Permission-set probes. We don't gate on scopes_supported — the
 			// spec doesn't require ASes to enumerate include:* scopes since they
@@ -1224,8 +1210,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 		setStep(id, { status: "running", startedAt: Date.now() });
 		try {
 			const out = await fn();
-			if (out.patch)
-				setState(produce((s) => Object.assign(s, out.patch)));
+			if (out.patch) setState(produce((s) => Object.assign(s, out.patch)));
 			setStep(id, {
 				status: out.status,
 				message: out.message,
@@ -1249,7 +1234,8 @@ export async function runPostCallback(): Promise<CallbackRun> {
 			for (const id of POST_CALLBACK_STEPS) {
 				setStep(id, {
 					status: "skip",
-					message: "no persisted flow state — open a fresh flow from the landing page",
+					message:
+						"no persisted flow state — open a fresh flow from the landing page",
 				});
 			}
 			setState("phase", "done");
@@ -1382,13 +1368,10 @@ export async function runPostCallback(): Promise<CallbackRun> {
 					};
 				} catch (error) {
 					if (error instanceof oauth.ResponseBodyError) {
-						const desc =
-							(error.cause?.error_description as string) ?? "";
+						const desc = (error.cause?.error_description as string) ?? "";
 						return {
 							status: "fail",
-							message: `${error.error}: ${desc}`
-								.trim()
-								.replace(/:$/, ""),
+							message: `${error.error}: ${desc}`.trim().replace(/:$/, ""),
 							evidence: {
 								response: { status: error.status, body: error.cause },
 								error: `OAuth error: ${error.error}${desc ? ` — ${desc}` : ""}`,
@@ -1397,8 +1380,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 					}
 					return {
 						status: "fail",
-						message:
-							error instanceof Error ? error.message : String(error),
+						message: error instanceof Error ? error.message : String(error),
 						evidence: { error: String(error) },
 					};
 				}
@@ -1415,9 +1397,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 			const issues: string[] = [];
 			if (!tokenResp.access_token) issues.push("access_token missing");
 			if (tokenResp.token_type?.toLowerCase() !== "dpop")
-				issues.push(
-					`token_type must be "DPoP" (got ${tokenResp.token_type})`,
-				);
+				issues.push(`token_type must be "DPoP" (got ${tokenResp.token_type})`);
 			if (!tokenResp.refresh_token)
 				issues.push("refresh_token missing (atproto requires)");
 			if (typeof tokenResp.expires_in !== "number")
@@ -1439,8 +1419,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 				)
 					? "fail"
 					: "warn",
-				message:
-					issues.length === 1 ? issues[0]! : `${issues.length} issues`,
+				message: issues.length === 1 ? issues[0]! : `${issues.length} issues`,
 				evidence: { error: issues.join("\n") },
 			};
 		});
@@ -1550,8 +1529,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 			} catch (error) {
 				return {
 					status: "fail",
-					message:
-						error instanceof Error ? error.message : String(error),
+					message: error instanceof Error ? error.message : String(error),
 					evidence: { error: String(error) },
 				};
 			}
@@ -1642,7 +1620,8 @@ export async function runPostCallback(): Promise<CallbackRun> {
 			if (!res.ok) {
 				return {
 					status: "fail",
-					message: `${res.status} ${body.error ?? ""}: ${body.message ?? ""}`.trim(),
+					message:
+						`${res.status} ${body.error ?? ""}: ${body.message ?? ""}`.trim(),
 					evidence: { response: { status: res.status, body } },
 				};
 			}
@@ -1750,9 +1729,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 					const res = await protectedFetchWithNonceRetry(
 						accessToken,
 						"POST",
-						new URL(
-							`${pdsUrl}/xrpc/com.atproto.repo.deleteRecord`,
-						),
+						new URL(`${pdsUrl}/xrpc/com.atproto.repo.deleteRecord`),
 						new Headers({ "content-type": "application/json" }),
 						JSON.stringify({
 							repo: repoDid,
@@ -1806,13 +1783,10 @@ export async function runPostCallback(): Promise<CallbackRun> {
 							};
 						} catch (error) {
 							if (error instanceof oauth.ResponseBodyError) {
-								const desc =
-									(error.cause?.error_description as string) ?? "";
+								const desc = (error.cause?.error_description as string) ?? "";
 								return {
 									status: "fail",
-									message: `${error.error}: ${desc}`
-										.trim()
-										.replace(/:$/, ""),
+									message: `${error.error}: ${desc}`.trim().replace(/:$/, ""),
 									evidence: {
 										response: {
 											status: error.status,
@@ -1824,10 +1798,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 							}
 							return {
 								status: "fail",
-								message:
-									error instanceof Error
-										? error.message
-										: String(error),
+								message: error instanceof Error ? error.message : String(error),
 								evidence: { error: String(error) },
 							};
 						}
@@ -1850,9 +1821,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 					const res = await protectedFetchWithNonceRetry(
 						refreshedResp.access_token,
 						"GET",
-						new URL(
-							`${persisted.pds}/xrpc/com.atproto.server.getSession`,
-						),
+						new URL(`${persisted.pds}/xrpc/com.atproto.server.getSession`),
 						new Headers(),
 						null,
 						{ DPoP: dpop },
@@ -1871,10 +1840,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 				} catch (error) {
 					return {
 						status: "fail",
-						message:
-							error instanceof Error
-								? error.message
-								: String(error),
+						message: error instanceof Error ? error.message : String(error),
 						evidence: { error: String(error) },
 					};
 				}
@@ -1887,9 +1853,8 @@ export async function runPostCallback(): Promise<CallbackRun> {
 		}
 
 		// 10. Revoke token
-		const revocationEndpoint = (
-			authServer as Record<string, unknown>
-		).revocation_endpoint as string | undefined;
+		const revocationEndpoint = (authServer as Record<string, unknown>)
+			.revocation_endpoint as string | undefined;
 		if (revocationEndpoint) {
 			await runStep("flow.revoke-token", async () => {
 				try {
@@ -1909,13 +1874,10 @@ export async function runPostCallback(): Promise<CallbackRun> {
 					};
 				} catch (error) {
 					if (error instanceof oauth.ResponseBodyError) {
-						const desc =
-							(error.cause?.error_description as string) ?? "";
+						const desc = (error.cause?.error_description as string) ?? "";
 						return {
 							status: "fail",
-							message: `${error.error}: ${desc}`
-								.trim()
-								.replace(/:$/, ""),
+							message: `${error.error}: ${desc}`.trim().replace(/:$/, ""),
 							evidence: {
 								response: { status: error.status, body: error.cause },
 							},
@@ -1923,10 +1885,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 					}
 					return {
 						status: "fail",
-						message:
-							error instanceof Error
-								? error.message
-								: String(error),
+						message: error instanceof Error ? error.message : String(error),
 						evidence: { error: String(error) },
 					};
 				}
@@ -1942,9 +1901,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 					const res = await protectedFetchWithNonceRetry(
 						tokenForCalls,
 						"GET",
-						new URL(
-							`${persisted.pds}/xrpc/com.atproto.server.getSession`,
-						),
+						new URL(`${persisted.pds}/xrpc/com.atproto.server.getSession`),
 						new Headers(),
 						null,
 						{ DPoP: dpop },
@@ -1966,8 +1923,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 						status: "fail",
 						message: `expected 401/403, got ${res.status} — revoked token still grants access (RFC 7009 §3)`,
 						evidence: {
-							expected:
-								"401 or 403 with invalid_token after revocation",
+							expected: "401 or 403 with invalid_token after revocation",
 							actual: { status: res.status },
 							error:
 								"Resource server accepted a revoked token. Either revocation isn't actually invalidating the token, or the resource server isn't checking revocation status.",
@@ -1976,10 +1932,7 @@ export async function runPostCallback(): Promise<CallbackRun> {
 				} catch (error) {
 					return {
 						status: "fail",
-						message:
-							error instanceof Error
-								? error.message
-								: String(error),
+						message: error instanceof Error ? error.message : String(error),
 						evidence: { error: String(error) },
 					};
 				}

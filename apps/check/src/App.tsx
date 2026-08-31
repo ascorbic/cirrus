@@ -3,7 +3,9 @@ import { anonymousChecks, writeChecks } from "./checks";
 import { OAuthFlowView } from "./components/OAuthFlowView";
 import { RecentRuns } from "./components/RecentRuns";
 import { RunView } from "./components/RunView";
+import { SpacesConformanceView } from "./SpacesConformanceView";
 import {
+	SPACES_SCOPE,
 	completeCallback,
 	getAgent,
 	isCallbackPath,
@@ -53,7 +55,7 @@ type BootState =
 	| { kind: "callback-error"; message: string }
 	| { kind: "flow-callback"; state: FlowState };
 
-type Mode = "landing" | "confirm-writes";
+type Mode = "landing" | "confirm-writes" | "confirm-spaces" | "spaces";
 
 export function App() {
 	// Both callback paths show the "completing sign-in" loading view first,
@@ -107,6 +109,11 @@ export function App() {
 							`/?target=${encodeURIComponent(stashedTarget)}`,
 						);
 						await beginRun(stashedTarget, writeChecks, "writes");
+					} else if (intent === "spaces") {
+						// The spaces view runs itself against the session's own PDS
+						// as soon as it mounts with an agent present.
+						history.replaceState(null, "", "/");
+						setMode("spaces");
 					} else {
 						history.replaceState(
 							null,
@@ -234,6 +241,44 @@ export function App() {
 		setMode("landing");
 	}
 
+	function startSpacesTests() {
+		const value = target().trim();
+		if (!value) {
+			setAuthError("Enter a handle first");
+			return;
+		}
+		setAuthError(null);
+		// Same shape as the write tests: confirm what the run will do BEFORE
+		// the redirect, so the user sees it before authorizing.
+		setMode("confirm-spaces");
+	}
+
+	async function confirmSpaces() {
+		const value = target().trim();
+		if (!value) {
+			setAuthError("Enter a handle first");
+			setMode("landing");
+			return;
+		}
+
+		// Already signed in — but almost certainly with the write-test scope,
+		// which grants nothing on spaces. Sign out and re-authorize with the
+		// space scope so the consent screen shows what the run actually needs.
+		if (signedInDid()) await signOut();
+
+		sessionStorage.setItem(INTENT_KEY, "spaces");
+		sessionStorage.setItem(TARGET_KEY, value);
+		try {
+			await startLogin(value, SPACES_SCOPE);
+		} catch (error) {
+			if (error instanceof Error && error.message === "redirecting") return;
+			sessionStorage.removeItem(INTENT_KEY);
+			sessionStorage.removeItem(TARGET_KEY);
+			setAuthError(error instanceof Error ? error.message : String(error));
+			setMode("landing");
+		}
+	}
+
 	function startOAuthConformance() {
 		const value = target().trim();
 		if (!value) {
@@ -311,7 +356,26 @@ export function App() {
 
 	function ModeSurface() {
 		return (
-			<Show when={mode() === "confirm-writes"} fallback={<Landing />}>
+			<Show when={mode() === "spaces"} fallback={<ConfirmOrLanding />}>
+				<SpacesConformanceView onExit={() => setMode("landing")} />
+			</Show>
+		);
+	}
+
+	function ConfirmOrLanding() {
+		return (
+			<Show
+				when={mode() === "confirm-writes"}
+				fallback={
+					<Show when={mode() === "confirm-spaces"} fallback={<Landing />}>
+						<ConfirmSpacesView
+							target={target()}
+							onConfirm={confirmSpaces}
+							onCancel={cancelWrites}
+						/>
+					</Show>
+				}
+			>
 				<ConfirmWritesView
 					target={target()}
 					signedInDid={signedInDid()}
@@ -491,6 +555,26 @@ export function App() {
 									(unregistered redirect_uri, scope enforcement).
 								</div>
 							</button>
+							<button
+								type="button"
+								onClick={startSpacesTests}
+								class="group border-2 border-ink px-4 py-3 text-left hover:bg-ink hover:text-paper transition-colors"
+							>
+								<div class="flex items-baseline justify-between gap-3">
+									<span class="font-bold tracking-[0.15em]">
+										SPACES CONFORMANCE →
+									</span>
+									<span class="text-xs text-faint group-hover:text-paper/70">
+										alpha · needs sign-in
+									</span>
+								</div>
+								<div class="text-xs text-muted group-hover:text-paper/70 mt-1">
+									runs the atproto spaces suite against your PDS: probe spaces,
+									record writes, applyWrites atomicity, blob isolation,
+									delegation → credential → read. Creates and deletes disposable
+									probe spaces.
+								</div>
+							</button>
 							<Show when={authError()}>
 								{(message) => (
 									<div class="mt-2 text-xs text-fail text-center">
@@ -617,6 +701,99 @@ function ConfirmWritesView(props: {
 							class="flex-1 border-2 border-ink bg-ink text-paper px-4 py-2 font-bold tracking-[0.15em] hover:bg-paper hover:text-ink transition-colors"
 						>
 							{props.signedInDid ? "RUN WRITE TESTS →" : "AUTHORIZE + RUN →"}
+						</button>
+					</div>
+				</div>
+			</main>
+		</div>
+	);
+}
+
+function ConfirmSpacesView(props: {
+	target: string;
+	onConfirm: () => void;
+	onCancel: () => void;
+}) {
+	return (
+		<div class="min-h-dvh flex flex-col">
+			<header class="px-6 py-4 flex items-center justify-between text-sm border-b border-line">
+				<a href="/" class="flex items-center gap-2">
+					<span aria-hidden>☁️</span>
+					<span class="font-bold tracking-[0.2em]">CHECK</span>
+				</a>
+				<button
+					type="button"
+					onClick={props.onCancel}
+					class="text-faint hover:text-ink text-xs"
+				>
+					cancel ×
+				</button>
+			</header>
+
+			<main class="flex-1 grid place-items-center px-6 py-12">
+				<div class="w-full max-w-xl">
+					<div class="text-xs uppercase tracking-[0.2em] text-muted">
+						Confirm spaces conformance run
+					</div>
+					<h1 class="text-lg font-bold break-all mt-1">{props.target}</h1>
+
+					<div class="mt-3 text-xs text-muted">
+						you'll be redirected to your PDS to authorize the space scopes
+						before the run starts — a PDS without the spaces alpha will refuse
+						the sign-in
+					</div>
+
+					<div class="mt-8 border-2 border-ink p-6 space-y-4 text-sm">
+						<p>
+							This run makes real (but disposable) changes to your PDS.
+							Specifically:
+						</p>
+						<ul class="space-y-2 pl-4">
+							<li>
+								<span class="text-ink">·</span> Create probe spaces of type{" "}
+								<code class="bg-line/40 px-1 py-0.5">app.bsky.group</code> with
+								run-unique keys, deleted at the end of each check
+							</li>
+							<li>
+								<span class="text-ink">·</span> Write and delete records in the
+								neutral{" "}
+								<code class="bg-line/40 px-1 py-0.5">test.conformance.*</code>{" "}
+								collections inside those probe spaces
+							</li>
+							<li>
+								<span class="text-ink">·</span> Upload one 16-byte test blob and
+								verify it is <em>not</em> served publicly
+							</li>
+							<li>
+								<span class="text-ink">·</span> Exercise your PDS's own{" "}
+								<code class="bg-line/40 px-1 py-0.5">getDelegationToken</code> →{" "}
+								<code class="bg-line/40 px-1 py-0.5">getSpaceCredential</code> →
+								read flow
+							</li>
+						</ul>
+						<p class="text-muted text-xs">
+							Probe spaces never touch your public repo or existing spaces, and
+							every check deletes what it created — a failed cleanup can be
+							removed with{" "}
+							<code class="bg-line/40 px-1 py-0.5">pds spaces</code> tooling.
+							The session is signed out automatically when the run finishes.
+						</p>
+					</div>
+
+					<div class="mt-6 flex gap-3">
+						<button
+							type="button"
+							onClick={props.onCancel}
+							class="border border-ink px-4 py-2 hover:bg-line/40 transition-colors"
+						>
+							cancel
+						</button>
+						<button
+							type="button"
+							onClick={props.onConfirm}
+							class="flex-1 border-2 border-ink bg-ink text-paper px-4 py-2 font-bold tracking-[0.15em] hover:bg-paper hover:text-ink transition-colors"
+						>
+							AUTHORIZE + RUN →
 						</button>
 					</div>
 				</div>

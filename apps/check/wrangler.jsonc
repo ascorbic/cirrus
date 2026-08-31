@@ -2,9 +2,14 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "pdscheck",
 	"compatibility_date": "2026-05-24",
+	// Serves /client-metadata.json derived from the request origin (so
+	// preview deployments are valid OAuth clients of themselves); all other
+	// paths fall through to assets.
+	"main": "src/worker.ts",
 	"assets": {
 		"directory": "./dist",
-		"not_found_handling": "single-page-application"
+		"not_found_handling": "single-page-application",
+		"binding": "ASSETS"
 	},
 	"routes": [
 		{

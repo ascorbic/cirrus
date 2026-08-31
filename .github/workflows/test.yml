@@ -22,6 +22,11 @@ jobs:
           pnpm install
       - name: Build
         run: pnpm build
+      # Type-checking and package validation (publint/attw) otherwise run
+      # only in the release workflow — a break here would merge green and
+      # then fail the release. Runs after Build: attw --pack needs dist.
+      - name: Check
+        run: pnpm check
       - name: Test
         run: pnpm test
       - name: Knip

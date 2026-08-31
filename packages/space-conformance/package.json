@@ -1,0 +1,53 @@
+{
+	"name": "@getcirrus/space-conformance",
+	"version": "0.0.0",
+	"description": "Black-box conformance suite for atproto spaces implementations (alpha)",
+	"type": "module",
+	"main": "dist/index.js",
+	"files": [
+		"dist",
+		"lexicons"
+	],
+	"exports": {
+		".": "./dist/index.js",
+		"./full": "./dist/full.js"
+	},
+	"scripts": {
+		"build": "tsdown",
+		"dev": "tsdown --watch",
+		"test": "vitest run",
+		"check": "publint && attw --pack --profile esm-only"
+	},
+	"dependencies": {
+		"@atproto/crypto": "^0.4.5",
+		"@atproto/lex-cbor": "^0.1.6",
+		"@atproto/lex-data": "^0.1.7",
+		"@atproto/oauth-client-node": "0.0.0-spaces-alpha-20260818163953",
+		"@atproto/space": "0.0.0-spaces-alpha-20260818163953"
+	},
+	"devDependencies": {
+		"@arethetypeswrong/cli": "^0.18.2",
+		"publint": "^0.3.16",
+		"tsdown": "^0.18.3",
+		"typescript": "^5.9.3",
+		"vitest": "4.1.0-beta.1"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ascorbic/cirrus.git",
+		"directory": "packages/space-conformance"
+	},
+	"homepage": "https://github.com/ascorbic/cirrus",
+	"keywords": [
+		"atproto",
+		"spaces",
+		"permissioned-data",
+		"conformance",
+		"interop"
+	],
+	"author": "Matt Kane",
+	"license": "MIT",
+	"bin": {
+		"space-conformance": "./dist/cli.js"
+	}
+}

@@ -1,6 +1,11 @@
 import { ComAtprotoIdentityResolveHandle } from "@atcute/atproto";
 import { getPdsEndpoint } from "@atcute/identity";
-import { isDid, isHandle, type Did, type Handle } from "@atcute/lexicons/syntax";
+import {
+	isDid,
+	isHandle,
+	type Did,
+	type Handle,
+} from "@atcute/lexicons/syntax";
 import { didDocResolver, handleResolver } from "../lib/resolvers";
 import { publicClient, validateLexicon } from "../lib/xrpc";
 import type { Check, CheckOutcome } from "../types";
@@ -82,7 +87,8 @@ const resolveHandle: Check = {
 			// handle, it's most likely a PDS host, not a user account. Probe
 			// /xrpc/_health to confirm and, if so, auto-switch to PDS-URL mode
 			// so the rest of the run is useful.
-			const looksLikeHostname = /\./.test(ctx.handle) && !ctx.handle.endsWith(".");
+			const looksLikeHostname =
+				/\./.test(ctx.handle) && !ctx.handle.endsWith(".");
 			if (looksLikeHostname) {
 				const probeUrl = `https://${ctx.handle}/xrpc/_health`;
 				try {
@@ -97,7 +103,8 @@ const resolveHandle: Check = {
 							status: "warn",
 							message: `not a user handle, but ${ctx.handle} responds to /xrpc/_health — auto-switching to PDS-URL mode. Identity/repo/sync checks needing a user DID will skip.`,
 							evidence: {
-								expected: "DNS TXT _atproto.<handle> or /.well-known/atproto-did to return a DID",
+								expected:
+									"DNS TXT _atproto.<handle> or /.well-known/atproto-did to return a DID",
 								actual: `handle resolution failed; ${probeUrl} returned ${res.status}`,
 								error: errMsg,
 							},
