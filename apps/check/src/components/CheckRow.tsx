@@ -113,9 +113,7 @@ export function CheckRow(props: { result: CheckResult }) {
 			<Show when={open()}>
 				<div class="mx-2 mb-2 mt-1 px-3 py-2 bg-line/20 text-xs space-y-2">
 					<div class="flex flex-wrap items-baseline gap-x-3">
-						<span class="text-faint uppercase tracking-[0.15em]">
-							check
-						</span>
+						<span class="text-faint uppercase tracking-[0.15em]">check</span>
 						<code class="select-all">{props.result.check.id}</code>
 					</div>
 					<Show when={props.result.outcome?.message}>
@@ -124,9 +122,7 @@ export function CheckRow(props: { result: CheckResult }) {
 								<span class="text-faint uppercase tracking-[0.15em]">
 									message
 								</span>
-								<span class="break-words flex-1 min-w-0">
-									{message()}
-								</span>
+								<span class="break-words flex-1 min-w-0">{message()}</span>
 							</div>
 						)}
 					</Show>

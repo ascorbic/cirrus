@@ -1,5 +1,5 @@
-import type { Bytes, CidLink } from '@atcute/cbor';
-import { isBytes, isCidLink } from '@atcute/cbor';
+import type { Bytes, CidLink } from "@atcute/cbor";
+import { isBytes, isCidLink } from "@atcute/cbor";
 
 /**
  * commit object stored at the root of an atproto repository CAR.
@@ -17,13 +17,13 @@ export interface Commit {
 
 /** is `value` a well-formed commit with all six expected fields present? */
 export const isWellFormedCommit = (value: unknown): value is Commit => {
-	if (value === null || typeof value !== 'object') return false;
+	if (value === null || typeof value !== "object") return false;
 	const obj = value as Record<string, unknown>;
 	return (
 		obj.version === 3 &&
-		typeof obj.did === 'string' &&
+		typeof obj.did === "string" &&
 		isCidLink(obj.data) &&
-		typeof obj.rev === 'string' &&
+		typeof obj.rev === "string" &&
 		(obj.prev === null || isCidLink(obj.prev)) &&
 		isBytes(obj.sig)
 	);

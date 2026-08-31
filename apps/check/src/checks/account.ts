@@ -188,10 +188,9 @@ const getAccountInviteCodes: Check = {
 		const guard = sessionMismatch(ctx);
 		if (guard) return guard;
 		const client = authedClient(ctx.agent!);
-		const res = await client.get(
-			"com.atproto.server.getAccountInviteCodes",
-			{ params: {} },
-		);
+		const res = await client.get("com.atproto.server.getAccountInviteCodes", {
+			params: {},
+		});
 		if (!res.ok) {
 			return {
 				status: "fail",

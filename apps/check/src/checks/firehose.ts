@@ -95,7 +95,9 @@ const connect: Check = {
 		try {
 			await new Promise<void>((resolve, reject) => {
 				const timer = setTimeout(() => {
-					reject(new Error(`Connection timed out after ${CONNECT_TIMEOUT_MS}ms`));
+					reject(
+						new Error(`Connection timed out after ${CONNECT_TIMEOUT_MS}ms`),
+					);
 				}, CONNECT_TIMEOUT_MS);
 				ws.addEventListener(
 					"open",
@@ -220,7 +222,9 @@ const connect: Check = {
 					finish("diversity");
 				}
 			});
-			ws.addEventListener("close", () => finish("server-close"), { once: true });
+			ws.addEventListener("close", () => finish("server-close"), {
+				once: true,
+			});
 			ws.addEventListener("error", () => finish("ws-error"), { once: true });
 		});
 
@@ -257,7 +261,11 @@ const collectFrames: Check = {
 				message: `No frames received in ${collectionElapsedMs}ms — relay may be idle (terminated: ${collectionTerminationReason})`,
 				evidence: {
 					expected: ">=1 frame",
-					actual: { frames: 0, terminatedBy: collectionTerminationReason, elapsedMs: collectionElapsedMs },
+					actual: {
+						frames: 0,
+						terminatedBy: collectionTerminationReason,
+						elapsedMs: collectionElapsedMs,
+					},
 				},
 			};
 		}
@@ -452,8 +460,7 @@ const commitBlocksIsValidCar: Check = {
 			} catch (error) {
 				failures.push({
 					seq: f.body.seq,
-					error:
-						error instanceof Error ? error.message : String(error),
+					error: error instanceof Error ? error.message : String(error),
 				});
 			}
 		}
@@ -464,11 +471,8 @@ const commitBlocksIsValidCar: Check = {
 					commits.length === 1 ? "" : "s"
 				} failed CAR validation`,
 				evidence: {
-					expected:
-						"body.blocks parses as a CAR and contains the commit block",
-					error: failures
-						.map((f) => `seq=${f.seq}: ${f.error}`)
-						.join("\n"),
+					expected: "body.blocks parses as a CAR and contains the commit block",
+					error: failures.map((f) => `seq=${f.seq}: ${f.error}`).join("\n"),
 				},
 			};
 		}
@@ -534,7 +538,8 @@ const commitDeprecatedBlobs: Check = {
 			return { status: "skip", message: "No #commit frames observed" };
 		}
 		const offenders = commits.filter(
-			(f) => Array.isArray(f.body.blobs) && (f.body.blobs as unknown[]).length > 0,
+			(f) =>
+				Array.isArray(f.body.blobs) && (f.body.blobs as unknown[]).length > 0,
 		);
 		if (offenders.length === 0) {
 			return {
@@ -737,8 +742,7 @@ const commitOpsHavePrev: Check = {
 			status: "warn",
 			message: `No sampled update/delete ops carry prev (${missingPrev}/${updateDeleteOps} missing) — could not confirm Sync 1.1 support. Sign in to run the live write probe, or trigger a fresh write and re-run.`,
 			evidence: {
-				expected:
-					"at least one #repoOp with action=update|delete carries prev",
+				expected: "at least one #repoOp with action=update|delete carries prev",
 				actual: firstOffending,
 			},
 		};
@@ -850,7 +854,9 @@ const liveListenStart: Check = {
 		try {
 			await new Promise<void>((resolve, reject) => {
 				const timer = setTimeout(() => {
-					reject(new Error(`Connection timed out after ${CONNECT_TIMEOUT_MS}ms`));
+					reject(
+						new Error(`Connection timed out after ${CONNECT_TIMEOUT_MS}ms`),
+					);
 				}, CONNECT_TIMEOUT_MS);
 				ws.addEventListener(
 					"open",

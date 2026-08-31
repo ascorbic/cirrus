@@ -135,8 +135,7 @@ function downloadFlowJson(state: FlowState) {
 			status: s.status,
 			message: s.message,
 			evidence: s.evidence,
-			durationMs:
-				s.startedAt && s.endedAt ? s.endedAt - s.startedAt : null,
+			durationMs: s.startedAt && s.endedAt ? s.endedAt - s.startedAt : null,
 		})),
 	};
 	downloadString(
@@ -288,10 +287,7 @@ export function OAuthFlowView(props: {
 				pass++;
 				applicable++;
 			}
-			if (
-				step.status === "fail" ||
-				step.status === "warn"
-			) {
+			if (step.status === "fail" || step.status === "warn") {
 				applicable++;
 			}
 			if (step.status === "fail") fail++;
@@ -330,9 +326,7 @@ export function OAuthFlowView(props: {
 						OAuth conformance flow
 					</div>
 					<div class="flex items-baseline justify-between gap-3 mt-1">
-						<h1 class="text-lg font-bold break-all">
-							{props.state.target}
-						</h1>
+						<h1 class="text-lg font-bold break-all">{props.state.target}</h1>
 						<Show when={props.state.phase !== "done"}>
 							<button
 								type="button"
@@ -347,9 +341,7 @@ export function OAuthFlowView(props: {
 						<span>
 							{summary().pass} / {summary().applicable} steps passing
 							<Show when={summary().fail > 0}>
-								<span class="text-fail ml-3">
-									{summary().fail} failing
-								</span>
+								<span class="text-fail ml-3">{summary().fail} failing</span>
 							</Show>
 						</span>
 						<span aria-live="polite">{phaseLabel()}</span>

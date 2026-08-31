@@ -43,7 +43,11 @@ export function startRun(
 			const check = checks[i]!;
 
 			if (!hasRequirements(check, ctx)) {
-				setResult(i, { status: "skip", startedAt: Date.now(), endedAt: Date.now() });
+				setResult(i, {
+					status: "skip",
+					startedAt: Date.now(),
+					endedAt: Date.now(),
+				});
 				continue;
 			}
 
