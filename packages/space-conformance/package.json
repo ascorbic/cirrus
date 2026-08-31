@@ -19,10 +19,11 @@
 		"check": "publint && attw --pack --profile esm-only"
 	},
 	"dependencies": {
-		"@atproto/space": "0.0.0-spaces-alpha-20260818163953",
 		"@atproto/crypto": "^0.4.5",
 		"@atproto/lex-cbor": "^0.1.6",
-		"@atproto/lex-data": "^0.1.7"
+		"@atproto/lex-data": "^0.1.7",
+		"@atproto/oauth-client-node": "0.0.0-spaces-alpha-20260818163953",
+		"@atproto/space": "0.0.0-spaces-alpha-20260818163953"
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
@@ -45,5 +46,8 @@
 		"interop"
 	],
 	"author": "Matt Kane",
-	"license": "MIT"
+	"license": "MIT",
+	"bin": {
+		"space-conformance": "./dist/cli.js"
+	}
 }
