@@ -2,7 +2,11 @@
 	"extends": "../../tsconfig.json",
 	"compilerOptions": {
 		"moduleResolution": "bundler",
-		"resolveJsonModule": true
+		"resolveJsonModule": true,
+		// The suite runs over the platform fetch/WebCrypto globals — the
+		// same in node 18+, workers and browsers — so it pulls the DOM lib
+		// for those types rather than any runtime-specific @types package.
+		"lib": ["es2022", "dom"]
 	},
 	"include": ["src"]
 }

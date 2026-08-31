@@ -41,12 +41,29 @@ export interface Citation {
  *   held keys, for playing reader/writer roles.
  * - `syncer-inbox`: an HTTPS endpoint the harness controls that the
  *   target can deliver notifications to.
+ * - `pds-blobs`: the target is a full PDS implementing
+ *   `com.atproto.repo.uploadBlob` and `com.atproto.sync.getBlob` — needed
+ *   to prove a space blob is not served publicly. A standalone space host,
+ *   or an isolated space-routes fixture, does not provide it.
+ * - `pds-delegation`: the target implements
+ *   `com.atproto.space.getDelegationToken`, so the operator can obtain a
+ *   credential for its own space (the bulletin self-flow) with no
+ *   harness-held reader key. A space-routes fixture does not provide it.
+ * - `alpha-libs`: the transport can execute the alpha crypto libraries
+ *   (`@atproto/space`), whose bundle pulls node-only dependencies. Real
+ *   checks never declare it — importing the full entry implies it — but
+ *   the browser catalog's metadata stubs do, so a browser harness (which
+ *   never declares it) reports them "not testable here" instead of
+ *   running a stub.
  */
 export type Capability =
 	| "operator"
 	| "oauth-session"
 	| "identities"
-	| "syncer-inbox";
+	| "syncer-inbox"
+	| "pds-blobs"
+	| "pds-delegation"
+	| "alpha-libs";
 
 export type CheckStatus =
 	| "pass"
@@ -78,6 +95,8 @@ export interface HarnessIdentity {
 /** A DPoP key the harness controls (always ES256, per the proposal). */
 export interface DpopKey {
 	bareJwk: Record<string, unknown>;
+	/** Algorithms the key supports; `["ES256"]` for DPoP. */
+	algorithms: readonly string[];
 	/** RFC 7638 thumbprint of {@link bareJwk}. */
 	jkt: string;
 	createJwt(
