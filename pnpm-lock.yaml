@@ -289,6 +289,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20260524.1
         version: 4.20260524.1
+      '@getcirrus/space-conformance':
+        specifier: workspace:*
+        version: link:../space-conformance
       '@ipld/car':
         specifier: ^5.4.2
         version: 5.4.2
@@ -402,6 +405,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20260524.1
         version: 4.20260524.1
+      '@getcirrus/space-conformance':
+        specifier: workspace:*
+        version: link:../space-conformance
       publint:
         specifier: ^0.3.16
         version: 0.3.17
