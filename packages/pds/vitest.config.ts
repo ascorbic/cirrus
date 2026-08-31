@@ -51,6 +51,10 @@ export default defineConfig({
 					INITIAL_ACTIVE: "true",
 					// Exercise the spaces alpha in tests
 					SPACES_ENABLED: "true",
+					// Sinkhole relay pokes: write tests run with unstubbed
+					// fetch, and the default would POST requestCrawl to the
+					// real bsky.network from CI.
+					RELAYS: "https://relay.invalid",
 				},
 			},
 		}),

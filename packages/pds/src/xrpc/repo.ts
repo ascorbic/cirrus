@@ -12,6 +12,7 @@ import {
 import { detectContentType } from "../format.js";
 import { BlobStore, extractJsonBlobCids } from "../repo/blobs.js";
 import { buildScopeChecker, requireScope } from "../middleware/auth.js";
+import { pokeRelaysIfUnheard } from "../relay.js";
 
 /**
  * Promote any staged blobs referenced by the given records to their public
@@ -347,6 +348,7 @@ export async function createRecord(
 		const result = await accountDO
 			.repo()
 			.createRecord(collection, rkey, validated.record, validated.status);
+		pokeRelaysIfUnheard(c.env, accountDO);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
@@ -393,6 +395,7 @@ export async function deleteRecord(
 	try {
 		const result = await accountDO.repo().deleteRecord(collection, rkey);
 
+		if (result) pokeRelaysIfUnheard(c.env, accountDO);
 		return c.json(result ?? {});
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
@@ -459,6 +462,7 @@ export async function putRecord(
 		const result = await accountDO
 			.repo()
 			.putRecord(collection, rkey, validated.record, validated.status);
+		pokeRelaysIfUnheard(c.env, accountDO);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
@@ -616,6 +620,7 @@ export async function applyWrites(
 
 	try {
 		const result = await accountDO.repo().applyWrites(preparedWrites);
+		pokeRelaysIfUnheard(c.env, accountDO);
 		return c.json(result);
 	} catch (err) {
 		const deactivatedError = checkAccountDeactivatedError(c, err);
