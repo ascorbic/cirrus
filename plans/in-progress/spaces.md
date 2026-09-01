@@ -76,6 +76,15 @@ User stories S1–S9 all have automated coverage (54 engine/protocol tests,
   `runInDurableObject` instead.
 - `@atproto/oauth-scopes@alpha` does not re-export `LexiconSpace`;
   oauth-provider defines the shape locally.
+- `@atcute/lexicon-resolver` can't resolve a space type declaration:
+  it validates the fetched doc against `@atcute/lexicon-doc`, whose
+  def-type whitelist has no `type: "space"`, so a valid declaration
+  throws `InvalidLexiconSchemaError` (invalid_literal at
+  `.defs.main.type`). `permission-sets.ts`'s `resolveSpaceDeclaration`
+  replicates the resolver's DID-doc → PDS → proof-CAR → signature-verify
+  steps itself, then validates `defs.main` against the local shape —
+  full proof verification, tolerant parse. Remove once upstream
+  lexicon-doc learns the `space` def type.
 - Deleted spaces read as `SpaceNotFound`, never-written spaces as
   `RepoNotFound`; `getSpaceCredential` alone answers `SpaceDeleted`
   (tombstone retained in the space DO).

@@ -20,10 +20,12 @@
 		"check": "publint && attw --pack --ignore-rules=cjs-resolves-to-esm"
 	},
 	"dependencies": {
+		"@atcute/crypto": "^2.3.0",
 		"@atcute/identity": "^1.1.0",
 		"@atcute/identity-resolver": "^1.1.3",
 		"@atcute/lexicon-resolver": "^0.1.6",
 		"@atcute/lexicons": "^1.2.6",
+		"@atcute/repo": "^0.1.1",
 		"@atproto/oauth-scopes": "0.0.0-spaces-alpha-20260818163953",
 		"@atproto/oauth-types": "^0.6.3",
 		"@atproto/syntax": "^0.4.2",
@@ -31,6 +33,8 @@
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
+		"@atproto/crypto": "^0.4.5",
+		"@atproto/repo": "^0.8.12",
 		"@cloudflare/workers-types": "^4.20251225.0",
 		"publint": "^0.3.16",
 		"tsdown": "^0.18.3",
