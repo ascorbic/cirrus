@@ -30,13 +30,14 @@ import {
 import { createDpopKey, createDpopProofJwt } from "../dpop.js";
 import { readCarHeader } from "../car.js";
 
-// A collection with no loaded lexicon, so record validation is
-// optimistic (fail-open) on any conformant target — the checks probe
-// space behaviour, not Bluesky schema validation.
-export const POST = "test.conformance.note";
+// The probe collections and space type are published, resolvable
+// lexicons under the suite's own authority (see ../../probe-lexicons) —
+// so strict, dynamically-resolving targets can validate them, while
+// AppViews ignore them (nothing under earth.cirrus.check.* is app.bsky.*).
+export const POST = "earth.cirrus.check.note";
 export const note = (text: string) => ({ $type: POST, text });
 
-const PROBE_TYPE = "app.bsky.group";
+const PROBE_TYPE = "earth.cirrus.check.space";
 
 export interface ProbeSpace {
 	uri: string;
@@ -693,7 +694,7 @@ const simplespaceUnsupportedPolicy = defineCheck({
 			asOperator(ctx),
 			"com.atproto.simplespace.createSpace",
 			{
-				type: "app.bsky.group",
+				type: PROBE_TYPE,
 				policy: { $type: "com.example.mysteryPolicy" },
 				appAccess: { $type: "com.atproto.simplespace.defs#open" },
 			},
@@ -805,10 +806,10 @@ const blobsSpaceNotPublic = defineCheck({
 			const write = await operatorCreateRecord(
 				ctx,
 				space.uri,
-				"test.conformance.withblob",
+				"earth.cirrus.check.withblob",
 				"self",
 				{
-					$type: "test.conformance.withblob",
+					$type: "earth.cirrus.check.withblob",
 					file: blob,
 				},
 			);

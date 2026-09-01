@@ -29,7 +29,7 @@ function clientMetadata(origin: string): Record<string, unknown> {
 		// the write tests, the OAuth conformance flow, and the spaces
 		// conformance run each request a subset of this registration.
 		scope:
-			"atproto transition:generic repo:earth.cirrus.check.testrecord include:site.standard.authFull space:app.bsky.group?collection=*&manage=create&manage=update&manage=delete",
+			"atproto transition:generic repo:earth.cirrus.check.testrecord include:site.standard.authFull space:earth.cirrus.check.space?collection=*&manage=create&manage=update&manage=delete",
 		grant_types: ["authorization_code", "refresh_token"],
 		response_types: ["code"],
 		application_type: "web",

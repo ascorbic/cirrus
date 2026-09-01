@@ -26,7 +26,7 @@ import {
  * space type under the user's own authority. Mirrors the web checker.
  */
 const OAUTH_SCOPE =
-	"atproto transition:generic space:app.bsky.group?collection=*&manage=create&manage=update&manage=delete";
+	"atproto transition:generic space:earth.cirrus.check.space?collection=*&manage=create&manage=update&manage=delete";
 
 /** How long to wait for the user to complete the browser flow. */
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;

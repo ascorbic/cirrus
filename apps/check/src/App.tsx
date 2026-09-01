@@ -751,13 +751,15 @@ function ConfirmSpacesView(props: {
 						<ul class="space-y-2 pl-4">
 							<li>
 								<span class="text-ink">·</span> Create probe spaces of type{" "}
-								<code class="bg-line/40 px-1 py-0.5">app.bsky.group</code> with
-								run-unique keys, deleted at the end of each check
+								<code class="bg-line/40 px-1 py-0.5">
+									earth.cirrus.check.space
+								</code>{" "}
+								with run-unique keys, deleted at the end of each check
 							</li>
 							<li>
 								<span class="text-ink">·</span> Write and delete records in the
 								neutral{" "}
-								<code class="bg-line/40 px-1 py-0.5">test.conformance.*</code>{" "}
+								<code class="bg-line/40 px-1 py-0.5">earth.cirrus.check.*</code>{" "}
 								collections inside those probe spaces
 							</li>
 							<li>
