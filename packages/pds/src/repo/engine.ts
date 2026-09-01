@@ -968,6 +968,19 @@ function serializeRecord(obj: unknown): unknown {
 		return { $bytes: btoa(binary) };
 	}
 
+	// @atproto/repo's walkRecords() decodes blobs as the legacy
+	// @atproto/lexicon BlobRef class. Honor its JSON representation before
+	// walking enumerable properties, otherwise the internal `original` field
+	// leaks into listRecords and the outer `$type: "blob"` is lost.
+	if (
+		typeof obj === "object" &&
+		"toJSON" in obj &&
+		typeof obj.toJSON === "function"
+	) {
+		const json = obj.toJSON();
+		if (json !== obj) return serializeRecord(json);
+	}
+
 	if (Array.isArray(obj)) {
 		return obj.map(serializeRecord);
 	}
