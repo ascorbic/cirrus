@@ -5,6 +5,7 @@
 	"defs": {
 		"main": {
 			"type": "space",
+			"key:":"literal:probe",
 			"name": "Conformance probe space",
 			"description": "Ephemeral probe spaces created by the @getcirrus/space-conformance suite (check.cirrus.earth). Each is created with a run-unique key and deleted when its check finishes.",
 			"collections": ["earth.cirrus.check.note", "earth.cirrus.check.withblob"]
