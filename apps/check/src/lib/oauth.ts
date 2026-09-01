@@ -23,7 +23,7 @@ const SCOPE = "atproto transition:generic";
  * suite is meaningless there.
  */
 const SPACE_SCOPE =
-	"space:app.bsky.group?collection=*&manage=create&manage=update&manage=delete";
+	"space:earth.cirrus.check.space?collection=*&manage=create&manage=update&manage=delete";
 export const SPACES_SCOPE = `${SCOPE} ${SPACE_SCOPE}`;
 
 const CALLBACK_PATH = "/oauth/callback";

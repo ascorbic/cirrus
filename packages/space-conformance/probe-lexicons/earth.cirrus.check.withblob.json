@@ -1,0 +1,19 @@
+{
+	"$type": "com.atproto.lexicon.schema",
+	"lexicon": 1,
+	"id": "earth.cirrus.check.withblob",
+	"defs": {
+		"main": {
+			"type": "record",
+			"description": "A probe record referencing a blob, used by the space conformance suite to verify space blobs are not served publicly. Deleted with its probe space.",
+			"key": "any",
+			"record": {
+				"type": "object",
+				"required": ["file"],
+				"properties": {
+					"file": { "type": "blob", "maxSize": 1048576 }
+				}
+			}
+		}
+	}
+}

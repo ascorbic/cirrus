@@ -71,7 +71,7 @@ const authGetRecordRequiresAuth = defineCheck({
 		// all (there's simply no record at this probe URI to leak), and a 5xx
 		// is a server fault, not a refusal — neither demonstrates enforcement.
 		const res = await xrpcGet(ctx, "com.atproto.space.getRecord", {
-			space: `at://${ctx.target.did}/space/app.bsky.group/probe`,
+			space: `at://${ctx.target.did}/space/earth.cirrus.check.space/probe`,
 			repo: ctx.target.did,
 			collection: "app.bsky.feed.post",
 			rkey: "whatever",
@@ -96,7 +96,7 @@ const authCredentialRequiresToken = defineCheck({
 	needs: [],
 	async run(ctx) {
 		const res = await xrpcPost(ctx, "com.atproto.space.getSpaceCredential", {
-			space: `at://${ctx.target.did}/space/app.bsky.group/probe`,
+			space: `at://${ctx.target.did}/space/earth.cirrus.check.space/probe`,
 		});
 		if (res.status === 401 || res.status === 403 || res.status === 400) {
 			return pass(`refused with ${res.status} ${res.error ?? ""}`);

@@ -1,0 +1,19 @@
+{
+	"$type": "com.atproto.lexicon.schema",
+	"lexicon": 1,
+	"id": "earth.cirrus.check.note",
+	"defs": {
+		"main": {
+			"type": "record",
+			"description": "A disposable probe record written into a probe space by the space conformance suite, deleted with the space.",
+			"key": "any",
+			"record": {
+				"type": "object",
+				"required": ["text"],
+				"properties": {
+					"text": { "type": "string", "maxLength": 1000 }
+				}
+			}
+		}
+	}
+}
