@@ -1,5 +1,20 @@
 # @getcirrus/pds
 
+## 0.20.0
+
+### Minor Changes
+
+- [#229](https://github.com/ascorbic/cirrus/pull/229) [`ded340f`](https://github.com/ascorbic/cirrus/commit/ded340f876f280c321714608833399bb481b0240) Thanks [@ascorbic](https://github.com/ascorbic)! - The PDS now re-adds itself to the relay's crawl list automatically. When a write commits while no relay is subscribed to the firehose, it sends `com.atproto.sync.requestCrawl` to the configured relays — rate-limited, and without delaying the write. Previously a relay that had marked the host offline would silently stop federating your posts until someone requested a crawl by hand. Relays default to `https://bsky.network` and can be overridden with the optional comma-separated `RELAYS` environment variable.
+
+### Patch Changes
+
+- [#241](https://github.com/ascorbic/cirrus/pull/241) [`df99d50`](https://github.com/ascorbic/cirrus/commit/df99d50883361a0e508b13865fc792381b3d33f2) Thanks [@sn0opy](https://github.com/sn0opy)! - Return canonical AT Protocol blob objects from `com.atproto.repo.listRecords`. Repository iteration decodes blobs as compatibility `BlobRef` instances; these are now serialized through their JSON representation instead of leaking the internal `original` field and omitting the outer `$type: "blob"`.
+
+- [#197](https://github.com/ascorbic/cirrus/pull/197) [`ef2f310`](https://github.com/ascorbic/cirrus/commit/ef2f310e18aa753294bd9a971f9209732ec918c5) Thanks [@jphastings](https://github.com/jphastings)! - Allow the `Authorization` header in cross-origin requests. Browser clients sending a bearer token were previously blocked at CORS preflight in Firefox and Safari.
+- Updated dependencies [[`0adc5fb`](https://github.com/ascorbic/cirrus/commit/0adc5fbd6426b1c6500088ae5e20aa8b43346e34)]:
+  - @getcirrus/oauth-provider@0.6.1
+  - @getcirrus/spaces@0.1.0
+
 ## 0.19.0
 
 ### Minor Changes
