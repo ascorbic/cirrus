@@ -98,8 +98,43 @@ describe("Blob Reference Normalization", () => {
 
 		// The API response should have the blob ref serialized back to JSON format
 		const apiImage = getData.value.embed.images[0]!.image;
-		expect(apiImage.ref.$link).toBe(blobCid);
-		expect(apiImage.mimeType).toBe("image/png");
+		const expectedImage = {
+			$type: "blob",
+			ref: { $link: blobCid },
+			mimeType: "image/png",
+			size: pngHeader.length,
+		};
+		expect(apiImage).toEqual(expectedImage);
+		expect(apiImage).not.toHaveProperty("original");
+
+		// listRecords uses the same repository serialization path and must return
+		// the same canonical JSON blob shape.
+		const listResponse = await worker.fetch(
+			new Request(
+				`http://pds.test/xrpc/com.atproto.repo.listRecords?repo=${env.DID}&collection=app.bsky.feed.post&limit=100`,
+			),
+			env,
+		);
+		expect(listResponse.status).toBe(200);
+
+		const listData = (await listResponse.json()) as {
+			records: Array<{
+				uri: string;
+				value: {
+					embed: {
+						images: Array<{ image: typeof expectedImage }>;
+					};
+				};
+			}>;
+		};
+		const listedRecord = listData.records.find((record) =>
+			record.uri.endsWith(`/${rkey}`),
+		);
+		expect(listedRecord).toBeDefined();
+		expect(listedRecord!.value.embed.images[0]!.image).toEqual(expectedImage);
+		expect(listedRecord!.value.embed.images[0]!.image).not.toHaveProperty(
+			"original",
+		);
 
 		// Step 4: Inspect the raw stored record via the repo directly
 		// This verifies the internal representation uses CID objects, not JSON
