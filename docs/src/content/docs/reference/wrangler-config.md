@@ -117,7 +117,7 @@ Adding a new migration block is necessary for renaming or removing the class. Fo
 ]
 ```
 
-The `binding` is what the Worker uses (`env.BLOBS`). The `bucket_name` is the R2 bucket — bucket names are global across all of Cloudflare. Pick a unique name.
+The `binding` is what the Worker uses (`env.BLOBS`). The `bucket_name` is the R2 bucket which must be unique to your account but (unlike some other blog storage services) do not need to be globally unique. The `create-pds` CLI prompts you for this and will write it to this file, otherwise just provide one here if you're managing the `wrangler.jsonc` manually.
 
 The bucket is created on first deploy if it does not exist.
 

@@ -41,14 +41,14 @@
 			]
 		}
 	],
-	// R2 bucket for blob storage (optional - create via Cloudflare dashboard)
+	// R2 bucket for blob storage
 	// Uploads are staged under `<did>/staged/` until a record references
 	// them. Add a lifecycle rule to expire abandoned uploads, e.g.:
-	//   wrangler r2 bucket lifecycle add pds-blobs --prefix "<did>/staged/" --expire-days 7
+	//   wrangler r2 bucket lifecycle add <bucket-name> --prefix "<did>/staged/" --expire-days 7
 	"r2_buckets": [
 		{
 			"binding": "BLOBS",
-			"bucket_name": "pds-blobs"
+			"bucket_name": "{{blobsBucketName}}"
 		}
 	],
 	// Environment variables (public config)

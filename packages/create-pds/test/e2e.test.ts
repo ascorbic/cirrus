@@ -80,4 +80,40 @@ describe("create-pds e2e", () => {
 			);
 		}).toThrow();
 	});
+
+	describe("blobs bucket name", () => {
+		it("uses the default bucket name when none is specified", () => {
+			const projectName = "bucket-default-pds";
+			execSync(
+				`node ${CLI_PATH} ${projectName} --yes --skip-install --skip-init --skip-git`,
+				{ cwd: TEST_DIR, stdio: "pipe" },
+			);
+			const wrangler = readFileSync(
+				join(TEST_DIR, projectName, "wrangler.jsonc"),
+				"utf-8",
+			);
+			expect(wrangler).toContain('"pds-blobs"');
+		});
+
+		it("uses a custom bucket name from --blobs-bucket-name", () => {
+			const projectName = "bucket-custom-pds";
+			execSync(
+				`node ${CLI_PATH} ${projectName} --yes --skip-install --skip-init --skip-git --blobs-bucket-name my-custom-bucket`,
+				{ cwd: TEST_DIR, stdio: "pipe" },
+			);
+			const wrangler = readFileSync(
+				join(TEST_DIR, projectName, "wrangler.jsonc"),
+				"utf-8",
+			);
+			expect(wrangler).toContain('"my-custom-bucket"');
+		});
+
+		it("leaves no unreplaced placeholders in wrangler.jsonc", () => {
+			const wrangler = readFileSync(
+				join(TEST_DIR, "bucket-default-pds", "wrangler.jsonc"),
+				"utf-8",
+			);
+			expect(wrangler).not.toContain("{{");
+		});
+	});
 });

@@ -132,7 +132,7 @@ The source account is not affected until the PLC rotation lands.
 **Common causes:**
 
 - Not authenticated. Run `pnpm wrangler login`.
-- The R2 bucket name is taken (R2 bucket names are global). Edit `wrangler.jsonc` to use a different name.
+- The R2 bucket name is taken (R2 bucket names must be unique within an account). Edit `wrangler.jsonc` to use a different name.
 - The Durable Object migration is missing. The first deploy creates the Durable Object class; subsequent renames or removals need a `migrations` block in `wrangler.jsonc`. See [the wrangler.jsonc reference](/reference/wrangler-config/).
 
 ## When all else fails
