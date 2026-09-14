@@ -6,6 +6,7 @@ import {
 	parseSpaceScope,
 	permissionsFor,
 } from "../src/scopes.js";
+import { parsedScopesSet } from "./helpers.js";
 
 describe("parseScope with space scopes", () => {
 	it("rejects space scopes by default", () => {
@@ -18,36 +19,37 @@ describe("parseScope with space scopes", () => {
 	});
 
 	it("rejects the named-param space form by default too", () => {
-		expect(() =>
-			parseScope("atproto space?type=app.bsky.group"),
-		).toThrow(/not enabled/);
+		expect(() => parseScope("atproto space?type=app.bsky.group")).toThrow(
+			/not enabled/,
+		);
 	});
 
 	it("accepts valid space scopes when enabled", () => {
-		const set = parseScope("atproto space:app.bsky.group", {
+		const set = parsedScopesSet("atproto space:app.bsky.group", {
 			allowSpaceScopes: true,
 		});
 		expect(set.has("space:app.bsky.group")).toBe(true);
 	});
 
 	it("accepts parameterised space scopes when enabled", () => {
-		const set = parseScope(
+		const set = parsedScopesSet(
 			"atproto space:app.bsky.group?authority=did:plc:abc123&skey=3kbcq3p7ad400",
 			{ allowSpaceScopes: true },
 		);
 		expect(set.size).toBe(2);
 	});
 
-	it("rejects malformed space scopes even when enabled", () => {
-		// Positional type is required
-		expect(() => parseScope("atproto space", { allowSpaceScopes: true })).toThrow(
-			ScopeParseError,
-		);
-		expect(() =>
-			parseScope("atproto space:app.bsky.group?bogus=1", {
-				allowSpaceScopes: true,
-			}),
-		).toThrow(ScopeParseError);
+	it("filters out malformed space scopes even when enabled", () => {
+		// // Positional type is required
+		const set1 = parsedScopesSet("atproto space:", { allowSpaceScopes: true });
+		expect(set1.size).toBe(1);
+		expect(set1.has("atproto")).toBe(true);
+
+		const set2 = parsedScopesSet("atproto space:app.bsky.group?bogus=1", {
+			allowSpaceScopes: true,
+		});
+		expect(set2.size).toBe(1);
+		expect(set2.has("atproto")).toBe(true);
 	});
 });
 
@@ -79,8 +81,7 @@ describe("finalizeSpaceScopes", () => {
 	});
 
 	it("leaves explicit authorities untouched", async () => {
-		const input =
-			"atproto space:app.bsky.group?authority=did:plc:abc123";
+		const input = "atproto space:app.bsky.group?authority=did:plc:abc123";
 		const scope = await finalizeSpaceScopes(input, { userDid: did });
 		expect(scope).toContain("authority=did:plc:abc123");
 		expect(scope).not.toContain(did);
@@ -129,13 +130,10 @@ describe("finalizeSpaceScopes", () => {
 describe("space permission checks", () => {
 	it("grants match after self-resolution", async () => {
 		const did = "did:web:alice.test";
-		const stored = await finalizeSpaceScopes(
-			"atproto space:app.bsky.group",
-			{
-				userDid: did,
-				resolveSpaceCollections: async () => ["app.bsky.feed.post"],
-			},
-		);
+		const stored = await finalizeSpaceScopes("atproto space:app.bsky.group", {
+			userDid: did,
+			resolveSpaceCollections: async () => ["app.bsky.feed.post"],
+		});
 		const perms = permissionsFor(stored);
 		expect(
 			perms.allowsSpace({
