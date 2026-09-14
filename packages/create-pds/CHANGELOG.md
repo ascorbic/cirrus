@@ -1,5 +1,11 @@
 # create-pds
 
+## 0.1.1
+
+### Patch Changes
+
+- [#248](https://github.com/ascorbic/cirrus/pull/248) [`e6703d5`](https://github.com/ascorbic/cirrus/commit/e6703d513cb36384a53eb80512814727ded7171a) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix deploys of freshly scaffolded workers failing with "Cannot apply new-class migration to class 'SpaceDurableObject' that is not exported by script". The generated worker entry now exports the Space Durable Object classes that its wrangler config declares.
+
 ## 0.1.0
 
 ### Minor Changes
