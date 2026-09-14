@@ -316,15 +316,22 @@ export async function handleXrpcProxy(
 	return fetch(targetUrl.toString(), reqInit);
 }
 
+interface LocalFeedRepository {
+	did: string;
+	getRecord: (collection: string, rkey: string) => Promise<unknown>;
+}
+
 /**
  * Resolve the service DID a feed generator runs on, given a feed AT-URI.
  * The feed record lives in the creator's repo and carries a `did` field
  * pointing at the feedgen service (e.g. did:web:foryou.club). Returns null if
  * the feed cannot be resolved, so callers can fall back to default proxying.
  */
+
 async function resolveFeedGenDid(
 	feed: string,
 	didResolver: DidResolver,
+	localRepo?: LocalFeedRepository,
 ): Promise<string | null> {
 	const parsed = parseResourceUri(feed);
 	if (!parsed.ok) return null;
@@ -332,6 +339,14 @@ async function resolveFeedGenDid(
 	const { repo, collection, rkey } = parsed.value;
 	if (collection !== "app.bsky.feed.generator" || !rkey) return null;
 	if (!isDid(repo)) return null;
+
+	// The local repo is authoritative for its records. A same-zone Worker route
+	// cannot be reached via fetch, even when its public DID endpoint works.
+	if (localRepo && repo === localRepo.did) {
+		const record = await localRepo.getRecord(collection, rkey);
+		const feedDid = (record as { did?: unknown } | null)?.did;
+		return typeof feedDid === "string" && isDid(feedDid) ? feedDid : null;
+	}
 
 	const didDoc = await didResolver.resolve(repo);
 	if (!didDoc) return null;
@@ -379,13 +394,20 @@ export async function handleGetFeedProxy(
 	c: Context<{ Bindings: PDSEnv }>,
 	didResolver: DidResolver,
 	getKeypair: () => Promise<Secp256k1Keypair>,
+	getLocalRecord?: LocalFeedRepository["getRecord"],
 ): Promise<Response> {
 	const feed = c.req.query("feed");
 
 	let override: ServiceAuthOverride | undefined;
 	if (feed) {
 		try {
-			const feedDid = await resolveFeedGenDid(feed, didResolver);
+			const feedDid = await resolveFeedGenDid(
+				feed,
+				didResolver,
+				getLocalRecord
+					? { did: c.env.DID, getRecord: getLocalRecord }
+					: undefined,
+			);
 			if (feedDid) {
 				override = { aud: feedDid, lxm: "app.bsky.feed.getFeedSkeleton" };
 			}
