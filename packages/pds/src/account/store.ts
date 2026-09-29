@@ -16,9 +16,9 @@ function sqliteDatetimeToIso(value: string): string {
 
 /**
  * SQLite-backed storage for person-account data: preferences, email,
- * passkeys, and app passwords. Shares the Durable Object's SQLite database
- * with SqliteRepoStorage; the email accessors read the email column of the
- * repo_state table, whose schema SqliteRepoStorage owns.
+ * handle, passkeys, and app passwords. Shares the Durable Object's SQLite
+ * database with SqliteRepoStorage; the email accessors read the email column
+ * of the repo_state table, whose schema SqliteRepoStorage owns.
  *
  * Extends RpcTarget so the Durable Object can hand it to the Worker as a
  * stub (via account()) — callers invoke store methods directly over RPC.
@@ -63,7 +63,45 @@ export class AccountStore extends RpcTarget {
 				password_hash TEXT NOT NULL,
 				created_at TEXT NOT NULL DEFAULT (datetime('now'))
 			);
+
+			-- Handle set via com.atproto.identity.updateHandle (single row).
+			-- env_handle records the HANDLE var it replaced, so a later
+			-- change to HANDLE takes precedence again.
+			CREATE TABLE IF NOT EXISTS account_handle (
+				id INTEGER PRIMARY KEY CHECK (id = 1),
+				handle TEXT NOT NULL,
+				env_handle TEXT NOT NULL
+			);
 		`);
+	}
+
+	// ============================================
+	// Handle Methods
+	// ============================================
+
+	/**
+	 * Get the account's current handle. Returns the handle stored by
+	 * updateHandle, unless the HANDLE var has changed since it was stored,
+	 * in which case the var wins.
+	 */
+	getHandle(envHandle: string): string {
+		const rows = this.sql
+			.exec("SELECT handle, env_handle FROM account_handle WHERE id = 1")
+			.toArray();
+		const row = rows[0];
+		if (!row || row.env_handle !== envHandle) return envHandle;
+		return row.handle as string;
+	}
+
+	/**
+	 * Store a new handle, overriding the HANDLE var.
+	 */
+	setHandle(handle: string, envHandle: string): void {
+		this.sql.exec(
+			`INSERT OR REPLACE INTO account_handle (id, handle, env_handle) VALUES (1, ?, ?)`,
+			handle,
+			envHandle,
+		);
 	}
 
 	/**
