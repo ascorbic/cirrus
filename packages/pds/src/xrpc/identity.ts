@@ -14,6 +14,7 @@
  */
 import type { Context } from "hono";
 import { Secp256k1Keypair } from "@atproto/crypto";
+import type { AccountDurableObject } from "../account-do";
 import type { AuthedAppEnv, PDSEnv } from "../types";
 import { requireIdentityControl } from "../middleware/auth";
 import {
@@ -30,11 +31,22 @@ import {
 } from "../plc";
 
 /**
+ * Get the account's current handle: the one set by updateHandle, or the
+ * HANDLE var if it has not been changed.
+ */
+export function getHandle(
+	env: PDSEnv,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<string> {
+	return accountDO.account().getHandle(env.HANDLE);
+}
+
+/**
  * Build the DID document for the local account.
  *
  * Served by /.well-known/did.json.
  */
-export function buildDidDocument(env: PDSEnv) {
+export function buildDidDocument(env: PDSEnv, handle: string) {
 	return {
 		"@context": [
 			"https://www.w3.org/ns/did/v1",
@@ -42,7 +54,7 @@ export function buildDidDocument(env: PDSEnv) {
 			"https://w3id.org/security/suites/secp256k1-2019/v1",
 		],
 		id: env.DID,
-		alsoKnownAs: [`at://${env.HANDLE}`],
+		alsoKnownAs: [`at://${handle}`],
 		verificationMethod: [
 			{
 				id: `${env.DID}#atproto`,
@@ -84,13 +96,15 @@ export function buildDidDocument(env: PDSEnv) {
  */
 export async function getRecommendedDidCredentials(
 	c: Context<AuthedAppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const keypair = await Secp256k1Keypair.import(c.env.SIGNING_KEY);
 	const signingKey = keypair.did();
+	const handle = await getHandle(c.env, accountDO);
 
 	return c.json({
 		rotationKeys: [signingKey],
-		alsoKnownAs: [`at://${c.env.HANDLE}`],
+		alsoKnownAs: [`at://${handle}`],
 		verificationMethods: { atproto: signingKey },
 		services: {
 			atproto_pds: {
