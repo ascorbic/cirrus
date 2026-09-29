@@ -379,6 +379,14 @@ _atproto.alice.example.com  TXT  "did=did:web:pds.example.com"
 dig TXT _atproto.alice.example.com
 ```
 
+### Changing Handle
+
+Change your handle from the handle settings in Bluesky or any other app that uses `com.atproto.identity.updateHandle`. Set up verification for the new handle first (a DNS TXT record, or the PDS hostname itself); the PDS rejects a handle that does not resolve to your DID.
+
+For did:plc accounts the handle is also listed in the PLC directory (`alsoKnownAs`). The PDS updates it for you if its signing key is one of the DID's [rotation keys](#rotation-and-recovery-keys). Accounts migrated with an earlier version of `pds identity` may not have it: run `pds rotation-keys` once to fix that. Alternatively, update `alsoKnownAs` with a rotation key you control (such as a recovery key), then change the handle in the app. The PDS sees the PLC directory already has the new handle and skips that step.
+
+The new handle is stored by the PDS. If you later change the `HANDLE` variable and redeploy, the variable takes precedence again.
+
 ## Configuration
 
 The PDS uses environment variables for configuration. Public values go in `wrangler.jsonc`, secrets are stored via Wrangler or in `.dev.vars` for local development.

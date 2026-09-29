@@ -307,6 +307,10 @@ app.get(
 	(c) => identity.getRecommendedDidCredentials(c, getAccountDO(c.env)),
 );
 
+app.post("/xrpc/com.atproto.identity.updateHandle", requireAuth, (c) =>
+	identity.updateHandle(c, getAccountDO(c.env)),
+);
+
 // Identity management for outbound migration
 // These endpoints allow migrating FROM Cirrus to another PDS
 app.post(
