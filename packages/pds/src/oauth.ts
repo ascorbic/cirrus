@@ -25,6 +25,7 @@ import {
 import { compare } from "bcryptjs";
 import type { PDSEnv } from "./types";
 import type { AccountDurableObject } from "./account-do";
+import { getHandle } from "./xrpc/identity";
 import {
 	getAuthenticationOptions,
 	verifyPasskeyAuthentication,
@@ -141,7 +142,7 @@ export function getProvider(env: PDSEnv): ATProtoOAuthProvider {
 			if (!valid) return null;
 			return {
 				sub: env.DID,
-				handle: env.HANDLE,
+				handle: await getHandle(env, accountDO),
 			};
 		},
 		// Passkey authentication options
@@ -163,7 +164,7 @@ export function getProvider(env: PDSEnv): ATProtoOAuthProvider {
 			if (!result.success) return null;
 			return {
 				sub: env.DID,
-				handle: env.HANDLE,
+				handle: await getHandle(env, accountDO),
 			};
 		},
 		// DO-SQLite-cached permission-set resolver for `include:` scopes.
@@ -298,7 +299,7 @@ export function createOAuthApp(
 		// sub is required, we also include preferred_username (handle)
 		return c.json({
 			sub: tokenData.sub,
-			preferred_username: c.env.HANDLE,
+			preferred_username: await getHandle(c.env, getAccountDO(c.env)),
 		});
 	});
 
