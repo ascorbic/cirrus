@@ -1,6 +1,6 @@
 # PLC Rotation Keys and Recovery Keys
 
-**Status:** 📋 Planning
+**Status:** 🧪 Implemented, awaiting a live test on a new account
 **Priority:** P1 (affects every did:plc account migrated to Cirrus)
 
 ## Problem
@@ -39,7 +39,7 @@ did:web accounts are unaffected; they have no rotation keys.
 | Recovery key type                                         | secp256k1, generated locally by the CLI           | Never sent to Cloudflare or written to `.dev.vars`.                                                                                              |
 | Emergency override (nullifying a malicious op within 72h) | Documented, using `goat`                          | Building a nullification flow is a separate piece of work.                                                                                       |
 
-**Open:** the export format for the recovery key. It must be usable by `goat` for the emergency path. Check which private key encodings `goat plc` accepts (hex vs multibase) before implementing, and print the key in that form alongside the `did:key`.
+**Recovery key format:** multibase, as `goat key generate` produces: `z` followed by base58btc of the multicodec prefix (`0x81 0x26` for secp256k1, `0x86 0x26` for P-256) and the 32-byte private key. `goat plc sign --plc-signing-key` takes this form. Checked against goat in both directions for both curves.
 
 ## Changes
 
@@ -120,12 +120,37 @@ Every operation keeps `services`, `verificationMethods` and `alsoKnownAs` from t
 - `plans/complete/migration-wizard.md`: note rotation key handling in the identity step.
 - Changeset, `@getcirrus/pds` minor, describing the user-visible change: migration now gives your PDS control of your identity and offers a recovery key; existing accounts can run `pds rotation-keys`; leaving Cirrus reports a clear error instead of a PLC rejection.
 
+## Implementation notes
+
+Differences from the plan above, and details worth knowing:
+
+- `PDSClient` only gained `getRecommendedDidCredentials` and `signPlcOperation`. Both commands submit straight to plc.directory, so no `submitPlcOperation` client method.
+- When it is unknown who holds a key, the prompt defaults to keeping it. Keeping a key the user doesn't hold preserves the status quo; dropping one they do hold loses it.
+- Signed operations are compared with the requested rotation keys (and, in `pds rotation-keys`, the endpoint) before submitting, so a source PDS that signs something else is caught before plc.directory sees it.
+- `pds identity --token` now logs in to the source PDS too. Signing needs a session, so that path could not have worked before.
+- `pds rotation-keys` finds the previous PDS from the most recent different endpoint in the PLC audit log.
+- PR #250's `updatePlcHandle` should use `getLatestPlcOperation` and `signOperation` from `src/plc.ts`.
+- **Auth on PLC signing.** `getMigrationToken` and `signPlcOperation` accepted any authenticated caller, including app passwords, OAuth tokens of any scope, and service JWTs. That only mattered where the signing key was a rotation key, which this work makes the norm, so both now require the static `AUTH_TOKEN`, a password session, or OAuth with `identity:*`. `AuthInfo.method` records how a request authenticated. Separately, `getServiceAuth` mints service JWTs with any `aud` and `lxm` for any caller, and a self-addressed one passes `requireAuth` with full trust. That is wider than PLC and is not fixed here.
+
 ## Verification
 
 PLC operations are permanent, so manual testing uses throwaway did:plc accounts, never a real one.
 
+**Done, against fakes:** a throwaway harness ran the built CLI under `expect`, with fetch routed to a fake PLC directory and fake PDSes. It used real genesis operations, DIDs and CIDs, and after every scenario checked the whole op log with goat's `VerifyOpLog` (the reference Go implementation). Passing scenarios:
+
+- `pds identity` from a PDS holding the only rotation key, creating a recovery key: result `[recovery, pds]`, signed by the old PDS.
+- `pds rotation-keys` with nothing to change: no operation submitted.
+- `pds rotation-keys` on an account migrated with the old CLI, signed by the previous PDS: `[recovery, pds]`.
+- `pds rotation-keys` signed locally with a goat P-256 key, dropping the old PDS key: `[user key, pds]`.
+- `pds rotation-keys` where the PDS is the only key, signed by the PDS, adding a recovery key.
+- Refusals with nothing submitted: a pasted key that isn't a rotation key, and a source PDS that signs different rotation keys than requested.
+- `pds status` for each state.
+- The README's goat emergency commands with a generated recovery key, moving the DID to a new PDS.
+
+**Still to do, live:**
+
 - Migrate a fresh bsky.social test account with the updated `pds identity`, with and without generating a recovery key. Check the audit log shows the expected rotation keys and Bluesky's key is gone.
-- Run `pds rotation-keys` on an account migrated with the current CLI, signing through the old PDS.
+- Run `pds rotation-keys` on an account migrated with the previous version of the CLI, signing through the old PDS.
 - Repeat with the old account deleted and a pre-existing recovery key.
 - Change the handle through PR #250's `updateHandle` on a fixed account; the PLC step should succeed.
 - Migrate the fixed account out of Cirrus to another PDS.
