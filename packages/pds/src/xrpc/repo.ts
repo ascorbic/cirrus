@@ -13,6 +13,7 @@ import { detectContentType } from "../format.js";
 import { BlobStore, extractJsonBlobCids } from "../repo/blobs.js";
 import { buildScopeChecker, requireScope } from "../middleware/auth.js";
 import { pokeRelaysIfUnheard } from "../relay.js";
+import { getHandle } from "./identity.js";
 
 /**
  * Promote any staged blobs referenced by the given records to their public
@@ -151,14 +152,15 @@ export async function describeRepo(
 	}
 
 	const data = await accountDO.repo().describeRepo();
+	const handle = await getHandle(c.env, accountDO);
 
 	return c.json({
 		did: c.env.DID,
-		handle: c.env.HANDLE,
+		handle,
 		didDoc: {
 			"@context": ["https://www.w3.org/ns/did/v1"],
 			id: c.env.DID,
-			alsoKnownAs: [`at://${c.env.HANDLE}`],
+			alsoKnownAs: [`at://${handle}`],
 			verificationMethod: [
 				{
 					id: `${c.env.DID}#atproto`,

@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { hash as bcryptHash } from "bcryptjs";
 import type { AccountDurableObject } from "../account-do";
+import { getHandle } from "./identity";
 import { createServiceJwt, getSigningKeypair } from "../service-auth";
 import { getProvider } from "../oauth";
 import {
@@ -71,7 +72,8 @@ export async function createSession(
 	}
 
 	// Check identifier matches handle or DID
-	if (identifier !== c.env.HANDLE && identifier !== c.env.DID) {
+	const handle = await getHandle(c.env, accountDO);
+	if (identifier !== handle && identifier !== c.env.DID) {
 		return c.json(
 			{
 				error: "AuthenticationRequired",
@@ -139,7 +141,7 @@ export async function createSession(
 	return c.json({
 		accessJwt,
 		refreshJwt,
-		handle: c.env.HANDLE,
+		handle,
 		did: c.env.DID,
 		...(email ? { email } : {}),
 		emailConfirmed: true,
@@ -208,7 +210,7 @@ export async function refreshSession(
 		return c.json({
 			accessJwt,
 			refreshJwt,
-			handle: c.env.HANDLE,
+			handle: await getHandle(c.env, accountDO),
 			did: c.env.DID,
 			...(email ? { email } : {}),
 			emailConfirmed: true,
@@ -258,7 +260,7 @@ export async function getSession(
 		const storedEmail = await accountDO.account().getEmail();
 		const email = storedEmail || c.env.EMAIL;
 		return c.json({
-			handle: c.env.HANDLE,
+			handle: await getHandle(c.env, accountDO),
 			did: c.env.DID,
 			...(email ? { email } : {}),
 			emailConfirmed: true,

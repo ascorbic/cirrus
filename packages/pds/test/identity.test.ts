@@ -1,8 +1,11 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Secp256k1Keypair, verifySignature } from "@atproto/crypto";
-import { encode } from "@atcute/cbor";
-import { base64url } from "jose";
-import { env, worker } from "./helpers";
+import { decode, encode } from "@atcute/cbor";
+import { base64url, calculateJwkThumbprint, SignJWT, type JWK } from "jose";
+import { env, runInDurableObject, worker } from "./helpers";
+import app from "../src/index";
+import type { AccountDurableObject } from "../src/account-do";
+import type { PDSEnv } from "../src/types";
 import { createMigrationToken } from "../src/migration-token";
 import { createAccessToken } from "../src/session";
 import { createServiceJwt, getSigningKeypair } from "../src/service-auth";
@@ -449,6 +452,559 @@ describe("Identity Endpoints", () => {
 
 			const response = await signPlcOperation(
 				await oauthToken("atproto identity:*"),
+			);
+			expect(response.status).toBe(200);
+		});
+	});
+});
+
+describe("com.atproto.identity.updateHandle", () => {
+	const NEW_HANDLE = "new-handle.example.com";
+	const PLC_DID = "did:plc:ewvi7nxzyoun6zhxrhs64oiz";
+	const accountStub = () => env.ACCOUNT.get(env.ACCOUNT.idFromName("account"));
+
+	afterEach(async () => {
+		vi.unstubAllGlobals();
+		// The account DO is shared across test files; drop any stored handle.
+		await runInDurableObject(accountStub(), (_instance, state) => {
+			state.storage.sql.exec("DELETE FROM account_handle");
+		});
+	});
+
+	/**
+	 * Stub the network: DNS-over-HTTPS TXT lookups, /.well-known/atproto-did,
+	 * and plc.directory. Any other request fails the test.
+	 */
+	function mockNetwork(opts: {
+		dns?: Record<string, string>;
+		wellKnown?: Record<string, string>;
+		plcOperation?: Record<string, unknown>;
+		plcPostResponse?: Response;
+	}) {
+		const posted: Array<Record<string, unknown>> = [];
+		const fetchMock = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = new URL(input instanceof Request ? input.url : input);
+				if (url.origin === "https://cloudflare-dns.com") {
+					const name = url.searchParams.get("name")!;
+					const did = opts.dns?.[name.replace(/^_atproto\./, "")];
+					return Response.json(
+						{
+							Status: did ? 0 : 3,
+							TC: false,
+							RD: true,
+							RA: true,
+							AD: false,
+							CD: false,
+							Question: [{ name, type: 16 }],
+							...(did && {
+								Answer: [{ name, type: 16, TTL: 300, data: `"did=${did}"` }],
+							}),
+						},
+						{ headers: { "Content-Type": "application/dns-json" } },
+					);
+				}
+				if (url.pathname === "/.well-known/atproto-did") {
+					const did = opts.wellKnown?.[url.hostname];
+					return did
+						? new Response(did)
+						: new Response("Not Found", { status: 404 });
+				}
+				if (url.origin === "https://plc.directory") {
+					if (init?.method === "POST") {
+						posted.push(JSON.parse(init.body as string));
+						return opts.plcPostResponse ?? new Response(null, { status: 200 });
+					}
+					if (url.pathname === `/${PLC_DID}/log/audit` && opts.plcOperation) {
+						return Response.json([
+							{
+								did: PLC_DID,
+								operation: opts.plcOperation,
+								cid: "bafyreicurrentop",
+								nullified: false,
+								createdAt: new Date().toISOString(),
+							},
+						]);
+					}
+					return new Response("Not Found", { status: 404 });
+				}
+				throw new Error(`Unexpected fetch: ${url}`);
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		return { fetchMock, posted };
+	}
+
+	/**
+	 * POST updateHandle. With a custom `env` the Hono app is called directly,
+	 * since the worker export always runs with the configured bindings.
+	 */
+	function updateHandle(
+		body: unknown,
+		opts: { env?: PDSEnv; headers?: Record<string, string> } = {},
+	) {
+		const request = new Request(
+			"http://pds.test/xrpc/com.atproto.identity.updateHandle",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(opts.headers ?? { Authorization: `Bearer ${env.AUTH_TOKEN}` }),
+				},
+				body: JSON.stringify(body),
+			},
+		);
+		return opts.env ? app.fetch(request, opts.env) : worker.fetch(request, env);
+	}
+
+	async function latestIdentityEvent(): Promise<{
+		did: string;
+		handle?: string;
+	}> {
+		return runInDurableObject(accountStub(), (_instance, state) => {
+			const row = state.storage.sql
+				.exec(
+					"SELECT payload FROM firehose_events WHERE event_type = 'identity' ORDER BY seq DESC LIMIT 1",
+				)
+				.one();
+			return decode(new Uint8Array(row.payload as ArrayBuffer)) as {
+				did: string;
+				handle?: string;
+			};
+		});
+	}
+
+	async function signingDid(): Promise<string> {
+		return (await Secp256k1Keypair.import(env.SIGNING_KEY)).did();
+	}
+
+	it("requires authentication", async () => {
+		const response = await updateHandle(
+			{ handle: NEW_HANDLE },
+			{ headers: {} },
+		);
+		expect(response.status).toBe(401);
+	});
+
+	it("refuses service JWTs, even when bound to the method", async () => {
+		mockNetwork({ dns: { [NEW_HANDLE]: env.DID } });
+		const jwt = await createServiceJwt({
+			iss: env.DID,
+			aud: `did:web:${env.PDS_HOSTNAME}`,
+			lxm: "com.atproto.identity.updateHandle",
+			keypair: await getSigningKeypair(env.SIGNING_KEY),
+		});
+
+		const response = await updateHandle(
+			{ handle: NEW_HANDLE },
+			{ headers: { Authorization: `Bearer ${jwt}` } },
+		);
+		expect(response.status).toBe(403);
+
+		await runInDurableObject(accountStub(), async (instance) => {
+			expect((await instance.account()).getHandle(env.HANDLE)).toBe(env.HANDLE);
+		});
+	});
+
+	it("accepts app passwords, like the reference PDS", async () => {
+		mockNetwork({ dns: { [NEW_HANDLE]: env.DID } });
+		const token = await createAccessToken(
+			env.JWT_SECRET,
+			env.DID,
+			`did:web:${env.PDS_HOSTNAME}`,
+			{ appPassword: true },
+		);
+
+		const response = await updateHandle(
+			{ handle: NEW_HANDLE },
+			{ headers: { Authorization: `Bearer ${token}` } },
+		);
+		expect(response.status).toBe(200);
+	});
+
+	it("rejects a missing handle", async () => {
+		const response = await updateHandle({});
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as { error: string };
+		expect(body.error).toBe("InvalidRequest");
+	});
+
+	it("rejects an invalid handle", async () => {
+		const response = await updateHandle({ handle: "not a handle" });
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as { error: string };
+		expect(body.error).toBe("InvalidHandle");
+	});
+
+	it("rejects a disallowed TLD without resolving it", async () => {
+		const { fetchMock } = mockNetwork({});
+		const response = await updateHandle({ handle: "alice.local" });
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as { error: string };
+		expect(body.error).toBe("InvalidHandle");
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("rejects a handle that does not resolve to this DID", async () => {
+		mockNetwork({ dns: { [NEW_HANDLE]: "did:plc:someoneelse234567abcdefg" } });
+		const response = await updateHandle({ handle: NEW_HANDLE });
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as { error: string; message: string };
+		expect(body.error).toBe("InvalidRequest");
+		expect(body.message).toContain(`_atproto.${NEW_HANDLE}`);
+
+		await runInDurableObject(accountStub(), async (instance) => {
+			expect((await instance.account()).getHandle(env.HANDLE)).toBe(env.HANDLE);
+		});
+	});
+
+	it("updates the handle everywhere for a did:web account", async () => {
+		mockNetwork({ dns: { [NEW_HANDLE]: env.DID } });
+
+		// Clients may send mixed case; handles are stored lowercased.
+		const response = await updateHandle({ handle: "New-Handle.Example.com" });
+		expect(response.status).toBe(200);
+
+		const didDoc = (await (
+			await worker.fetch(
+				new Request("http://pds.test/.well-known/did.json"),
+				env,
+			)
+		).json()) as { alsoKnownAs: string[] };
+		expect(didDoc.alsoKnownAs).toEqual([`at://${NEW_HANDLE}`]);
+
+		const described = (await (
+			await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.repo.describeRepo?repo=${env.DID}`,
+				),
+				env,
+			)
+		).json()) as { handle: string };
+		expect(described.handle).toBe(NEW_HANDLE);
+
+		const resolved = (await (
+			await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/com.atproto.identity.resolveHandle?handle=${NEW_HANDLE}`,
+				),
+				env,
+			)
+		).json()) as { did: string };
+		expect(resolved.did).toBe(env.DID);
+
+		const session = await worker.fetch(
+			new Request("http://pds.test/xrpc/com.atproto.server.createSession", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					identifier: NEW_HANDLE,
+					password: "test-password",
+				}),
+			}),
+			env,
+		);
+		expect(session.status).toBe(200);
+		expect(((await session.json()) as { handle: string }).handle).toBe(
+			NEW_HANDLE,
+		);
+
+		const oldSession = await worker.fetch(
+			new Request("http://pds.test/xrpc/com.atproto.server.createSession", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					identifier: env.HANDLE,
+					password: "test-password",
+				}),
+			}),
+			env,
+		);
+		expect(oldSession.status).toBe(401);
+
+		expect(await latestIdentityEvent()).toMatchObject({
+			did: env.DID,
+			handle: NEW_HANDLE,
+		});
+	});
+
+	it("accepts a handle verified by /.well-known/atproto-did", async () => {
+		mockNetwork({ wellKnown: { [NEW_HANDLE]: env.DID } });
+		const response = await updateHandle({ handle: NEW_HANDLE });
+		expect(response.status).toBe(200);
+	});
+
+	it("accepts the PDS hostname without looking it up", async () => {
+		const { fetchMock } = mockNetwork({});
+		const response = await updateHandle({ handle: env.PDS_HOSTNAME });
+		expect(response.status).toBe(200);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("lets a changed HANDLE var take precedence over a stored handle", async () => {
+		await runInDurableObject(accountStub(), async (instance) => {
+			const store = await instance.account();
+			store.setHandle(NEW_HANDLE, env.HANDLE);
+			expect(store.getHandle(env.HANDLE)).toBe(NEW_HANDLE);
+			expect(store.getHandle("redeployed.example.com")).toBe(
+				"redeployed.example.com",
+			);
+		});
+	});
+
+	describe("did:plc accounts", () => {
+		const plcEnv = { ...env, DID: PLC_DID } as PDSEnv;
+
+		async function currentOperation(
+			overrides: Record<string, unknown> = {},
+		): Promise<Record<string, unknown>> {
+			const key = await signingDid();
+			return {
+				type: "plc_operation",
+				prev: null,
+				rotationKeys: ["did:key:zQ3shRecoveryKeyExample", key],
+				verificationMethods: { atproto: key },
+				alsoKnownAs: ["at://old-handle.example.com", "https://example.com/me"],
+				services: {
+					atproto_pds: {
+						type: "AtprotoPersonalDataServer",
+						endpoint: `https://${env.PDS_HOSTNAME}`,
+					},
+				},
+				sig: "c2ln",
+				...overrides,
+			};
+		}
+
+		it("writes the new handle to the PLC directory, signed with the signing key", async () => {
+			const current = await currentOperation();
+			const { posted } = mockNetwork({
+				dns: { [NEW_HANDLE]: PLC_DID },
+				plcOperation: current,
+			});
+
+			const response = await updateHandle(
+				{ handle: NEW_HANDLE },
+				{ env: plcEnv },
+			);
+			expect(response.status).toBe(200);
+			expect(posted).toHaveLength(1);
+
+			const { sig, ...unsigned } = posted[0]!;
+			expect(unsigned).toEqual({
+				type: "plc_operation",
+				prev: "bafyreicurrentop",
+				rotationKeys: current.rotationKeys,
+				verificationMethods: current.verificationMethods,
+				alsoKnownAs: [`at://${NEW_HANDLE}`, "https://example.com/me"],
+				services: current.services,
+			});
+			expect(
+				await verifySignature(
+					await signingDid(),
+					encode(unsigned),
+					base64url.decode(sig as string),
+				),
+			).toBe(true);
+
+			await runInDurableObject(accountStub(), async (instance) => {
+				expect((await instance.account()).getHandle(env.HANDLE)).toBe(
+					NEW_HANDLE,
+				);
+			});
+		});
+
+		it("skips the PLC update when the directory already has the handle", async () => {
+			const { posted } = mockNetwork({
+				dns: { [NEW_HANDLE]: PLC_DID },
+				plcOperation: await currentOperation({
+					alsoKnownAs: [`at://${NEW_HANDLE}`],
+				}),
+			});
+
+			const response = await updateHandle(
+				{ handle: NEW_HANDLE },
+				{ env: plcEnv },
+			);
+			expect(response.status).toBe(200);
+			expect(posted).toHaveLength(0);
+		});
+
+		it("adds the handle when alsoKnownAs has no at:// entry", async () => {
+			const { posted } = mockNetwork({
+				dns: { [NEW_HANDLE]: PLC_DID },
+				plcOperation: await currentOperation({
+					alsoKnownAs: ["https://example.com/me"],
+				}),
+			});
+
+			const response = await updateHandle(
+				{ handle: NEW_HANDLE },
+				{ env: plcEnv },
+			);
+			expect(response.status).toBe(200);
+			expect(posted[0]?.alsoKnownAs).toEqual([
+				`at://${NEW_HANDLE}`,
+				"https://example.com/me",
+			]);
+		});
+
+		it("does not duplicate the handle when alsoKnownAs already lists it later", async () => {
+			const { posted } = mockNetwork({
+				dns: { [NEW_HANDLE]: PLC_DID },
+				plcOperation: await currentOperation({
+					alsoKnownAs: ["at://old-handle.example.com", `at://${NEW_HANDLE}`],
+				}),
+			});
+
+			const response = await updateHandle(
+				{ handle: NEW_HANDLE },
+				{ env: plcEnv },
+			);
+			expect(response.status).toBe(200);
+			expect(posted[0]?.alsoKnownAs).toEqual([`at://${NEW_HANDLE}`]);
+		});
+
+		it("does not store the handle when the PLC state cannot be fetched", async () => {
+			const { posted } = mockNetwork({ dns: { [NEW_HANDLE]: PLC_DID } });
+
+			const response = await updateHandle(
+				{ handle: NEW_HANDLE },
+				{ env: plcEnv },
+			);
+			expect(response.status).toBe(500);
+			expect(posted).toHaveLength(0);
+
+			await runInDurableObject(accountStub(), async (instance) => {
+				expect((await instance.account()).getHandle(env.HANDLE)).toBe(
+					env.HANDLE,
+				);
+			});
+		});
+
+		it("refuses when the signing key is not a rotation key", async () => {
+			const { posted } = mockNetwork({
+				dns: { [NEW_HANDLE]: PLC_DID },
+				plcOperation: await currentOperation({
+					rotationKeys: ["did:key:zQ3shSomeoneElsesKeyExample"],
+				}),
+			});
+
+			const response = await updateHandle(
+				{ handle: NEW_HANDLE },
+				{ env: plcEnv },
+			);
+			expect(response.status).toBe(400);
+			const body = (await response.json()) as { message: string };
+			expect(body.message).toContain("not a rotation key");
+			expect(body.message).toContain("pds rotation-keys");
+			expect(posted).toHaveLength(0);
+
+			await runInDurableObject(accountStub(), async (instance) => {
+				expect((await instance.account()).getHandle(env.HANDLE)).toBe(
+					env.HANDLE,
+				);
+			});
+		});
+
+		it("does not store the handle when the PLC directory rejects the update", async () => {
+			mockNetwork({
+				dns: { [NEW_HANDLE]: PLC_DID },
+				plcOperation: await currentOperation(),
+				plcPostResponse: new Response("invalid signature", { status: 400 }),
+			});
+
+			const response = await updateHandle(
+				{ handle: NEW_HANDLE },
+				{ env: plcEnv },
+			);
+			expect(response.status).toBe(400);
+			const body = (await response.json()) as { error: string };
+			expect(body.error).toBe("PlcDirectoryError");
+
+			await runInDurableObject(accountStub(), async (instance) => {
+				expect((await instance.account()).getHandle(env.HANDLE)).toBe(
+					env.HANDLE,
+				);
+			});
+		});
+	});
+
+	describe("OAuth scopes", () => {
+		async function oauthRequest(scope: string, accessToken: string) {
+			const kp = (await crypto.subtle.generateKey(
+				{ name: "ECDSA", namedCurve: "P-256" },
+				true,
+				["sign", "verify"],
+			)) as CryptoKeyPair;
+			const publicJwk = (await crypto.subtle.exportKey(
+				"jwk",
+				kp.publicKey,
+			)) as JWK;
+			delete publicJwk.key_ops;
+			delete publicJwk.ext;
+			const dpopJkt = await calculateJwkThumbprint(publicJwk, "sha256");
+
+			await runInDurableObject(
+				accountStub(),
+				async (instance: AccountDurableObject) => {
+					await (
+						await instance.authStore()
+					).saveTokens({
+						accessToken,
+						refreshToken: `refresh-${accessToken}`,
+						clientId: "did:web:client.example.com",
+						sub: env.DID,
+						scope,
+						dpopJkt,
+						issuedAt: Date.now(),
+						accessExpiresAt: Date.now() + 3600_000,
+						refreshExpiresAt: Date.now() + 90 * 24 * 3600_000,
+					});
+				},
+			);
+
+			const url = "http://pds.test/xrpc/com.atproto.identity.updateHandle";
+			const ath = base64url.encode(
+				new Uint8Array(
+					await crypto.subtle.digest(
+						"SHA-256",
+						new TextEncoder().encode(accessToken),
+					),
+				),
+			);
+			const dpop = await new SignJWT({ htm: "POST", htu: url, ath })
+				.setProtectedHeader({
+					typ: "dpop+jwt",
+					alg: "ES256",
+					jwk: publicJwk,
+				})
+				.setIssuedAt()
+				.setJti(base64url.encode(crypto.getRandomValues(new Uint8Array(16))))
+				.sign(kp.privateKey);
+
+			return updateHandle(
+				{ handle: NEW_HANDLE },
+				{ headers: { Authorization: `DPoP ${accessToken}`, DPoP: dpop } },
+			);
+		}
+
+		it("rejects a token without identity:handle", async () => {
+			mockNetwork({ dns: { [NEW_HANDLE]: env.DID } });
+			const response = await oauthRequest(
+				"atproto transition:generic",
+				"tok-update-handle-generic",
+			);
+			expect(response.status).toBe(403);
+			const body = (await response.json()) as { error: string };
+			expect(body.error).toBe("InsufficientScope");
+		});
+
+		it("accepts a token with identity:handle", async () => {
+			mockNetwork({ dns: { [NEW_HANDLE]: env.DID } });
+			const response = await oauthRequest(
+				"atproto identity:handle",
+				"tok-update-handle-identity",
 			);
 			expect(response.status).toBe(200);
 		});
