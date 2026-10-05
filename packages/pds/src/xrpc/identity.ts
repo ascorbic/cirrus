@@ -15,6 +15,7 @@
 import type { Context } from "hono";
 import { Secp256k1Keypair } from "@atproto/crypto";
 import type { AuthedAppEnv, PDSEnv } from "../types";
+import { requireIdentityControl } from "../middleware/auth";
 import {
 	createMigrationToken,
 	validateMigrationToken,
@@ -131,6 +132,9 @@ export async function requestPlcOperationSignature(
 export async function signPlcOperation(
 	c: Context<AuthedAppEnv>,
 ): Promise<Response> {
+	const forbidden = requireIdentityControl(c);
+	if (forbidden) return forbidden;
+
 	const body = await c.req.json<{
 		token?: string;
 		rotationKeys?: string[];
@@ -268,6 +272,9 @@ export async function submitPlcOperation(
 export async function getMigrationToken(
 	c: Context<AuthedAppEnv>,
 ): Promise<Response> {
+	const forbidden = requireIdentityControl(c);
+	if (forbidden) return forbidden;
+
 	const token = await createMigrationToken(c.env.DID, c.env.JWT_SECRET);
 	return c.json({ token });
 }
