@@ -14,15 +14,18 @@
  */
 import type { Context } from "hono";
 import { Secp256k1Keypair } from "@atproto/crypto";
-import { encode } from "@atcute/cbor";
-import { base64url } from "jose";
 import type { AuthedAppEnv, PDSEnv } from "../types";
 import {
 	createMigrationToken,
 	validateMigrationToken,
 } from "../migration-token";
-
-const PLC_DIRECTORY = "https://plc.directory";
+import {
+	getLatestPlcOperation,
+	PLC_DIRECTORY,
+	signOperation,
+	type SignedPlcOperation,
+	type UnsignedPlcOperation,
+} from "../plc";
 
 /**
  * Build the DID document for the local account.
@@ -97,33 +100,6 @@ export async function getRecommendedDidCredentials(
 }
 
 /**
- * PLC operation structure
- */
-interface UnsignedPlcOperation {
-	type: "plc_operation";
-	prev: string | null;
-	rotationKeys: string[];
-	verificationMethods: Record<string, string>;
-	alsoKnownAs: string[];
-	services: Record<string, { type: string; endpoint: string }>;
-}
-
-interface SignedPlcOperation extends UnsignedPlcOperation {
-	sig: string;
-}
-
-/**
- * Audit log entry from plc.directory
- */
-interface PlcAuditLog {
-	did: string;
-	operation: SignedPlcOperation;
-	cid: string;
-	nullified: boolean;
-	createdAt: string;
-}
-
-/**
  * Request a PLC operation signature for outbound migration.
  *
  * In Bluesky's implementation, this sends an email with a token.
@@ -142,10 +118,13 @@ export async function requestPlcOperationSignature(
 }
 
 /**
- * Sign a PLC operation for migrating to a new PDS.
+ * Sign a PLC operation with this PDS's signing key.
  *
- * Validates the migration token and returns a signed PLC operation
- * that updates the DID document to point to the new PDS.
+ * Validates the migration token and returns a signed PLC operation that
+ * applies the requested changes to the current PLC state. Used by a new PDS
+ * during outbound migration, and by `pds rotation-keys`. The signing key
+ * must be one of the DID's rotation keys, or plc.directory would reject
+ * the operation.
  *
  * Endpoint: POST com.atproto.identity.signPlcOperation
  */
@@ -191,13 +170,24 @@ export async function signPlcOperation(
 
 	// Get current PLC state to build the update
 	const currentOp = await getLatestPlcOperation(c.env.DID);
-	if (!currentOp) {
+	if (!currentOp || currentOp.operation.type !== "plc_operation") {
 		return c.json(
 			{
 				error: "InternalServerError",
 				message: "Could not fetch current PLC state",
 			},
 			500,
+		);
+	}
+
+	const keypair = await Secp256k1Keypair.import(c.env.SIGNING_KEY);
+	if (!currentOp.operation.rotationKeys.includes(keypair.did())) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: `This PDS's signing key is not a rotation key for ${c.env.DID}, so it cannot sign identity changes. Run "pds rotation-keys" to give it control, or sign the operation with a rotation key you hold.`,
+			},
+			400,
 		);
 	}
 
@@ -212,53 +202,9 @@ export async function signPlcOperation(
 		services: body.services ?? currentOp.operation.services,
 	};
 
-	// Sign the operation with our signing key
-	const keypair = await Secp256k1Keypair.import(c.env.SIGNING_KEY);
 	const signedOp = await signOperation(newOp, keypair);
 
 	return c.json({ operation: signedOp });
-}
-
-/**
- * Get the latest PLC operation for a DID
- */
-async function getLatestPlcOperation(did: string): Promise<PlcAuditLog | null> {
-	try {
-		const res = await fetch(`${PLC_DIRECTORY}/${did}/log/audit`);
-		if (!res.ok) {
-			return null;
-		}
-		const log = (await res.json()) as PlcAuditLog[];
-		// Return the most recent non-nullified operation
-		return log.filter((op) => !op.nullified).pop() ?? null;
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Sign a PLC operation with the given keypair
- *
- * PLC operations are signed by:
- * 1. CBOR-encoding the unsigned operation
- * 2. Signing the bytes with secp256k1
- * 3. Adding the signature as base64url
- */
-async function signOperation(
-	op: UnsignedPlcOperation,
-	keypair: Secp256k1Keypair,
-): Promise<SignedPlcOperation> {
-	// CBOR-encode the operation (without sig field)
-	const bytes = encode(op);
-
-	// Sign the bytes
-	const sig = await keypair.sign(bytes);
-
-	// Convert signature to base64url
-	return {
-		...op,
-		sig: base64url.encode(sig),
-	};
 }
 
 /**
