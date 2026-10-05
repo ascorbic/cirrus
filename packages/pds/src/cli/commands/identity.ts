@@ -31,9 +31,9 @@ import {
 	checkRotationKeys,
 	chooseRotationKeys,
 	describeRotationKeys,
+	getPdsRotationKey,
 	type RotationKeyChoice,
 } from "../utils/rotation-key-prompts.js";
-import { Secp256k1Keypair } from "@atproto/crypto";
 
 // Helper to override clack's dim styling in notes
 const brightNote = (lines: string[]) =>
@@ -167,36 +167,14 @@ export const identityCommand = defineCommand({
 		}
 		spinner.stop(`New PDS is ready`);
 
-		// The DID must name the key the deployed PDS signs with, which may not
-		// be the one in .dev.vars
 		spinner.start("Fetching your PDS's signing key...");
 		let pdsKey: string;
 		try {
-			const credentials = await targetClient.getRecommendedDidCredentials();
-			const rotationKey = credentials.rotationKeys[0];
-			if (
-				!rotationKey ||
-				credentials.verificationMethods.atproto !== rotationKey
-			) {
-				throw new Error("PDS returned unexpected credentials");
-			}
-			pdsKey = rotationKey;
+			pdsKey = await getPdsRotationKey(targetClient, targetDomain, signingKey);
 		} catch (err) {
 			spinner.stop("Failed to fetch signing key");
 			p.log.error(
 				err instanceof Error ? err.message : "Could not fetch credentials",
-			);
-			p.outro("Identity update cancelled.");
-			process.exit(1);
-		}
-		const localKey = signingKey ? await getSigningKeyDid(signingKey) : null;
-		if (localKey && localKey !== pdsKey) {
-			spinner.stop("Signing keys don't match");
-			p.log.error(
-				`The signing key in .dev.vars (${localKey}) is not the one ${targetDomain} uses (${pdsKey}).`,
-			);
-			p.log.info(
-				"Restore the deployed key to .dev.vars, or redeploy with the local one, then try again.",
 			);
 			p.outro("Identity update cancelled.");
 			process.exit(1);
@@ -456,17 +434,3 @@ export const identityCommand = defineCommand({
 		p.outro("Identity updated! 🎉");
 	},
 });
-
-/**
- * Convert a hex-encoded secp256k1 private key to a did:key
- *
- * This imports the private key and returns the did:key representation.
- */
-async function getSigningKeyDid(hexPrivateKey: string): Promise<string | null> {
-	try {
-		const keypair = await Secp256k1Keypair.import(hexPrivateKey);
-		return keypair.did();
-	} catch {
-		return null;
-	}
-}

@@ -4,7 +4,9 @@
  */
 import * as p from "@clack/prompts";
 import pc from "picocolors";
+import { Secp256k1Keypair } from "@atproto/crypto";
 import type { PlcDirectoryClient } from "./plc-client.js";
+import type { PDSClient } from "./pds-client.js";
 import { promptConfirm, promptKeyBackup } from "./cli-helpers.js";
 import {
 	buildRotationKeys,
@@ -12,6 +14,32 @@ import {
 	labelRotationKeys,
 	MAX_ROTATION_KEYS,
 } from "./rotation-keys.js";
+
+/**
+ * Get the key the deployed PDS signs with, from its recommended
+ * credentials. The DID must name this key, which may not be the one in
+ * .dev.vars, so a different local key is an error.
+ */
+export async function getPdsRotationKey(
+	client: PDSClient,
+	pdsName: string,
+	localSigningKey?: string,
+): Promise<string> {
+	const credentials = await client.getRecommendedDidCredentials();
+	const pdsKey = credentials.rotationKeys[0];
+	if (!pdsKey || credentials.verificationMethods.atproto !== pdsKey) {
+		throw new Error(`${pdsName} returned unexpected credentials`);
+	}
+	if (localSigningKey) {
+		const localKey = (await Secp256k1Keypair.import(localSigningKey)).did();
+		if (localKey !== pdsKey) {
+			throw new Error(
+				`The signing key in .dev.vars (${localKey}) is not the one ${pdsName} uses (${pdsKey}). Restore the deployed key to .dev.vars, or redeploy with the local one, then try again.`,
+			);
+		}
+	}
+	return pdsKey;
+}
 
 export interface RotationKeyChoice {
 	/** The full rotation key list, in priority order */
@@ -31,6 +59,7 @@ export interface RotationKeyChoice {
  * @param sourcePdsKeys - Keys held by the previous PDS, if known. Without
  *   them, the user is asked about every key that isn't this PDS's.
  * @param sourceName - Display name for the previous PDS
+ * @param heldKeys - Keys known to be the user's, kept without asking
  */
 export async function chooseRotationKeys(opts: {
 	did: string;
@@ -40,6 +69,7 @@ export async function chooseRotationKeys(opts: {
 	pdsName: string;
 	sourcePdsKeys?: string[];
 	sourceName?: string;
+	heldKeys?: string[];
 }): Promise<RotationKeyChoice> {
 	const descriptions = new Map<string, string>([
 		[opts.pdsKey, `${opts.pdsName} (this PDS)`],
@@ -59,11 +89,18 @@ export async function chooseRotationKeys(opts: {
 		if (owner === "this-pds") {
 			continue;
 		}
+		if (opts.heldKeys?.includes(key)) {
+			userKeys.push(key);
+			descriptions.set(key, "your key");
+			continue;
+		}
+		// Keeping a key nobody holds only preserves the status quo, while
+		// dropping one the user holds loses it, so the default is to keep
 		const keep = await promptConfirm({
 			message: sourceKnown
 				? `Keep ${pc.cyan(key)}? It isn't held by ${opts.sourceName ?? "your previous PDS"}, so it is probably a recovery key you added.`
-				: `Do you hold the private key for ${pc.cyan(key)}? Answer yes to keep it, such as a recovery key you added.`,
-			initialValue: sourceKnown,
+				: `Keep ${pc.cyan(key)}? Answer no only if you don't hold this key, such as one belonging to your previous PDS.`,
+			initialValue: true,
 		});
 		if (keep) {
 			userKeys.push(key);

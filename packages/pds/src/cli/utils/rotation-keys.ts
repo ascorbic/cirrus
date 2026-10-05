@@ -12,6 +12,7 @@ import {
 	Secp256k1Keypair,
 	type Keypair,
 } from "@atproto/crypto";
+import type { PlcAuditLog } from "../../plc.js";
 
 /** plc.directory accepts at most this many rotation keys */
 export const MAX_ROTATION_KEYS = 5;
@@ -69,6 +70,28 @@ export function labelRotationKeys(
 					? "source-pds"
 					: "unknown",
 	}));
+}
+
+/**
+ * Find the PDS a DID pointed at before the current one, from its PLC audit
+ * log. Returns null if it has never pointed anywhere else.
+ */
+export function findPreviousPdsEndpoint(
+	log: PlcAuditLog[],
+	currentEndpoint: string,
+): string | null {
+	const current = currentEndpoint.replace(/\/$/, "");
+	for (const entry of [...log].reverse()) {
+		if (entry.nullified || entry.operation.type !== "plc_operation") continue;
+		const endpoint = entry.operation.services.atproto_pds?.endpoint?.replace(
+			/\/$/,
+			"",
+		);
+		if (endpoint && endpoint !== current) {
+			return endpoint;
+		}
+	}
+	return null;
 }
 
 export interface RecoveryKey {

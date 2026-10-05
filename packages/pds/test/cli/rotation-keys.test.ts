@@ -7,6 +7,7 @@ import {
 } from "@atproto/crypto";
 import {
 	buildRotationKeys,
+	findPreviousPdsEndpoint,
 	generateRecoveryKey,
 	importRotationKey,
 	labelRotationKeys,
@@ -65,6 +66,72 @@ describe("labelRotationKeys", () => {
 		expect(labelRotationKeys(["did:key:zSource"], { pdsKey: PDS })).toEqual([
 			{ key: "did:key:zSource", owner: "unknown" },
 		]);
+	});
+});
+
+describe("findPreviousPdsEndpoint", () => {
+	const entry = (
+		endpoint: string | null,
+		opts: { nullified?: boolean; type?: string } = {},
+	) => ({
+		did: "did:plc:abc123",
+		operation: {
+			type: opts.type ?? "plc_operation",
+			prev: null,
+			sig: "sig",
+			rotationKeys: [],
+			verificationMethods: {},
+			alsoKnownAs: [],
+			services: endpoint
+				? {
+						atproto_pds: {
+							type: "AtprotoPersonalDataServer",
+							endpoint,
+						},
+					}
+				: {},
+		},
+		cid: "cid",
+		nullified: opts.nullified ?? false,
+		createdAt: "2025-01-01T00:00:00.000Z",
+	});
+	const log = (...entries: ReturnType<typeof entry>[]) =>
+		entries as Parameters<typeof findPreviousPdsEndpoint>[0];
+
+	it("returns the most recent endpoint before the current one", () => {
+		expect(
+			findPreviousPdsEndpoint(
+				log(
+					entry("https://first.example"),
+					entry("https://morel.us-east.host.bsky.network"),
+					entry("https://pds.example.com/"),
+				),
+				"https://pds.example.com",
+			),
+		).toBe("https://morel.us-east.host.bsky.network");
+	});
+
+	it("skips nullified operations and operations without a PDS", () => {
+		expect(
+			findPreviousPdsEndpoint(
+				log(
+					entry("https://real-previous.example"),
+					entry("https://attacker.example", { nullified: true }),
+					entry(null),
+					entry("https://pds.example.com"),
+				),
+				"https://pds.example.com/",
+			),
+		).toBe("https://real-previous.example");
+	});
+
+	it("returns null when the DID has only pointed at the current PDS", () => {
+		expect(
+			findPreviousPdsEndpoint(
+				log(entry("https://pds.example.com"), entry("https://pds.example.com")),
+				"https://pds.example.com",
+			),
+		).toBeNull();
 	});
 });
 

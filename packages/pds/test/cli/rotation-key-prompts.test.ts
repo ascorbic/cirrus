@@ -81,7 +81,7 @@ describe("chooseRotationKeys", () => {
 		expect(choice.removed).toEqual([SOURCE]);
 	});
 
-	it("defaults to not keeping keys when the source PDS's keys are unknown", async () => {
+	it("defaults to keeping keys when the source PDS's keys are unknown", async () => {
 		answers(false, false);
 
 		const choice = await chooseRotationKeys({
@@ -89,8 +89,25 @@ describe("chooseRotationKeys", () => {
 			currentKeys: [SOURCE],
 		});
 
-		expect(confirm.mock.calls[0]![0].initialValue).toBe(false);
+		expect(confirm.mock.calls[0]![0].initialValue).toBe(true);
+		expect(confirm.mock.calls[0]![0].message).toContain("Answer no only if");
 		expect(choice.rotationKeys).toEqual([PDS]);
+	});
+
+	it("keeps held keys without asking", async () => {
+		answers(false);
+
+		const choice = await chooseRotationKeys({
+			...base,
+			currentKeys: [SOURCE, RECOVERY],
+			heldKeys: [RECOVERY],
+		});
+
+		expect(confirm).toHaveBeenCalledTimes(1);
+		expect(confirm.mock.calls[0]![0].message).toContain(SOURCE);
+		expect(choice.rotationKeys).toEqual([RECOVERY, PDS]);
+		expect(choice.removed).toEqual([SOURCE]);
+		expect(backup).not.toHaveBeenCalled();
 	});
 
 	it("generates and adds a recovery key once the user has saved it", async () => {
