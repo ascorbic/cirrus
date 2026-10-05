@@ -583,6 +583,56 @@ describe("XRPC Endpoints", () => {
 			});
 		});
 
+		describe("listRecords pagination", () => {
+			const collection = "com.example.pagination";
+			const rkeys: string[] = [];
+
+			async function list(params: string) {
+				const response = await worker.fetch(
+					new Request(
+						`http://pds.test/xrpc/com.atproto.repo.listRecords?repo=${env.DID}&collection=${collection}&${params}`,
+					),
+					env,
+				);
+				expect(response.status).toBe(200);
+				return (await response.json()) as {
+					records: Array<{ uri: string }>;
+					cursor?: string;
+				};
+			}
+
+			it("creates records to page through", async () => {
+				for (let i = 0; i < 12; i++) rkeys.push(genTid());
+				const response = await worker.fetch(
+					new Request("http://pds.test/xrpc/com.atproto.repo.applyWrites", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: `Bearer ${env.AUTH_TOKEN}`,
+						},
+						body: JSON.stringify({
+							repo: env.DID,
+							writes: rkeys.map((rkey, i) => ({
+								$type: "com.atproto.repo.applyWrites#create",
+								collection,
+								rkey,
+								value: { $type: collection, index: i },
+							})),
+						}),
+					}),
+					env,
+				);
+				expect(response.status).toBe(200);
+				rkeys.sort();
+			});
+
+			it("clamps out-of-range limits", async () => {
+				expect((await list("limit=0")).records).toHaveLength(12);
+				expect((await list("limit=-3")).records).toHaveLength(1);
+				expect((await list("limit=abc")).records).toHaveLength(12);
+			});
+		});
+
 		it("should delete a record", async () => {
 			const rkey = genTid();
 			await worker.fetch(

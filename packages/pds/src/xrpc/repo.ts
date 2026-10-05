@@ -266,7 +266,10 @@ export async function listRecords(
 		);
 	}
 
-	const limit = Math.min(limitStr ? Number.parseInt(limitStr, 10) : 50, 100);
+	const limit = Math.min(
+		Math.max(limitStr ? Number.parseInt(limitStr, 10) || 50 : 50, 1),
+		100,
+	);
 	const reverse = reverseStr === "true";
 
 	const result = await accountDO.repo().listRecords(collection, {
