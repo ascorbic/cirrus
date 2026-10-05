@@ -274,7 +274,7 @@ export async function listRecords(
 
 	const result = await accountDO.repo().listRecords(collection, {
 		limit,
-		cursor,
+		cursor: cursor || undefined,
 		reverse,
 	});
 

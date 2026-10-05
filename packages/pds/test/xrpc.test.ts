@@ -601,6 +601,20 @@ describe("XRPC Endpoints", () => {
 				};
 			}
 
+			async function pageThrough(params: string) {
+				const seen: string[] = [];
+				let cursor: string | undefined;
+				for (let pages = 0; pages < 20; pages++) {
+					const data = await list(
+						cursor ? `${params}&cursor=${cursor}` : params,
+					);
+					seen.push(...data.records.map((r) => r.uri.split("/").pop()!));
+					if (!data.cursor) return seen;
+					cursor = data.cursor;
+				}
+				throw new Error("pagination did not terminate");
+			}
+
 			it("creates records to page through", async () => {
 				for (let i = 0; i < 12; i++) rkeys.push(genTid());
 				const response = await worker.fetch(
@@ -624,6 +638,23 @@ describe("XRPC Endpoints", () => {
 				);
 				expect(response.status).toBe(200);
 				rkeys.sort();
+			});
+
+			it("pages newest first by default", async () => {
+				expect(await pageThrough("limit=5")).toEqual([...rkeys].reverse());
+			});
+
+			it("pages oldest first with reverse=true", async () => {
+				expect(await pageThrough("limit=5&reverse=true")).toEqual(rkeys);
+			});
+
+			it("returns a bare rkey cursor only when there are more records", async () => {
+				const first = await list("limit=5");
+				expect(first.cursor).toBe(rkeys[rkeys.length - 5]);
+
+				const all = await list("limit=12");
+				expect(all.records).toHaveLength(12);
+				expect(all.cursor).toBeUndefined();
 			});
 
 			it("clamps out-of-range limits", async () => {

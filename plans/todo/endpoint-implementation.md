@@ -30,7 +30,7 @@ This document tracks the implementation status of all AT Protocol XRPC endpoints
 | `getRecord`        | ✅ Complete | With CID and value                             |
 | `importRepo`       | ✅ Complete | CAR file import with validation, blob tracking |
 | `listMissingBlobs` | ✅ Complete | Lists blobs referenced but not imported        |
-| `listRecords`      | ✅ Complete | Pagination, cursor, reverse                    |
+| `listRecords`      | ✅ Complete | Newest first, rkey cursor, reverse (#251)      |
 | `putRecord`        | ✅ Complete | Create or update with validation               |
 | `uploadBlob`       | ✅ Complete | 5MB limit, R2 storage, tracks imports          |
 
