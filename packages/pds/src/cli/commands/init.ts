@@ -21,10 +21,7 @@ import {
 	promptSelect,
 	detectPackageManager,
 	formatCommand,
-	copyToClipboard,
-	saveKeyBackup,
-	is1PasswordAvailable,
-	saveTo1Password,
+	promptKeyBackup,
 	runCommand,
 } from "../utils/cli-helpers.js";
 
@@ -521,108 +518,12 @@ export const initCommand = defineCommand({
 				"Critical: Back Up Your Signing Key",
 			);
 
-			// Check if 1Password CLI is available
-			const has1Password = await is1PasswordAvailable();
-
-			// Build backup options dynamically
-			type BackupOption = "1password" | "copy" | "file" | "show" | "skip";
-			const backupOptions: Array<{
-				value: BackupOption;
-				label: string;
-				hint: string;
-			}> = [];
-
-			if (has1Password) {
-				backupOptions.push({
-					value: "1password" as const,
-					label: "Save to 1Password",
-					hint: "recommended - uses op CLI",
-				});
-			}
-
-			backupOptions.push(
-				{
-					value: "copy" as const,
-					label: "Copy to clipboard",
-					hint: "paste into password manager",
-				},
-				{
-					value: "file" as const,
-					label: "Save to file",
-					hint: "signing-key-backup.txt",
-				},
-				{
-					value: "show" as const,
-					label: "Display it (I'll copy manually)",
-					hint: "shown in terminal",
-				},
-				{
-					value: "skip" as const,
-					label: "Skip (I understand the risk)",
-					hint: "not recommended",
-				},
-			);
-
-			const backupChoice = await promptSelect<BackupOption>({
-				message: "How would you like to back up your signing key?",
-				options: backupOptions,
+			await promptKeyBackup({
+				key: signingKey,
+				kind: "signing",
+				handle,
+				allowSkip: true,
 			});
-
-			if (backupChoice === "1password") {
-				spinner.start("Saving to 1Password...");
-				const result = await saveTo1Password(signingKey, handle);
-				if (result.success) {
-					spinner.stop("Saved to 1Password");
-					p.log.success(`Created: "${result.itemName}"`);
-				} else {
-					spinner.stop("Failed to save to 1Password");
-					p.log.error(result.error || "Unknown error");
-					p.log.info("Falling back to displaying the key...");
-					p.note(
-						[
-							"SIGNING KEY (keep this secret!):",
-							"",
-							signingKey,
-							"",
-							"Copy this to your password manager now.",
-						].join("\n"),
-						"🔑 Your Signing Key",
-					);
-				}
-			} else if (backupChoice === "copy") {
-				await copyToClipboard(signingKey);
-				p.log.success("Signing key copied to clipboard");
-				p.log.info("Paste it into your password manager now!");
-			} else if (backupChoice === "file") {
-				const backupPath = await saveKeyBackup(signingKey, handle);
-				p.log.success(`Signing key saved to: ${backupPath}`);
-				p.log.warn(
-					"Move this file to a secure location and delete the local copy!",
-				);
-			} else if (backupChoice === "show") {
-				p.note(
-					[
-						"SIGNING KEY (keep this secret!):",
-						"",
-						signingKey,
-						"",
-						"Copy this to your password manager now.",
-					].join("\n"),
-					"🔑 Your Signing Key",
-				);
-			}
-
-			if (backupChoice !== "skip") {
-				const confirmed = await promptConfirm({
-					message: "Have you saved your signing key securely?",
-					initialValue: true,
-				});
-				if (!confirmed) {
-					p.log.warn("Please back up your key before continuing!");
-					// Show it one more time
-					p.note(signingKey, "🔑 Signing Key");
-				}
-			}
 		}
 
 		const jwtSecret = await getOrGenerateSecret(

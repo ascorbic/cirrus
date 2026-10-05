@@ -266,11 +266,15 @@ export const identityCommand = defineCommand({
 
 		// Sign the PLC operation via source PDS
 		spinner.start("Signing identity update...");
-		const signResult = await sourcePdsClient.signPlcOperation(
-			token.trim(),
-			targetUrl,
-			signingKeyDid,
-		);
+		const signResult = await sourcePdsClient.signPlcOperation(token.trim(), {
+			verificationMethods: { atproto: signingKeyDid },
+			services: {
+				atproto_pds: {
+					type: "AtprotoPersonalDataServer",
+					endpoint: targetUrl,
+				},
+			},
+		});
 
 		if (!signResult.success || !signResult.signedOperation) {
 			spinner.stop("Failed to sign operation");

@@ -24,6 +24,7 @@ import {
 	getLatestPlcOperation,
 	PLC_DIRECTORY,
 	signOperation,
+	type PlcOperationChanges,
 	type SignedPlcOperation,
 	type UnsignedPlcOperation,
 } from "../plc";
@@ -135,13 +136,7 @@ export async function signPlcOperation(
 	const forbidden = requireIdentityControl(c);
 	if (forbidden) return forbidden;
 
-	const body = await c.req.json<{
-		token?: string;
-		rotationKeys?: string[];
-		alsoKnownAs?: string[];
-		verificationMethods?: Record<string, string>;
-		services?: Record<string, { type: string; endpoint: string }>;
-	}>();
+	const body = await c.req.json<PlcOperationChanges & { token?: string }>();
 
 	const { token } = body;
 

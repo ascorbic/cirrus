@@ -16,6 +16,17 @@ export interface UnsignedPlcOperation {
 	services: Record<string, { type: string; endpoint: string }>;
 }
 
+/**
+ * Fields a caller can change when asking a PDS to sign an operation.
+ * Omitted fields keep their current values.
+ */
+export type PlcOperationChanges = Partial<
+	Pick<
+		UnsignedPlcOperation,
+		"rotationKeys" | "verificationMethods" | "alsoKnownAs" | "services"
+	>
+>;
+
 export interface SignedPlcOperation extends UnsignedPlcOperation {
 	sig: string;
 }

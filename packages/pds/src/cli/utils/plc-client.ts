@@ -9,45 +9,12 @@
 import { Client, ok, type FetchHandler } from "@atcute/client";
 // Import for type augmentation - gives us typed XRPC method signatures
 import type {} from "@atcute/atproto";
-
-const PLC_DIRECTORY = "https://plc.directory";
-
-/**
- * PLC operation structure (from plc.directory)
- */
-export interface PlcOperation {
-	type: string;
-	prev: string | null;
-	sig: string;
-	rotationKeys: string[];
-	verificationMethods: Record<string, string>;
-	alsoKnownAs: string[];
-	services: Record<string, { type: string; endpoint: string }>;
-}
-
-/**
- * Audit log entry from plc.directory
- */
-export interface PlcAuditLog {
-	did: string;
-	operation: PlcOperation;
-	cid: string;
-	nullified: boolean;
-	createdAt: string;
-}
-
-/**
- * Signed PLC operation ready for submission
- */
-export interface SignedPlcOperation {
-	type: "plc_operation";
-	prev: string | null;
-	sig: string;
-	rotationKeys: string[];
-	verificationMethods: Record<string, string>;
-	alsoKnownAs: string[];
-	services: Record<string, { type: string; endpoint: string }>;
-}
+import {
+	PLC_DIRECTORY,
+	type PlcAuditLog,
+	type PlcOperationChanges,
+	type SignedPlcOperation,
+} from "../../plc.js";
 
 export interface CredentialInfo {
 	type: "email" | "passkey";
@@ -151,43 +118,41 @@ export class SourcePdsPlcClient {
 	}
 
 	/**
-	 * Get a signed PLC operation from the source PDS.
-	 * This builds and signs the operation to migrate to the new PDS.
+	 * Get the source PDS's recommended credentials for this account. Its
+	 * rotationKeys are the keys the source PDS holds.
+	 *
+	 * Uses: com.atproto.identity.getRecommendedDidCredentials
+	 */
+	async getRecommendedDidCredentials(): Promise<{ rotationKeys: string[] }> {
+		const result = await ok(
+			this.client.get("com.atproto.identity.getRecommendedDidCredentials", {}),
+		);
+		return { rotationKeys: result.rotationKeys ?? [] };
+	}
+
+	/**
+	 * Get the source PDS to sign a PLC operation applying the given changes
+	 * to the DID's current state.
 	 *
 	 * Uses: com.atproto.identity.signPlcOperation
 	 *
 	 * @param token - The email token received from the source PDS
-	 * @param newPdsEndpoint - The endpoint URL of the new PDS
-	 * @param newSigningKey - The new signing key DID (did:key:...)
+	 * @param changes - Fields to change; omitted fields keep their values
 	 */
 	async signPlcOperation(
 		token: string,
-		newPdsEndpoint: string,
-		newSigningKey: string,
+		changes: PlcOperationChanges,
 	): Promise<PlcSignatureResult> {
 		try {
 			const result = await ok(
 				this.client.post("com.atproto.identity.signPlcOperation", {
-					input: {
-						token,
-						rotationKeys: undefined, // Keep existing rotation keys
-						alsoKnownAs: undefined, // Keep existing aliases
-						verificationMethods: {
-							atproto: newSigningKey,
-						},
-						services: {
-							atproto_pds: {
-								type: "AtprotoPersonalDataServer",
-								endpoint: newPdsEndpoint,
-							},
-						},
-					},
+					input: { token, ...changes },
 				}),
 			);
 
 			return {
 				success: true,
-				signedOperation: result.operation as SignedPlcOperation,
+				signedOperation: result.operation as unknown as SignedPlcOperation,
 			};
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : "Network error";
@@ -238,6 +203,14 @@ export class PlcDirectoryClient {
 			throw new Error(`Failed to fetch audit log: ${res.status}`);
 		}
 		return res.json() as Promise<PlcAuditLog[]>;
+	}
+
+	/**
+	 * Get the most recent non-nullified operation for a DID
+	 */
+	async getLatestOperation(did: string): Promise<PlcAuditLog | null> {
+		const log = await this.getAuditLog(did);
+		return log.filter((entry) => !entry.nullified).pop() ?? null;
 	}
 
 	/**
