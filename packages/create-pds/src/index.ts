@@ -78,13 +78,20 @@ function runCommand(
 	});
 }
 
-async function copyTemplateDir(src: string, dest: string): Promise<void> {
+async function copyTemplateDir(
+	src: string,
+	dest: string,
+	pm: PackageManager,
+): Promise<void> {
 	await mkdir(dest, { recursive: true });
 	const entries = await readdir(src, { withFileTypes: true });
 
 	for (const entry of entries) {
 		const srcPath = join(src, entry.name);
 		let destName = entry.name;
+
+		// Skip pnpm-specific files if not using pnpm
+		if (destName === "pnpm-workspace.yaml" && pm !== "pnpm") continue;
 
 		// Rename dotfiles (npm strips them from packages)
 		if (destName === "gitignore") destName = ".gitignore";
@@ -95,7 +102,7 @@ async function copyTemplateDir(src: string, dest: string): Promise<void> {
 		const destPath = join(dest, destName);
 
 		if (entry.isDirectory()) {
-			await copyTemplateDir(srcPath, destPath);
+			await copyTemplateDir(srcPath, destPath, pm);
 		} else {
 			await cp(srcPath, destPath);
 		}
@@ -266,7 +273,7 @@ const main = defineCommand({
 		spinner.start("Copying template...");
 
 		const templateDir = join(__dirname, "..", "templates", "pds-worker");
-		await copyTemplateDir(templateDir, targetDir);
+		await copyTemplateDir(templateDir, targetDir, pm);
 
 		// Replace placeholders in package.json
 		await replaceInFile(join(targetDir, "package.json"), {
