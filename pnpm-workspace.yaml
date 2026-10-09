@@ -26,6 +26,13 @@ allowBuilds:
 # and by semver a bare `0.0.0` release outranks any `-prerelease`, so pnpm picks
 # the broken one. Pin the whole family to the clean timestamp build. Nothing
 # else in this repo uses these packages, so a global override is safe.
+#
+# Overrides don't reach consumers of the published packages, so @getcirrus/pds,
+# @getcirrus/spaces and @getcirrus/space-conformance instead list the
+# intermediate alpha packages (@atproto/common, common-web, and for the
+# conformance suite oauth-client, xrpc, lexicon) as exact dependencies, which
+# package managers reuse when resolving @atproto/space's caret ranges. Bump
+# those pins in lockstep with @atproto/space.
 overrides:
   "@atproto/lex": "0.0.0-spaces-alpha-20260818163953"
   "@atproto/lex-resolver": "0.0.0-spaces-alpha-20260818163953"
