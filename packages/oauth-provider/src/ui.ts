@@ -776,6 +776,7 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 
 		.buttons {
 			display: flex;
+			flex-direction: row-reverse;
 			gap: 12px;
 		}
 
@@ -986,8 +987,8 @@ export function renderConsentUI(options: ConsentUIOptions): string {
 			</div>
 
 			<div class="buttons">
-				<button type="submit" name="action" value="deny" class="btn-deny">Deny</button>
 				<button type="submit" name="action" value="allow" class="btn-allow"${hasResolutionFailure ? " disabled" : ""}>Allow</button>
+				<button type="submit" name="action" value="deny" class="btn-deny">Deny</button>
 			</div>
 		</form>
 
