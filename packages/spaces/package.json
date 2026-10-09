@@ -18,6 +18,8 @@
 	},
 	"dependencies": {
 		"@atcute/cid": "^2.3.0",
+		"@atproto/common": "0.0.0-spaces-alpha-20260818163953",
+		"@atproto/common-web": "0.0.0-spaces-alpha-20260818163953",
 		"@atproto/crypto": "^0.4.5",
 		"@atproto/lex-cbor": "^0.1.6",
 		"@atproto/lex-data": "^0.1.7",
