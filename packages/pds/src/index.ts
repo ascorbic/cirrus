@@ -581,7 +581,10 @@ if (env.SPACES && env.SPACES_INDEX) {
 // getFeed is proxied to the AppView but the service-auth JWT must be addressed
 // to the feed generator, so it needs special handling ahead of the catch-all.
 app.get("/xrpc/app.bsky.feed.getFeed", (c) =>
-	handleGetFeedProxy(c, didResolver, getKeypair),
+	handleGetFeedProxy(c, didResolver, getKeypair, async (collection, rkey) => {
+		const result = await getAccountDO(c.env).repo().getRecord(collection, rkey);
+		return result?.record;
+	}),
 );
 
 // createReport routes to a moderation labeler, not the AppView. Clients can

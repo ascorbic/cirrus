@@ -294,6 +294,96 @@ describe("XRPC Service Proxying", () => {
 			return JSON.parse(Buffer.from(payloadB64, "base64url").toString());
 		}
 
+		it.each([false, true])(
+			"reads an owned feed locally without DID resolution (cursor=%s)",
+			async (cursorPage) => {
+				const rkey = `local-feed-${cursorPage}`;
+				const create = await worker.fetch(
+					new Request("http://pds.test/xrpc/com.atproto.repo.createRecord", {
+						method: "POST",
+						headers: {
+							Authorization: `Bearer ${authToken}`,
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							repo: env.DID,
+							collection: "app.bsky.feed.generator",
+							rkey,
+							record: {
+								$type: "app.bsky.feed.generator",
+								did: "did:web:local-feed.example.com",
+								displayName: "Local feed",
+								createdAt: new Date().toISOString(),
+							},
+						}),
+					}),
+					env,
+				);
+				expect(create.status).toBe(200);
+				let capturedAuth: string | null = null;
+				const fetchMock = vi.fn(
+					async (input: RequestInfo | URL, init?: RequestInit) => {
+						const url = new URL(String(input));
+						// Record creation can schedule a background relay poke.
+						if (url.hostname === "relay.invalid") return Response.json({});
+						if (
+							url.origin !== "https://api.bsky.app" ||
+							url.pathname !== "/xrpc/app.bsky.feed.getFeed"
+						) {
+							throw new Error("Unexpected network lookup for owned feed");
+						}
+						capturedAuth = new Headers(init?.headers).get("Authorization");
+						expect(url.searchParams.get("cursor")).toBe(
+							cursorPage ? "test-cursor" : null,
+						);
+						return Response.json({ feed: [] });
+					},
+				);
+				vi.stubGlobal("fetch", fetchMock);
+				const query = new URLSearchParams({
+					feed: `at://${env.DID}/app.bsky.feed.generator/${rkey}`,
+					...(cursorPage ? { cursor: "test-cursor" } : {}),
+				});
+				const response = await worker.fetch(
+					new Request(`http://pds.test/xrpc/app.bsky.feed.getFeed?${query}`, {
+						headers: { Authorization: `Bearer ${authToken}` },
+					}),
+					env,
+				);
+				expect(response.status).toBe(200);
+				expect(
+					fetchMock.mock.calls.filter(
+						([input]) => new URL(String(input)).hostname !== "relay.invalid",
+					),
+				).toHaveLength(1);
+				expect(decodeJwtPayload(capturedAuth)).toMatchObject({
+					aud: "did:web:local-feed.example.com",
+					lxm: "app.bsky.feed.getFeedSkeleton",
+				});
+			},
+		);
+
+		it("falls back for a missing owned feed without a network lookup", async () => {
+			let capturedAuth: string | null = null;
+			const fetchMock = vi.fn(
+				async (_input: RequestInfo | URL, init?: RequestInit) => {
+					capturedAuth = new Headers(init?.headers).get("Authorization");
+					return Response.json({ feed: [] });
+				},
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			const feed = `at://${env.DID}/app.bsky.feed.generator/missing-owned-feed`;
+			await worker.fetch(
+				new Request(
+					`http://pds.test/xrpc/app.bsky.feed.getFeed?feed=${encodeURIComponent(feed)}`,
+					{ headers: { Authorization: `Bearer ${authToken}` } },
+				),
+				env,
+			);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			expect(decodeJwtPayload(capturedAuth).aud).toBe("did:web:api.bsky.app");
+		});
+
 		it("mints the service JWT with aud of the feed generator, not the appview", async () => {
 			let capturedAuth: string | null = null;
 
