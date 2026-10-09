@@ -146,6 +146,16 @@ const listAppPasswords: Check = {
 		const client = authedClient(ctx.agent!);
 		const res = await client.get("com.atproto.server.listAppPasswords", {});
 		if (!res.ok) {
+			// The reference PDS forbids OAuth credentials on this endpoint
+			// ("OAuth credentials are not supported for this endpoint"), so a
+			// 403 from our DPoP session is conformant behavior, not a failure.
+			if (res.status === 403) {
+				return {
+					status: "skip",
+					message: "endpoint rejects OAuth sessions (matches reference PDS)",
+					evidence: { response: { status: res.status, body: res.data } },
+				};
+			}
 			return {
 				status: "fail",
 				message: `${res.data.error}: ${res.data.message ?? ""}`.trim(),
