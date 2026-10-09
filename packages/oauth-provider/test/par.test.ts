@@ -80,6 +80,29 @@ describe("PAR Handler", () => {
 			expect(json).toHaveProperty("expires_in", 300);
 		});
 
+		it("accepts a request with unsupported scopes and stores the filtered scope", async () => {
+			const verifier = generateCodeVerifier();
+			const challenge = await generateCodeChallenge(verifier);
+
+			const request = createPARRequest({
+				client_id: "did:web:client.example.com",
+				redirect_uri: "https://client.example.com/callback",
+				response_type: "code",
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+				state: "random-state",
+				scope: "atproto repo:not a real nsid madeup:thing include:bad",
+			});
+
+			const response = await handler.handlePushRequest(request);
+			expect(response.status).toBe(201);
+
+			const json = (await response.json()) as { request_uri: string };
+			const parData = await storage.getPAR(json.request_uri);
+			expect(parData).not.toBeNull();
+			expect(parData!.params.scope).toBe("atproto");
+		});
+
 		it("rejects request with wrong content type", async () => {
 			const request = new Request("https://example.com/oauth/par", {
 				method: "POST",

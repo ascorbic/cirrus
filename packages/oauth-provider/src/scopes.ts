@@ -1,11 +1,12 @@
 /**
  * Scope parsing and matching, built on @atproto/oauth-scopes.
  *
- * Granular scopes (`repo:`, `rpc:`, `blob:`, `account:`, `identity:`) are
- * parsed structurally. Permission-set includes (`include:NSID?aud=...`) are
- * resolved at authorize-time via an injected {@link PermissionSetResolver}
- * and expanded into concrete granular scopes inline before the auth code is
- * stored — so resource-server checks never need network access.
+ * Unsupported or malformed scope tokens are filtered out (via
+ * `isAtprotoOauthScope`) rather than rejected. Permission-set includes
+ * (`include:NSID?aud=...`) are resolved at authorize-time via an injected
+ * {@link PermissionSetResolver} and expanded into concrete granular scopes
+ * inline before the auth code is stored — so resource-server checks never
+ * need network access.
  */
 
 import type { Nsid as AtcuteNsid } from "@atcute/lexicons/syntax";
@@ -16,6 +17,7 @@ import {
 	IncludeScope,
 	RepoPermission,
 	RpcPermission,
+	isAtprotoOauthScope,
 	ScopeMissingError,
 	ScopePermissionsTransition,
 	ScopesSet,
@@ -23,7 +25,12 @@ import {
 import * as oauthScopes from "@atproto/oauth-scopes";
 import type { PermissionSetResolver } from "./permission-sets.js";
 
-export { IncludeScope, ScopeMissingError, ScopePermissionsTransition, ScopesSet };
+export {
+	IncludeScope,
+	ScopeMissingError,
+	ScopePermissionsTransition,
+	ScopesSet,
+};
 
 /**
  * `SpacePermission` is only present in the `spaces-alpha` builds of
@@ -94,10 +101,10 @@ const STRUCTURAL_PARSERS: Record<
 
 export interface ParseScopeOptions {
 	/**
-	 * When true, `include:` scopes are accepted (and structurally validated)
-	 * but not expanded — the returned ScopesSet may still contain them.
-	 * Use this at authorize-time, then call {@link expandScope} to resolve
-	 * the includes before storing.
+	 * When true, `include:` scopes are accepted but not expanded — the
+	 * returned scope string may still contain them. Use this at
+	 * authorize-time, then call {@link expandScope} to resolve the includes
+	 * before storing.
 	 *
 	 * When false (default), `include:` scopes throw a ScopeParseError. Use
 	 * this on already-expanded scope strings (e.g. when re-validating a
@@ -113,14 +120,22 @@ export interface ParseScopeOptions {
 }
 
 /**
- * Validate a space-separated scope string. Returns the parsed ScopesSet on
- * success.
+ * Filter and validate a space-separated scope string, returning the cleaned
+ * scope string on success. Tokens not recognized by `isAtprotoOauthScope`
+ * are silently dropped; a missing "atproto" base scope or a disallowed
+ * `include:` scope throws a {@link ScopeParseError}.
  */
 export function parseScope(
 	input: string | undefined | null,
 	{ allowIncludes = false, allowSpaceScopes = false }: ParseScopeOptions = {},
-): ScopesSet {
-	const set = ScopesSet.fromString(input ?? "");
+): string {
+	const filtered =
+		(input ?? "")
+			.split(" ")
+			.filter(Boolean)
+			.filter(isAtprotoOauthScope)
+			.join(" ") || undefined;
+	const set = ScopesSet.fromString(filtered);
 
 	if (!set.has(ATPROTO_SCOPE)) {
 		throw new ScopeParseError(
@@ -149,7 +164,11 @@ export function parseScope(
 		const colon = scope.indexOf(":");
 		const question = scope.indexOf("?");
 		const end =
-			colon === -1 ? question : question === -1 ? colon : Math.min(colon, question);
+			colon === -1
+				? question
+				: question === -1
+					? colon
+					: Math.min(colon, question);
 		const resource = end === -1 ? scope : scope.slice(0, end);
 		if (resource === "space" && !allowSpaceScopes) {
 			throw new ScopeParseError(
@@ -158,9 +177,7 @@ export function parseScope(
 			);
 		}
 		const parser =
-			STRUCTURAL_PARSERS[
-				resource as (typeof GRANULAR_RESOURCES)[number]
-			];
+			STRUCTURAL_PARSERS[resource as (typeof GRANULAR_RESOURCES)[number]];
 		if (!parser) {
 			throw new ScopeParseError(`Unknown scope resource: ${scope}`, scope);
 		}
@@ -169,7 +186,7 @@ export function parseScope(
 		}
 	}
 
-	return set;
+	return Array.from(set).join(" ");
 }
 
 /**
@@ -261,9 +278,7 @@ export interface FinalizeSpaceScopesOptions {
 	 * without default collections (reads unaffected, writes constrained to
 	 * the explicitly requested collections).
 	 */
-	resolveSpaceCollections?: (
-		nsid: string,
-	) => Promise<readonly string[] | null>;
+	resolveSpaceCollections?: (nsid: string) => Promise<readonly string[] | null>;
 }
 
 /**
@@ -293,24 +308,15 @@ export async function finalizeSpaceScopes(
 		}
 
 		if (perm.isSelfAuthority) {
-			perm = perm.withResolvedAuthority(
-				userDid as `did:${string}:${string}`,
-			);
+			perm = perm.withResolvedAuthority(userDid as `did:${string}:${string}`);
 		}
 
-		if (
-			!perm.hasCollections &&
-			perm.type !== "*" &&
-			resolveSpaceCollections
-		) {
+		if (!perm.hasCollections && perm.type !== "*" && resolveSpaceCollections) {
 			try {
 				const collections = await resolveSpaceCollections(perm.type);
 				if (collections && collections.length > 0) {
 					perm = perm.withDefaultCollections(
-						collections as readonly (
-							| "*"
-							| `${string}.${string}.${string}`
-						)[],
+						collections as readonly ("*" | `${string}.${string}.${string}`)[],
 					);
 				}
 			} catch {

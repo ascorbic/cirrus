@@ -4,6 +4,7 @@
  */
 
 import { base64url } from "jose";
+import { parseScope, type ParseScopeOptions, ScopesSet } from "../src/scopes";
 
 // ============================================
 // DPoP Test Helpers
@@ -248,4 +249,18 @@ export async function generateClientKeyPair(
 	}
 
 	return result;
+}
+
+/*
+ * Parse a scope string into a ScopesSet
+ * @param scopes The scope string
+ * @param options The parse options
+ * @returns The ScopesSet
+ */
+export function parsedScopesSet(
+	scopes: string,
+	options?: ParseScopeOptions,
+): ScopesSet {
+	const parsed = parseScope(scopes, options);
+	return ScopesSet.fromString(parsed);
 }

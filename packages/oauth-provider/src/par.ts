@@ -190,7 +190,7 @@ export class PARHandler {
 		params.scope = scope;
 		const allowIncludes = !!this.permissionSetResolver;
 		try {
-			parseScope(scope, {
+			params.scope = parseScope(scope, {
 				allowIncludes,
 				allowSpaceScopes: this.allowSpaceScopes,
 			});
