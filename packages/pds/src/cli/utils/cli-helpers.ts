@@ -153,18 +153,69 @@ export async function is1PasswordAvailable(): Promise<boolean> {
 	});
 }
 
+export type BackupKeyKind = "signing" | "recovery";
+
+const KEY_BACKUP_TEXT: Record<
+	BackupKeyKind,
+	{
+		name: string;
+		label: string;
+		title: string;
+		heading: string;
+		filePrefix: string;
+		tag: string;
+		warning: string;
+		encoding: string;
+	}
+> = {
+	signing: {
+		name: "signing key",
+		label: "Signing Key",
+		title: "Cirrus PDS Signing Key",
+		heading: "CIRRUS PDS SIGNING KEY",
+		filePrefix: "signing-key-backup",
+		tag: "signing-key",
+		warning: "WARNING: This key controls your identity!",
+		encoding: "hex-encoded secp256k1 private key",
+	},
+	recovery: {
+		name: "recovery key",
+		label: "Recovery Key",
+		title: "atproto Recovery Key",
+		heading: "ATPROTO RECOVERY KEY",
+		filePrefix: "recovery-key-backup",
+		tag: "recovery-key",
+		warning: "WARNING: This key can take control of your identity!",
+		encoding: "multibase private key, usable with goat",
+	},
+};
+
 /**
  * Save a key to 1Password using the CLI
- * Creates a secure note with the signing key
+ * Creates a secure note with the key and any extra details
  */
 export async function saveTo1Password(
 	key: string,
 	handle: string,
+	kind: BackupKeyKind = "signing",
+	details: string[] = [],
 ): Promise<{ success: boolean; itemName?: string; error?: string }> {
-	const itemName = `Cirrus PDS Signing Key - ${handle}`;
+	const text = KEY_BACKUP_TEXT[kind];
+	const itemName = `${text.title} - ${handle}`;
+	const notes = [
+		text.heading,
+		"",
+		`Handle: ${handle}`,
+		`Created: ${new Date().toISOString()}`,
+		...details,
+		"",
+		text.warning,
+		"",
+		`${text.name.toUpperCase()}:`,
+		key,
+	].join("\n");
 
 	return new Promise((resolve) => {
-		// Create a secure note with the signing key
 		const child = spawn(
 			"op",
 			[
@@ -174,9 +225,9 @@ export async function saveTo1Password(
 				"Secure Note",
 				"--title",
 				itemName,
-				`notesPlain=CIRRUS PDS SIGNING KEY\n\nHandle: ${handle}\nCreated: ${new Date().toISOString()}\n\nWARNING: This key controls your identity!\n\nSIGNING KEY:\n${key}`,
+				`notesPlain=${notes}`,
 				"--tags",
-				"cirrus,pds,signing-key",
+				`cirrus,pds,${text.tag}`,
 			],
 			{ stdio: ["ignore", "pipe", "pipe"] },
 		);
@@ -304,26 +355,30 @@ export function runCommand(
 export async function saveKeyBackup(
 	key: string,
 	handle: string,
+	kind: BackupKeyKind = "signing",
+	details: string[] = [],
 ): Promise<string> {
-	const filename = `signing-key-backup-${handle.replace(/[^a-z0-9]/gi, "-")}.txt`;
+	const text = KEY_BACKUP_TEXT[kind];
+	const filename = `${text.filePrefix}-${handle.replace(/[^a-z0-9]/gi, "-")}.txt`;
 	const filepath = join(process.cwd(), filename);
 
 	const content = [
 		"=".repeat(60),
-		"CIRRUS PDS SIGNING KEY BACKUP",
+		`${text.heading} BACKUP`,
 		"=".repeat(60),
 		"",
 		`Handle: ${handle}`,
 		`Created: ${new Date().toISOString()}`,
+		...details,
 		"",
-		"WARNING: This key controls your identity!",
+		text.warning,
 		"- Store this file in a secure location (password manager, encrypted drive)",
 		"- Delete this file from your local disk after backing up",
 		"- Never share this key with anyone",
 		"- If compromised, your identity can be stolen",
 		"",
 		"=".repeat(60),
-		"SIGNING KEY (hex-encoded secp256k1 private key)",
+		`${text.name.toUpperCase()} (${text.encoding})`,
 		"=".repeat(60),
 		"",
 		key,
@@ -333,4 +388,126 @@ export async function saveKeyBackup(
 
 	await writeFile(filepath, content, { mode: 0o600 }); // Read/write only for owner
 	return filepath;
+}
+
+/**
+ * Ask how to back up a key (1Password, clipboard, file or on screen), do
+ * it, and ask the user to confirm it is saved. Returns whether they
+ * confirmed. With allowSkip, the user may decline to back it up.
+ */
+export async function promptKeyBackup(opts: {
+	key: string;
+	kind: BackupKeyKind;
+	handle: string;
+	details?: string[];
+	allowSkip: boolean;
+}): Promise<boolean> {
+	const text = KEY_BACKUP_TEXT[opts.kind];
+	const details = opts.details ?? [];
+	const capitalised = text.name[0]!.toUpperCase() + text.name.slice(1);
+	const showKey = () =>
+		p.note(
+			[
+				`${text.name.toUpperCase()} (keep this secret!):`,
+				"",
+				opts.key,
+				"",
+				"Copy this to your password manager now.",
+			].join("\n"),
+			`🔑 Your ${text.label}`,
+		);
+
+	type BackupOption = "1password" | "copy" | "file" | "show" | "skip";
+	const options: Array<{ value: BackupOption; label: string; hint: string }> =
+		[];
+
+	if (await is1PasswordAvailable()) {
+		options.push({
+			value: "1password",
+			label: "Save to 1Password",
+			hint: "recommended - uses op CLI",
+		});
+	}
+
+	options.push(
+		{
+			value: "copy",
+			label: "Copy to clipboard",
+			hint: "paste into password manager",
+		},
+		{
+			value: "file",
+			label: "Save to file",
+			hint: `${text.filePrefix}.txt`,
+		},
+		{
+			value: "show",
+			label: "Display it (I'll copy manually)",
+			hint: "shown in terminal",
+		},
+	);
+
+	if (opts.allowSkip) {
+		options.push({
+			value: "skip",
+			label: "Skip (I understand the risk)",
+			hint: "not recommended",
+		});
+	}
+
+	const choice = await promptSelect<BackupOption>({
+		message: `How would you like to back up your ${text.name}?`,
+		options,
+	});
+
+	if (choice === "1password") {
+		const spinner = p.spinner();
+		spinner.start("Saving to 1Password...");
+		const result = await saveTo1Password(
+			opts.key,
+			opts.handle,
+			opts.kind,
+			details,
+		);
+		if (result.success) {
+			spinner.stop("Saved to 1Password");
+			p.log.success(`Created: "${result.itemName}"`);
+		} else {
+			spinner.stop("Failed to save to 1Password");
+			p.log.error(result.error || "Unknown error");
+			p.log.info("Falling back to displaying the key...");
+			showKey();
+		}
+	} else if (choice === "copy") {
+		await copyToClipboard(opts.key);
+		p.log.success(`${capitalised} copied to clipboard`);
+		p.log.info("Paste it into your password manager now!");
+	} else if (choice === "file") {
+		const backupPath = await saveKeyBackup(
+			opts.key,
+			opts.handle,
+			opts.kind,
+			details,
+		);
+		p.log.success(`${capitalised} saved to: ${backupPath}`);
+		p.log.warn(
+			"Move this file to a secure location and delete the local copy!",
+		);
+	} else if (choice === "show") {
+		showKey();
+	}
+
+	if (choice === "skip") {
+		return false;
+	}
+
+	const confirmed = await promptConfirm({
+		message: `Have you saved your ${text.name} securely?`,
+		initialValue: true,
+	});
+	if (!confirmed) {
+		p.log.warn("Please back up your key before continuing!");
+		p.note(opts.key, `🔑 ${text.label}`);
+	}
+	return confirmed;
 }

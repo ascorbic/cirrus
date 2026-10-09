@@ -135,18 +135,37 @@ Updates your DID document to point to your new PDS. This is the critical step th
 ```bash
 pds identity             # Update identity for production
 pds identity --dev       # Update identity for local dev
-pds identity --token XXX # Skip email step if you have a token
+pds identity --token XXX # Skip the email step if you already have a code
 ```
 
 The command:
 
 1. Resolves your current DID to find the source PDS
 2. Authenticates with your source PDS (requires your password)
-3. Requests an email confirmation token
-4. Gets the source PDS to sign a PLC operation with the new endpoint
-5. Submits the signed operation to the PLC directory
+3. Chooses your [rotation keys](#rotation-and-recovery-keys): any keys you already hold, then your new PDS's key. The source PDS's key is removed. If you don't hold any keys, it offers to create a recovery key and helps you back it up
+4. Shows a summary and asks you to confirm
+5. Requests an email confirmation code from the source PDS
+6. Gets the source PDS to sign a PLC operation with the new endpoint, signing key and rotation keys
+7. Submits the signed operation to the PLC directory and checks the result
 
 **Note:** Only `did:plc` identities are supported. `did:web` identities don't use PLC operations.
+
+### `pds rotation-keys`
+
+Shows your DID's [rotation keys](#rotation-and-recovery-keys) and makes sure your PDS is one of them.
+
+```bash
+pds rotation-keys        # Check and update rotation keys for production
+pds rotation-keys --dev  # Same, for local dev
+```
+
+Accounts migrated with an earlier version of `pds identity` still list the previous PDS's key and not your PDS's, so your PDS can't change your handle or move your identity. This command fixes that, and can also add a recovery key. It sets the rotation keys to the keys you hold, then your PDS's key. The change has to be signed by a key that is already listed, so it uses:
+
+- **Your PDS**, if it is already a rotation key
+- **Your previous PDS**, which needs your password there and an email code. This only works while your old account still exists
+- **A rotation key you hold**, such as a recovery key. Paste the private key when asked; it is used locally and never sent anywhere
+
+`pds status` reports whether your PDS can update your identity.
 
 ### `pds activate`
 
@@ -194,6 +213,8 @@ When migrating to a new PDS, the destination will ask for a confirmation token. 
 - Requires no database storage
 
 The token is copied to your clipboard and displayed in the terminal. After migration completes, run `pds deactivate` on this PDS.
+
+The PDS signs the migration with its signing key, so that key must be one of your DID's [rotation keys](#rotation-and-recovery-keys). If `pds status` says your PDS can't update your identity, run `pds rotation-keys` first.
 
 ### `pds passkey`
 
@@ -545,14 +566,15 @@ If interrupted, run `pds migrate` again to resume.
 npx pds identity
 ```
 
-This updates your DID document to point to your new PDS. The command:
+This updates your DID document to point to your new PDS and gives your new PDS control of your identity. The command:
 
 1. Authenticates with your source PDS (requires password)
-2. Requests an email confirmation token
-3. Gets the source PDS to sign a PLC operation with your new endpoint
-4. Submits the signed operation to the PLC directory
+2. Sets your rotation keys: keys you hold first, then your new PDS's key. If you hold none, it offers to create a [recovery key](#rotation-and-recovery-keys). Back it up when asked
+3. Requests an email confirmation code
+4. Gets the source PDS to sign a PLC operation with your new endpoint, signing key and rotation keys
+5. Submits the signed operation to the PLC directory
 
-You'll receive an email with a confirmation token – enter it when prompted.
+You'll receive an email with a confirmation code – enter it when prompted.
 
 ### Step 4: Activate the account
 
@@ -593,6 +615,31 @@ npx pds activate                # Enable writes
 # 5. Verify
 npx pds status                  # Check everything is working
 ```
+
+## Rotation and Recovery Keys
+
+A `did:plc` identity lists up to five **rotation keys**. Any change to the DID document (your PDS, your signing key, your handle) has to be signed by one of them, so whoever holds a rotation key controls the identity.
+
+After migration your rotation keys are:
+
+1. Your **recovery key**, if you have one
+2. Your PDS's signing key
+
+Your PDS can then change your handle, rotate its signing key, or migrate you to another PDS, without involving your previous PDS.
+
+The order matters. For 72 hours after any change, a higher-priority key can override it by signing a competing operation. Your recovery key ranks above your PDS's key, so if your PDS is compromised and someone changes your identity, you have 72 hours to undo it. After that the change is permanent. Your recovery key can also update your DID at any time if your PDS is gone.
+
+Keep the recovery key offline, such as in a password manager. It is a multibase private key in the format used by [goat](https://github.com/bluesky-social/goat). To use it in an emergency, for example to point your DID at a new PDS:
+
+```bash
+goat plc update --pds https://new-pds.example.com did:plc:... > op.json
+goat plc sign --plc-signing-key z... op.json > signed.json
+goat plc submit --did did:plc:... signed.json
+```
+
+To override a change made in the last 72 hours, build the operation on top of the last one you trust by adding `--prev <cid>` to `goat plc update`. The audit log at `https://plc.directory/did:plc:.../log/audit` lists each operation's CID. See the [PLC specification](https://github.com/did-method-plc/did-method-plc) for details.
+
+Run `pds rotation-keys` to check your keys or add a recovery key, and `pds status` to see whether your PDS can update your identity.
 
 ## Validation
 
