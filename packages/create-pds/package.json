@@ -1,6 +1,6 @@
 {
 	"name": "create-pds",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Create a new Cirrus AT Protocol PDS on Cloudflare Workers",
 	"type": "module",
 	"bin": {

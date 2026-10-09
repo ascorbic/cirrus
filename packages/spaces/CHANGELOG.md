@@ -1,5 +1,11 @@
 # @getcirrus/spaces
 
+## 0.1.1
+
+### Patch Changes
+
+- [#255](https://github.com/ascorbic/cirrus/pull/255) [`de476f5`](https://github.com/ascorbic/cirrus/commit/de476f57ba1fb936c6480a8fc278b6c7fc250cab) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix fresh installs failing with `"@atproto/lex-data@workspace:*" is in the dependencies but no package named "@atproto/lex-data" is present in the workspace` (or `Unsupported URL Type "workspace:"` under npm). This affected new projects created with `create-pds`, as well as any project installing these packages without an existing lockfile.
+
 ## 0.1.0
 
 ### Minor Changes
