@@ -147,6 +147,11 @@ const main = defineCommand({
 			alias: "pm",
 			description: "Package manager to use (npm, yarn, pnpm, bun)",
 		},
+		"blobs-bucket-name": {
+			type: "string",
+			description: "Cloudflare R2 bucket name for blobs",
+			required: false,
+		},
 		"skip-install": {
 			type: "boolean",
 			description: "Skip installing dependencies",
@@ -257,6 +262,25 @@ const main = defineCommand({
 			initGit = gitResult;
 		}
 
+		// Get bucket name
+		let bucketName = args["blobs-bucket-name"];
+		if (!bucketName) {
+			if (nonInteractive) {
+				bucketName = "pds-blobs";
+			} else {
+				const result = await p.text({
+					message: "Blobs bucket name (must be unique in your Cloudflare account):",
+					placeholder: "pds-blobs",
+					defaultValue: "pds-blobs",
+				});
+				if (p.isCancel(result)) {
+					p.cancel("Cancelled");
+					process.exit(0);
+				}
+				bucketName = result;
+			}
+		}
+
 		// Copy template
 		const spinner = p.spinner();
 		spinner.start("Fetching latest @getcirrus/pds version...");
@@ -272,6 +296,10 @@ const main = defineCommand({
 		await replaceInFile(join(targetDir, "package.json"), {
 			name: projectName,
 			pdsVersion: `^${pdsVersion}`,
+		});
+
+		await replaceInFile(join(targetDir, "wrangler.jsonc"), {
+			blobsBucketName: bucketName,
 		});
 
 		spinner.stop("Template copied");
