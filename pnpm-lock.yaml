@@ -249,6 +249,12 @@ importers:
       '@atcute/tid':
         specifier: ^1.1.1
         version: 1.1.1
+      '@atproto/common':
+        specifier: 0.0.0-spaces-alpha-20260818163953
+        version: 0.0.0-spaces-alpha-20260818163953
+      '@atproto/common-web':
+        specifier: 0.0.0-spaces-alpha-20260818163953
+        version: 0.0.0-spaces-alpha-20260818163953
       '@atproto/crypto':
         specifier: ^0.4.5
         version: 0.4.5
@@ -352,6 +358,12 @@ importers:
 
   packages/space-conformance:
     dependencies:
+      '@atproto/common':
+        specifier: 0.0.0-spaces-alpha-20260818163953
+        version: 0.0.0-spaces-alpha-20260818163953
+      '@atproto/common-web':
+        specifier: 0.0.0-spaces-alpha-20260818163953
+        version: 0.0.0-spaces-alpha-20260818163953
       '@atproto/crypto':
         specifier: ^0.4.5
         version: 0.4.5
@@ -361,10 +373,19 @@ importers:
       '@atproto/lex-data':
         specifier: ^0.1.7
         version: 0.1.7
+      '@atproto/lexicon':
+        specifier: 0.0.0-spaces-alpha-20260818163953
+        version: 0.0.0-spaces-alpha-20260818163953
+      '@atproto/oauth-client':
+        specifier: 0.0.0-spaces-alpha-20260818163953
+        version: 0.0.0-spaces-alpha-20260818163953
       '@atproto/oauth-client-node':
         specifier: 0.0.0-spaces-alpha-20260818163953
         version: 0.0.0-spaces-alpha-20260818163953
       '@atproto/space':
+        specifier: 0.0.0-spaces-alpha-20260818163953
+        version: 0.0.0-spaces-alpha-20260818163953
+      '@atproto/xrpc':
         specifier: 0.0.0-spaces-alpha-20260818163953
         version: 0.0.0-spaces-alpha-20260818163953
     devDependencies:
@@ -410,6 +431,12 @@ importers:
       '@atcute/tid':
         specifier: ^1.1.1
         version: 1.1.1
+      '@atproto/common':
+        specifier: 0.0.0-spaces-alpha-20260818163953
+        version: 0.0.0-spaces-alpha-20260818163953
+      '@atproto/common-web':
+        specifier: 0.0.0-spaces-alpha-20260818163953
+        version: 0.0.0-spaces-alpha-20260818163953
       '@atproto/crypto':
         specifier: ^0.4.5
         version: 0.4.5

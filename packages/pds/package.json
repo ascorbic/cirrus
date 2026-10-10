@@ -31,6 +31,8 @@
 		"@atcute/identity-resolver": "^1.2.2",
 		"@atcute/lexicons": "^1.2.6",
 		"@atcute/tid": "^1.1.1",
+		"@atproto/common": "0.0.0-spaces-alpha-20260818163953",
+		"@atproto/common-web": "0.0.0-spaces-alpha-20260818163953",
 		"@atproto/crypto": "^0.4.5",
 		"@atproto/lex-cbor": "^0.0.3",
 		"@atproto/lex-data": "^0.0.3",
