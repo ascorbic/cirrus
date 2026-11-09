@@ -22,7 +22,11 @@ import type { Commit, MacType } from "@atproto/space";
 import { JoseKey } from "@atproto/jwk-jose";
 import { encode } from "@atproto/lex-cbor";
 import { fromBase64 } from "@atproto/lex-data";
-import { create as createCid, CODEC_RAW, toString as cidToString } from "@atcute/cid";
+import {
+	create as createCid,
+	CODEC_RAW,
+	toString as cidToString,
+} from "@atcute/cid";
 import { createSpaceRoutes } from "../src/routes";
 import type { SpaceRoutesHost, SpaceScopeMatch } from "../src/routes";
 import {
@@ -103,7 +107,10 @@ function makeHost(overrides: Partial<SpaceRoutesHost> = {}): {
 								),
 				};
 			}
-			return c.json({ error: "AuthenticationRequired", message: "No session" }, 401);
+			return c.json(
+				{ error: "AuthenticationRequired", message: "No session" },
+				401,
+			);
 		},
 		validateRecord: ({ record }) => ({ record, status: "unknown" }),
 		getSpaceDO: (uri) => env.SPACES.get(env.SPACES.idFromName(uri)) as never,
@@ -156,7 +163,10 @@ function post(
 	});
 }
 
-function get(path: string, headers: Record<string, string> = SESSION): Promise<Response> {
+function get(
+	path: string,
+	headers: Record<string, string> = SESSION,
+): Promise<Response> {
 	return app.request(path, { headers });
 }
 
@@ -183,7 +193,12 @@ async function createRecord(
 	return (await res.json()) as { uri: string; cid: string };
 }
 
-async function putMember(space: string, did: string, read = true, write = true) {
+async function putMember(
+	space: string,
+	did: string,
+	read = true,
+	write = true,
+) {
 	const res = await post("/xrpc/com.atproto.memberspace.putMember", {
 		space,
 		did,
@@ -200,7 +215,12 @@ async function obtainCredential(
 		user?: { did: string; keypair: Secp256k1Keypair };
 		clientAttestation?: string;
 	} = {},
-): Promise<{ credential: string; key: P256Keypair; status: number; body: unknown }> {
+): Promise<{
+	credential: string;
+	key: P256Keypair;
+	status: number;
+	body: unknown;
+}> {
 	const key = await P256Keypair.create();
 	const delegationToken = opts.user
 		? await createSpaceToken(
@@ -276,7 +296,12 @@ function commitFromJson(json: Record<string, unknown>): Commit {
 	};
 }
 
-async function serviceJwt(iss: string, aud: string, lxm: string, keypair: Secp256k1Keypair) {
+async function serviceJwt(
+	iss: string,
+	aud: string,
+	lxm: string,
+	keypair: Secp256k1Keypair,
+) {
 	const { createServiceJwt } = await import("../src/service-jwt");
 	return createServiceJwt({ iss, aud, lxm }, keypair);
 }
@@ -289,10 +314,20 @@ async function notifyWrite(
 	data: Uint8Array,
 	aud = OPERATOR,
 ): Promise<Response> {
-	const token = await serviceJwt(writer, aud, "com.atproto.space.notifyWrite", keypair);
+	const token = await serviceJwt(
+		writer,
+		aud,
+		"com.atproto.space.notifyWrite",
+		keypair,
+	);
 	return post(
 		"/xrpc/com.atproto.space.notifyWrite",
-		{ space, repo: writer, repoRev, data: { $bytes: btoa(String.fromCharCode(...data)) } },
+		{
+			space,
+			repo: writer,
+			repoRev,
+			data: { $bytes: btoa(String.fromCharCode(...data)) },
+		},
 		{ Authorization: `Bearer ${token}` },
 	);
 }
@@ -300,7 +335,7 @@ async function notifyWrite(
 const TID_CHARS = "234567abcdefghijklmnopqrstuvwxyz";
 /** A TID for a given time, so tests control rev order and skew. */
 function tidAt(ms: number, clock = 0): string {
-	let value = (BigInt(Math.floor(ms)) * 1000n << 10n) | BigInt(clock);
+	let value = ((BigInt(Math.floor(ms)) * 1000n) << 10n) | BigInt(clock);
 	let out = "";
 	for (let i = 0; i < 13; i++) {
 		out = TID_CHARS[Number(value & 31n)] + out;
@@ -336,7 +371,11 @@ describe("space routes: personal data (S1)", () => {
 
 	it("refuses an unauthenticated getRecord", async () => {
 		const space = await createSpace();
-		await createRecord(space, { $type: "app.bsky.feed.post", text: "x" }, "aaa");
+		await createRecord(
+			space,
+			{ $type: "app.bsky.feed.post", text: "x" },
+			"aaa",
+		);
 		const res = await get(
 			`/xrpc/com.atproto.space.getRecord?space=${q(space)}&repo=${OPERATOR}&collection=app.bsky.feed.post&rkey=aaa`,
 			{},
@@ -448,7 +487,10 @@ describe("space routes: personal data (S1)", () => {
 			space,
 			repo: OPERATOR,
 			collection: "app.bsky.feed.post",
-			record: { $type: "app.bsky.feed.post", text: "x".repeat(1024 * 1024 + 1) },
+			record: {
+				$type: "app.bsky.feed.post",
+				text: "x".repeat(1024 * 1024 + 1),
+			},
 		});
 		expect(big.status).toBe(400);
 		expect(await errorOf(big)).toBe("InvalidRequest");
@@ -474,7 +516,12 @@ describe("space routes: personal data (S1)", () => {
 			publishPolicy: true,
 		});
 		await createRecord(space, { $type: "app.bsky.feed.post", text: "a" }, "a");
-		await createRecord(space, { $type: "app.bsky.feed.like", subject: "x" }, "b", "app.bsky.feed.like");
+		await createRecord(
+			space,
+			{ $type: "app.bsky.feed.like", subject: "x" },
+			"b",
+			"app.bsky.feed.like",
+		);
 
 		// A scoped session needs delete on every collection being cleared.
 		const narrow = `Bearer scoped:${JSON.stringify({ actions: ["read_self"] })}`;
@@ -496,12 +543,17 @@ describe("space routes: personal data (S1)", () => {
 		const { records } = (await list.json()) as {
 			records: Array<{ collection: string }>;
 		};
-		expect(records.map((r) => r.collection)).toEqual(["com.atproto.space.policy"]);
+		expect(records.map((r) => r.collection)).toEqual([
+			"com.atproto.space.policy",
+		]);
 
 		const ops = await get(
 			`/xrpc/com.atproto.space.listRepoOps?space=${q(space)}&repo=${OPERATOR}`,
 		);
-		const opsBody = (await ops.json()) as { ops: unknown[]; commit: Record<string, unknown> };
+		const opsBody = (await ops.json()) as {
+			ops: unknown[];
+			commit: Record<string, unknown>;
+		};
 		expect(opsBody.ops).toEqual([]);
 		// The digest is that of the records that remain.
 		const commit = commitFromJson(opsBody.commit);
@@ -513,10 +565,10 @@ describe("space routes: personal data (S1)", () => {
 		expected.add(`com.atproto.space.policy/self/${cid}`);
 		expect(commit.data).toEqual(expected.digest());
 
-		const other = await post(
-			"/xrpc/com.atproto.space.clearRecords",
-			{ space, repo: BOB },
-		);
+		const other = await post("/xrpc/com.atproto.space.clearRecords", {
+			space,
+			repo: BOB,
+		});
 		expect(other.status).toBe(403);
 	});
 });
@@ -524,7 +576,11 @@ describe("space routes: personal data (S1)", () => {
 describe("space routes: credentials (S5)", () => {
 	it("issues credentials to members, binds them to the request key and refuses others as SpaceNotFound", async () => {
 		const space = await createSpace();
-		await createRecord(space, { $type: "app.bsky.feed.post", text: "hi" }, "r1");
+		await createRecord(
+			space,
+			{ $type: "app.bsky.feed.post", text: "hi" },
+			"r1",
+		);
 
 		const denied = await obtainCredential(space, {
 			user: { did: BOB, keypair: bobKeypair },
@@ -546,20 +602,40 @@ describe("space routes: credentials (S5)", () => {
 		expect(payload.aud).toBeUndefined();
 
 		const path = `/xrpc/com.atproto.space.getRecord?space=${q(space)}&repo=${OPERATOR}&collection=app.bsky.feed.post&rkey=r1`;
-		const { res, sharedSecret } = await credentialRequest(path, credential, key, {
-			mac: RECORD_MAC_TYPE,
-		});
+		const { res, sharedSecret } = await credentialRequest(
+			path,
+			credential,
+			key,
+			{
+				mac: RECORD_MAC_TYPE,
+			},
+		);
 		expect(res.status).toBe(200);
-		const record = (await res.json()) as { uri: string; cid: string; value: Record<string, unknown> };
-		const mac = parseMacHeader(res.headers.get("atproto-space-mac") ?? undefined, RECORD_MAC_TYPE);
+		const record = (await res.json()) as {
+			uri: string;
+			cid: string;
+			value: Record<string, unknown>;
+		};
+		const mac = parseMacHeader(
+			res.headers.get("atproto-space-mac") ?? undefined,
+			RECORD_MAC_TYPE,
+		);
 		expect(
-			await verifyRecord(record as never, { uri: record.uri, sharedSecret: sharedSecret!, mac }),
+			await verifyRecord(record as never, {
+				uri: record.uri,
+				sharedSecret: sharedSecret!,
+				mac,
+			}),
 		).toBe(true);
-		expect(res.headers.get("access-control-expose-headers")).toContain("atproto-space-mac");
+		expect(res.headers.get("access-control-expose-headers")).toContain(
+			"atproto-space-mac",
+		);
 
 		// A member without read access is refused like a stranger.
 		await putMember(space, BOB, false, true);
-		const noRead = await obtainCredential(space, { user: { did: BOB, keypair: bobKeypair } });
+		const noRead = await obtainCredential(space, {
+			user: { did: BOB, keypair: bobKeypair },
+		});
 		expect(noRead.status).toBe(404);
 	});
 
@@ -610,7 +686,11 @@ describe("space routes: credentials (S5)", () => {
 		expect((anon.body as { error: string }).error).toBe("SpaceNotFound");
 
 		const open = await createSpace({ ...MEMBERSPACE, publicRead: true });
-		await createRecord(open, { $type: "app.bsky.feed.post", text: "public" }, "p");
+		await createRecord(
+			open,
+			{ $type: "app.bsky.feed.post", text: "public" },
+			"p",
+		);
 		const { credential, key, status } = await obtainCredential(open);
 		expect(status).toBe(200);
 		const { res } = await credentialRequest(
@@ -629,14 +709,22 @@ describe("space routes: credentials (S5)", () => {
 		const { credential, key } = await obtainCredential(space);
 		const path = `/xrpc/com.atproto.space.listRecords?space=${q(space)}&repo=${OPERATOR}`;
 
-		const ok = await credentialRequest(path, credential, key, { scheme: "atproto-space-credential" });
+		const ok = await credentialRequest(path, credential, key, {
+			scheme: "atproto-space-credential",
+		});
 		expect(ok.res.status).toBe(200);
 
-		const wrongKey = await credentialRequest(path, credential, await P256Keypair.create());
+		const wrongKey = await credentialRequest(
+			path,
+			credential,
+			await P256Keypair.create(),
+		);
 		expect(wrongKey.res.status).toBe(401);
 		expect(await errorOf(wrongKey.res)).toBe("BadSpaceSignature");
 
-		const wrongAudience = await credentialRequest(path, credential, key, { audience: BOB });
+		const wrongAudience = await credentialRequest(path, credential, key, {
+			audience: BOB,
+		});
 		expect(wrongAudience.res.status).toBe(401);
 		expect(await errorOf(wrongAudience.res)).toBe("BadSpaceAudience");
 
@@ -659,18 +747,30 @@ describe("space routes: credentials (S5)", () => {
 
 		// Revocation, by the authority, addressed to the repo DID.
 		const jti = (
-			JSON.parse(atob(credential.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as {
+			JSON.parse(
+				atob(credential.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")),
+			) as {
 				jti: string;
 			}
 		).jti;
-		const forged = await serviceJwt(BOB, OPERATOR, "com.atproto.space.notifyCredentialRevoked", bobKeypair);
+		const forged = await serviceJwt(
+			BOB,
+			OPERATOR,
+			"com.atproto.space.notifyCredentialRevoked",
+			bobKeypair,
+		);
 		const forgedRes = await post(
 			"/xrpc/com.atproto.space.notifyCredentialRevoked",
 			{ space, credentials: [jti] },
 			{ Authorization: `Bearer ${forged}` },
 		);
 		expect(forgedRes.status).toBe(403);
-		const token = await serviceJwt(OPERATOR, OPERATOR, "com.atproto.space.notifyCredentialRevoked", operatorKeypair);
+		const token = await serviceJwt(
+			OPERATOR,
+			OPERATOR,
+			"com.atproto.space.notifyCredentialRevoked",
+			operatorKeypair,
+		);
 		const revoke = await post(
 			"/xrpc/com.atproto.space.notifyCredentialRevoked",
 			{ space, credentials: [jti] },
@@ -685,7 +785,11 @@ describe("space routes: credentials (S5)", () => {
 	it("gates on allowedApps with client attestations, after the user", async () => {
 		const clientId = "https://app.example/client-metadata.json";
 		const jwk = await JoseKey.generate(["ES256"], "attest-key");
-		const space = await createSpace({ ...MEMBERSPACE, publicRead: true, allowedApps: [clientId] });
+		const space = await createSpace({
+			...MEMBERSPACE,
+			publicRead: true,
+			allowedApps: [clientId],
+		});
 
 		const { host: attestHost, setOutboundResponse: respond } = makeHost();
 		const attestApp = createSpaceRoutes(attestHost);
@@ -721,10 +825,14 @@ describe("space routes: credentials (S5)", () => {
 
 		expect((await request(await attest())).status).toBe(200);
 
-		const otherApp = await request(await attest(undefined, "https://other.example/client-metadata.json"));
+		const otherApp = await request(
+			await attest(undefined, "https://other.example/client-metadata.json"),
+		);
 		expect(await errorOf(otherApp)).toBe("AppNotAuthorized");
 
-		const wrongAud = await request(await attest(`${OPERATOR}#atproto_space_host`));
+		const wrongAud = await request(
+			await attest(`${OPERATOR}#atproto_space_host`),
+		);
 		expect(await errorOf(wrongAud)).toBe("InvalidClientAttestation");
 	});
 
@@ -739,20 +847,30 @@ describe("space routes: credentials (S5)", () => {
 			return Response.json({ authorized: user === BOB });
 		});
 		try {
-			const bob = await obtainCredential(space, { user: { did: BOB, keypair: bobKeypair } });
+			const bob = await obtainCredential(space, {
+				user: { did: BOB, keypair: bobKeypair },
+			});
 			expect(bob.status).toBe(200);
-			const check = outbound.filter((call) => call.url.includes("checkUserAccess")).pop()!;
+			const check = outbound
+				.filter((call) => call.url.includes("checkUserAccess"))
+				.pop()!;
 			const params = new URL(check.url).searchParams;
 			expect(params.get("access")).toBe("read");
 			expect(params.get("space")).toBe(space);
 
-			const carol = await obtainCredential(space, { user: { did: CAROL, keypair: carolKeypair } });
+			const carol = await obtainCredential(space, {
+				user: { did: CAROL, keypair: carolKeypair },
+			});
 			expect(carol.status).toBe(404);
 
 			setOutboundResponse((url) =>
-				url.includes("checkUserAccess") ? new Response("boom", { status: 500 }) : null,
+				url.includes("checkUserAccess")
+					? new Response("boom", { status: 500 })
+					: null,
 			);
-			const failing = await obtainCredential(space, { user: { did: BOB, keypair: bobKeypair } });
+			const failing = await obtainCredential(space, {
+				user: { did: BOB, keypair: bobKeypair },
+			});
 			expect(failing.status).toBe(404);
 		} finally {
 			setOutboundResponse(() => null);
@@ -760,8 +878,12 @@ describe("space routes: credentials (S5)", () => {
 	});
 
 	it("personalspace authorises only the authority", async () => {
-		const space = await createSpace({ $type: "com.atproto.personalspace.policy" });
-		const bob = await obtainCredential(space, { user: { did: BOB, keypair: bobKeypair } });
+		const space = await createSpace({
+			$type: "com.atproto.personalspace.policy",
+		});
+		const bob = await obtainCredential(space, {
+			user: { did: BOB, keypair: bobKeypair },
+		});
 		expect(bob.status).toBe(404);
 		const self = await obtainCredential(space, {
 			user: { did: OPERATOR, keypair: operatorKeypair },
@@ -788,15 +910,32 @@ describe("space routes: sync (S2-S4)", () => {
 		);
 		expect(res.status).toBe(200);
 		expect(res.headers.get("vary")).toContain("atproto-space-want-mac");
-		const commit = commitFromJson(((await res.json()) as { commit: Record<string, unknown> }).commit);
+		const commit = commitFromJson(
+			((await res.json()) as { commit: Record<string, unknown> }).commit,
+		);
 		expect(commit.repo).toBe(OPERATOR);
 		expect(commit.space).toBe(space);
-		const mac = parseMacHeader(res.headers.get("atproto-space-mac") ?? undefined, COMMIT_MAC_TYPE);
-		expect(verifyCommit(commit, { space, repo: OPERATOR, sharedSecret: sharedSecret!, mac })).toBe(true);
+		const mac = parseMacHeader(
+			res.headers.get("atproto-space-mac") ?? undefined,
+			COMMIT_MAC_TYPE,
+		);
+		expect(
+			verifyCommit(commit, {
+				space,
+				repo: OPERATOR,
+				sharedSecret: sharedSecret!,
+				mac,
+			}),
+		).toBe(true);
 		// The MAC is per request: another shared secret does not verify it.
 		const other = await encapsulate(kemDid);
 		expect(
-			verifyCommit(commit, { space, repo: OPERATOR, sharedSecret: other.sharedSecret, mac }),
+			verifyCommit(commit, {
+				space,
+				repo: OPERATOR,
+				sharedSecret: other.sharedSecret,
+				mac,
+			}),
 		).toBe(false);
 	});
 
@@ -818,7 +957,12 @@ describe("space routes: sync (S2-S4)", () => {
 			{ mac: COMMIT_MAC_TYPE },
 		);
 		const body = (await res.json()) as {
-			ops: Array<{ collection: string; rkey: string; cid: string | null; prev: string | null }>;
+			ops: Array<{
+				collection: string;
+				rkey: string;
+				cid: string | null;
+				prev: string | null;
+			}>;
 			commit: Record<string, unknown>;
 		};
 		const hash = new LtHash();
@@ -828,8 +972,18 @@ describe("space routes: sync (S2-S4)", () => {
 		}
 		const commit = commitFromJson(body.commit);
 		expect(hash.digest()).toEqual(commit.data);
-		const mac = parseMacHeader(res.headers.get("atproto-space-mac") ?? undefined, COMMIT_MAC_TYPE);
-		expect(verifyCommit(commit, { space, repo: OPERATOR, sharedSecret: sharedSecret!, mac })).toBe(true);
+		const mac = parseMacHeader(
+			res.headers.get("atproto-space-mac") ?? undefined,
+			COMMIT_MAC_TYPE,
+		);
+		expect(
+			verifyCommit(commit, {
+				space,
+				repo: OPERATOR,
+				sharedSecret: sharedSecret!,
+				mac,
+			}),
+		).toBe(true);
 	});
 
 	it("streams a STAR archive the @atproto/space consumer verifies (S8)", async () => {
@@ -837,8 +991,18 @@ describe("space routes: sync (S2-S4)", () => {
 		// One collection NSID prefixes another: (collection, rkey) order and
 		// byte order of the record path disagree, and the archive needs the
 		// latter.
-		await createRecord(space, { $type: "app.bsky.feed.post", text: "1" }, "z", "app.bsky.feed");
-		await createRecord(space, { $type: "app.bsky.feed.post", text: "2" }, "a", "app.bsky.feed.post");
+		await createRecord(
+			space,
+			{ $type: "app.bsky.feed.post", text: "1" },
+			"z",
+			"app.bsky.feed",
+		);
+		await createRecord(
+			space,
+			{ $type: "app.bsky.feed.post", text: "2" },
+			"a",
+			"app.bsky.feed.post",
+		);
 		for (let i = 0; i < 3; i++) {
 			await createRecord(space, { $type: "app.bsky.feed.post", text: `n${i}` });
 		}
@@ -851,7 +1015,10 @@ describe("space routes: sync (S2-S4)", () => {
 		);
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toBe("application/octet-stream");
-		const mac = parseMacHeader(res.headers.get("atproto-space-mac") ?? undefined, COMMIT_MAC_TYPE);
+		const mac = parseMacHeader(
+			res.headers.get("atproto-space-mac") ?? undefined,
+			COMMIT_MAC_TYPE,
+		);
 		const bytes = new Uint8Array(await res.arrayBuffer());
 		const verified = await verifyRepoStarFull([bytes], {
 			space,
@@ -867,24 +1034,43 @@ describe("space routes: sync (S2-S4)", () => {
 		const space = await createSpace();
 		await putMember(space, BOB);
 		await putMember(space, CAROL);
-		const registrar = await obtainCredential(space, { user: { did: BOB, keypair: bobKeypair } });
+		const registrar = await obtainCredential(space, {
+			user: { did: BOB, keypair: bobKeypair },
+		});
 		const reg = await credentialRequest(
 			"/xrpc/com.atproto.space.registerNotify",
 			registrar.credential,
 			registrar.key,
-			{ method: "POST", body: { space, service: "did:web:syncer.test#atproto_space_syncer" } },
+			{
+				method: "POST",
+				body: { space, service: "did:web:syncer.test#atproto_space_syncer" },
+			},
 		);
 		expect(reg.res.status).toBe(200);
 
 		const before = outbound.length;
 		const t = Date.now();
-		expect((await notifyWrite(space, BOB, bobKeypair, tidAt(t - 3000), repoData(1))).status).toBe(200);
 		expect(
-			(await notifyWrite(space, CAROL, carolKeypair, tidAt(t - 2000), repoData(2), spaceHostAud(OPERATOR)))
+			(await notifyWrite(space, BOB, bobKeypair, tidAt(t - 3000), repoData(1)))
 				.status,
 		).toBe(200);
+		expect(
+			(
+				await notifyWrite(
+					space,
+					CAROL,
+					carolKeypair,
+					tidAt(t - 2000),
+					repoData(2),
+					spaceHostAud(OPERATOR),
+				)
+			).status,
+		).toBe(200);
 		// Stale: does not advance and is not fanned out again.
-		expect((await notifyWrite(space, BOB, bobKeypair, tidAt(t - 4000), repoData(9))).status).toBe(200);
+		expect(
+			(await notifyWrite(space, BOB, bobKeypair, tidAt(t - 4000), repoData(9)))
+				.status,
+		).toBe(200);
 
 		const list = await credentialRequest(
 			`/xrpc/com.atproto.space.listRepos?space=${q(space)}&limit=1`,
@@ -892,7 +1078,12 @@ describe("space routes: sync (S2-S4)", () => {
 			registrar.key,
 		);
 		const page1 = (await list.res.json()) as {
-			repos: Array<{ did: string; repoRev: string; data: { $bytes: string }; spaceRev: string }>;
+			repos: Array<{
+				did: string;
+				repoRev: string;
+				data: { $bytes: string };
+				spaceRev: string;
+			}>;
 			cursor?: string;
 		};
 		expect(page1.repos.map((r) => r.did)).toEqual([BOB]);
@@ -925,25 +1116,63 @@ describe("space routes: sync (S2-S4)", () => {
 	it("refuses unauthorised, mismatched and future notifyWrites", async () => {
 		const space = await createSpace();
 		const now = Date.now();
-		const stranger = await notifyWrite(space, BOB, bobKeypair, tidAt(now), repoData(1));
+		const stranger = await notifyWrite(
+			space,
+			BOB,
+			bobKeypair,
+			tidAt(now),
+			repoData(1),
+		);
 		expect(stranger.status).toBe(403);
 
 		await putMember(space, BOB, true, false);
-		const readOnly = await notifyWrite(space, BOB, bobKeypair, tidAt(now), repoData(1));
+		const readOnly = await notifyWrite(
+			space,
+			BOB,
+			bobKeypair,
+			tidAt(now),
+			repoData(1),
+		);
 		expect(readOnly.status).toBe(403);
 
 		const open = await createSpace({ ...MEMBERSPACE, publicWrite: true });
-		expect((await notifyWrite(open, BOB, bobKeypair, tidAt(now), repoData(1))).status).toBe(200);
-		const future = await notifyWrite(open, BOB, bobKeypair, tidAt(now + 10 * 60_000), repoData(1));
+		expect(
+			(await notifyWrite(open, BOB, bobKeypair, tidAt(now), repoData(1)))
+				.status,
+		).toBe(200);
+		const future = await notifyWrite(
+			open,
+			BOB,
+			bobKeypair,
+			tidAt(now + 10 * 60_000),
+			repoData(1),
+		);
 		expect(future.status).toBe(400);
 		expect(await errorOf(future)).toBe("FutureRev");
-		const wrongAud = await notifyWrite(open, BOB, bobKeypair, tidAt(now + 1), repoData(1), BOB);
+		const wrongAud = await notifyWrite(
+			open,
+			BOB,
+			bobKeypair,
+			tidAt(now + 1),
+			repoData(1),
+			BOB,
+		);
 		expect(wrongAud.status).toBe(403);
 
-		const token = await serviceJwt(CAROL, OPERATOR, "com.atproto.space.notifyWrite", carolKeypair);
+		const token = await serviceJwt(
+			CAROL,
+			OPERATOR,
+			"com.atproto.space.notifyWrite",
+			carolKeypair,
+		);
 		const impersonation = await post(
 			"/xrpc/com.atproto.space.notifyWrite",
-			{ space: open, repo: BOB, repoRev: tidAt(now + 2), data: { $bytes: "AA==" } },
+			{
+				space: open,
+				repo: BOB,
+				repoRev: tidAt(now + 2),
+				data: { $bytes: "AA==" },
+			},
 			{ Authorization: `Bearer ${token}` },
 		);
 		expect(impersonation.status).toBe(403);
@@ -966,17 +1195,28 @@ describe("space routes: sync (S2-S4)", () => {
 		const t = Date.now();
 		await notifyWrite(space, BOB, bobKeypair, tidAt(t - 2000), repoData(1));
 		await notifyWrite(space, CAROL, carolKeypair, tidAt(t - 1000), repoData(2));
-		const { credential, key } = await obtainCredential(space, { user: { did: BOB, keypair: bobKeypair } });
+		const { credential, key } = await obtainCredential(space, {
+			user: { did: BOB, keypair: bobKeypair },
+		});
 		const writers = async () => {
 			const { res } = await credentialRequest(
 				`/xrpc/com.atproto.space.listRepos?space=${q(space)}`,
 				credential,
 				key,
 			);
-			return ((await res.json()) as { repos: Array<{ did: string }> }).repos.map((r) => r.did);
+			return (
+				(await res.json()) as { repos: Array<{ did: string }> }
+			).repos.map((r) => r.did);
 		};
 		expect((await writers()).sort()).toEqual([BOB, CAROL].sort());
-		expect((await post("/xrpc/com.atproto.space.removeWriter", { space, did: CAROL })).status).toBe(200);
+		expect(
+			(
+				await post("/xrpc/com.atproto.space.removeWriter", {
+					space,
+					did: CAROL,
+				})
+			).status,
+		).toBe(200);
 		expect(await writers()).toEqual([BOB]);
 		await putMember(space, BOB, true, false);
 		expect(await writers()).toEqual([]);
@@ -995,7 +1235,9 @@ describe("space routes: sync (S2-S4)", () => {
 			post(
 				"/xrpc/com.atproto.space.notifySpaceDeleted",
 				{ space: foreign },
-				{ Authorization: `Bearer ${await serviceJwt(iss, aud, "com.atproto.space.notifySpaceDeleted", keypair)}` },
+				{
+					Authorization: `Bearer ${await serviceJwt(iss, aud, "com.atproto.space.notifySpaceDeleted", keypair)}`,
+				},
 			);
 		expect((await send("did:web:someone-else.test")).status).toBe(403);
 		expect((await send(OPERATOR, CAROL, carolKeypair)).status).toBe(403);
@@ -1019,13 +1261,24 @@ describe("space routes: sync (S2-S4)", () => {
 		});
 		await vi.waitFor(() => expect(outbound.length).toBeGreaterThan(before));
 		const call = outbound[outbound.length - 1]!;
-		expect(call.url).toBe("https://bob.test/xrpc/com.atproto.space.notifyWrite");
+		expect(call.url).toBe(
+			"https://bob.test/xrpc/com.atproto.space.notifyWrite",
+		);
 		const body = JSON.parse(String(call.init!.body)) as Record<string, unknown>;
-		expect(Object.keys(body).sort()).toEqual(["data", "repo", "repoRev", "space"]);
+		expect(Object.keys(body).sort()).toEqual([
+			"data",
+			"repo",
+			"repoRev",
+			"space",
+		]);
 		expect(body.repo).toBe(OPERATOR);
 		expect((await stub.rpcStatus()).queuedNotifications).toBe(0);
 
-		setOutboundResponse((url) => (url.includes("notifyWrite") ? new Response("down", { status: 503 }) : null));
+		setOutboundResponse((url) =>
+			url.includes("notifyWrite")
+				? new Response("down", { status: 503 })
+				: null,
+		);
 		try {
 			for (const rkey of ["w2", "w3"]) {
 				const count = outbound.length;
@@ -1094,13 +1347,19 @@ describe("space routes: lifecycle and management", () => {
 		const space = await createSpace({ ...MEMBERSPACE, publicRead: true });
 		await createRecord(space, { $type: "app.bsky.feed.post", text: "x" }, "x");
 		await putMember(space, BOB);
-		expect((await post("/xrpc/com.atproto.space.deleteSpace", { space })).status).toBe(200);
-		expect((await post("/xrpc/com.atproto.space.deleteSpace", { space })).status).toBe(200);
+		expect(
+			(await post("/xrpc/com.atproto.space.deleteSpace", { space })).status,
+		).toBe(200);
+		expect(
+			(await post("/xrpc/com.atproto.space.deleteSpace", { space })).status,
+		).toBe(200);
 		const read = await get(
 			`/xrpc/com.atproto.space.getRecord?space=${q(space)}&repo=${OPERATOR}&collection=app.bsky.feed.post&rkey=x`,
 		);
 		expect(await errorOf(read)).toBe("SpaceNotFound");
-		const withToken = await obtainCredential(space, { user: { did: BOB, keypair: bobKeypair } });
+		const withToken = await obtainCredential(space, {
+			user: { did: BOB, keypair: bobKeypair },
+		});
 		expect((withToken.body as { error: string }).error).toBe("SpaceDeleted");
 		const anon = await obtainCredential(space);
 		expect((anon.body as { error: string }).error).toBe("SpaceDeleted");
@@ -1110,7 +1369,9 @@ describe("space routes: lifecycle and management", () => {
 		const space = await createSpace();
 		await putMember(space, BOB);
 		const getSpace = async () =>
-			(await (await get(`/xrpc/com.atproto.space.getSpace?space=${q(space)}`)).json()) as {
+			(await (
+				await get(`/xrpc/com.atproto.space.getSpace?space=${q(space)}`)
+			).json()) as {
 				uri: string;
 				policy: Record<string, unknown>;
 			};
@@ -1123,14 +1384,18 @@ describe("space routes: lifecycle and management", () => {
 		});
 
 		expect(
-			(await post("/xrpc/com.atproto.space.updateSpace", {
-				space,
-				policy: { ...MEMBERSPACE, publicRead: true, extra: "dropped" },
-			})).status,
+			(
+				await post("/xrpc/com.atproto.space.updateSpace", {
+					space,
+					policy: { ...MEMBERSPACE, publicRead: true, extra: "dropped" },
+				})
+			).status,
 		).toBe(200);
 		expect((await getSpace()).policy.publicRead).toBe(true);
 		expect((await getSpace()).policy.extra).toBeUndefined();
-		const members = await get(`/xrpc/com.atproto.memberspace.listMembers?space=${q(space)}`);
+		const members = await get(
+			`/xrpc/com.atproto.memberspace.listMembers?space=${q(space)}`,
+		);
 		expect(((await members.json()) as { members: unknown[] }).members).toEqual([
 			{ did: BOB, read: true, write: true },
 		]);
@@ -1139,12 +1404,23 @@ describe("space routes: lifecycle and management", () => {
 			space,
 			policy: { $type: "com.atproto.personalspace.policy" },
 		});
-		expect((await getSpace()).policy).toEqual({ $type: "com.atproto.personalspace.policy" });
-		const mismatch = await get(`/xrpc/com.atproto.memberspace.listMembers?space=${q(space)}`);
+		expect((await getSpace()).policy).toEqual({
+			$type: "com.atproto.personalspace.policy",
+		});
+		const mismatch = await get(
+			`/xrpc/com.atproto.memberspace.listMembers?space=${q(space)}`,
+		);
 		expect(await errorOf(mismatch)).toBe("PolicyMismatch");
-		await post("/xrpc/com.atproto.space.updateSpace", { space, policy: MEMBERSPACE });
-		const after = await get(`/xrpc/com.atproto.memberspace.listMembers?space=${q(space)}`);
-		expect(((await after.json()) as { members: unknown[] }).members).toEqual([]);
+		await post("/xrpc/com.atproto.space.updateSpace", {
+			space,
+			policy: MEMBERSPACE,
+		});
+		const after = await get(
+			`/xrpc/com.atproto.memberspace.listMembers?space=${q(space)}`,
+		);
+		expect(((await after.json()) as { members: unknown[] }).members).toEqual(
+			[],
+		);
 	});
 
 	it("getSpace is the owner's, by session only", async () => {
@@ -1174,7 +1450,11 @@ describe("space routes: lifecycle and management", () => {
 			{ Authorization: manager },
 		);
 		expect(member.status).toBe(200);
-		const del = await post("/xrpc/com.atproto.space.deleteSpace", { space }, { Authorization: manager });
+		const del = await post(
+			"/xrpc/com.atproto.space.deleteSpace",
+			{ space },
+			{ Authorization: manager },
+		);
 		expect(del.status).toBe(403);
 	});
 
@@ -1202,20 +1482,31 @@ describe("space routes: lifecycle and management", () => {
 			space: `at://${BOB}/space/app.bsky.group/x`,
 			policy: MEMBERSPACE,
 		});
-		expect(notOwner.status).toBe(404);
+		expect(notOwner.status).toBe(403);
+		expect(await errorOf(notOwner)).toBe("NotSpaceOwner");
 	});
 
 	it("publishes the policy and member list into the authority's repo", async () => {
-		const space = await createSpace({ ...MEMBERSPACE, publishPolicy: true, publishMembers: true });
+		const space = await createSpace({
+			...MEMBERSPACE,
+			publishPolicy: true,
+			publishMembers: true,
+		});
 		await putMember(space, BOB, true, false);
 		await putMember(space, CAROL);
 		const list = async () => {
 			const res = await get(
 				`/xrpc/com.atproto.space.listRecords?space=${q(space)}&repo=${OPERATOR}&reverse=true`,
 			);
-			return ((await res.json()) as {
-				records: Array<{ collection: string; rkey: string; value: Record<string, unknown> }>;
-			}).records;
+			return (
+				(await res.json()) as {
+					records: Array<{
+						collection: string;
+						rkey: string;
+						value: Record<string, unknown>;
+					}>;
+				}
+			).records;
 		};
 		let records = await list();
 		expect(records.map((r) => `${r.collection}/${r.rkey}`)).toEqual([
@@ -1228,28 +1519,49 @@ describe("space routes: lifecycle and management", () => {
 			read: true,
 			write: false,
 		});
-		expect((records[2]!.value.policy as { publishMembers: boolean }).publishMembers).toBe(true);
+		expect(
+			(records[2]!.value.policy as { publishMembers: boolean }).publishMembers,
+		).toBe(true);
 
-		await post("/xrpc/com.atproto.memberspace.removeMember", { space, did: CAROL });
+		await post("/xrpc/com.atproto.memberspace.removeMember", {
+			space,
+			did: CAROL,
+		});
 		await post("/xrpc/com.atproto.space.updateSpace", {
 			space,
 			policy: { ...MEMBERSPACE, publishPolicy: true },
 		});
 		records = await list();
-		expect(records.map((r) => r.collection)).toEqual(["com.atproto.space.policy"]);
+		expect(records.map((r) => r.collection)).toEqual([
+			"com.atproto.space.policy",
+		]);
 	});
 
 	it("round-trips a space through exportSpaceMeta/getRepo and their imports", async () => {
 		const space = await createSpace({ ...MEMBERSPACE, publishPolicy: true });
 		await putMember(space, BOB, true, false);
 		await putMember(space, CAROL);
-		await notifyWrite(space, CAROL, carolKeypair, tidAt(Date.now() - 1000), repoData(7));
-		await createRecord(space, { $type: "app.bsky.feed.post", text: "keep me" }, "k");
+		await notifyWrite(
+			space,
+			CAROL,
+			carolKeypair,
+			tidAt(Date.now() - 1000),
+			repoData(7),
+		);
+		await createRecord(
+			space,
+			{ $type: "app.bsky.feed.post", text: "keep me" },
+			"k",
+		);
 
-		const meta = await get(`/xrpc/com.atproto.space.exportSpaceMeta?space=${q(space)}`);
+		const meta = await get(
+			`/xrpc/com.atproto.space.exportSpaceMeta?space=${q(space)}`,
+		);
 		expect(meta.status).toBe(200);
 		const metaBytes = new Uint8Array(await meta.arrayBuffer());
-		const repo = await get(`/xrpc/com.atproto.space.getRepo?space=${q(space)}&repo=${OPERATOR}`);
+		const repo = await get(
+			`/xrpc/com.atproto.space.getRepo?space=${q(space)}&repo=${OPERATOR}`,
+		);
 		const repoBytes = new Uint8Array(await repo.arrayBuffer());
 
 		await post("/xrpc/com.atproto.space.deleteSpace", { space });
@@ -1262,11 +1574,14 @@ describe("space routes: lifecycle and management", () => {
 		});
 		expect(await errorOf(early)).toBe("SpaceNotFound");
 
-		const importMeta = await app.request("/xrpc/com.atproto.space.importSpaceMeta", {
-			method: "POST",
-			headers: { ...SESSION, "Content-Type": "application/octet-stream" },
-			body: metaBytes,
-		});
+		const importMeta = await app.request(
+			"/xrpc/com.atproto.space.importSpaceMeta",
+			{
+				method: "POST",
+				headers: { ...SESSION, "Content-Type": "application/octet-stream" },
+				body: metaBytes,
+			},
+		);
 		expect(importMeta.status).toBe(200);
 		const importRepo = await app.request("/xrpc/com.atproto.space.importRepo", {
 			method: "POST",
@@ -1275,7 +1590,9 @@ describe("space routes: lifecycle and management", () => {
 		});
 		expect(importRepo.status).toBe(200);
 
-		const members = await get(`/xrpc/com.atproto.memberspace.listMembers?space=${q(space)}`);
+		const members = await get(
+			`/xrpc/com.atproto.memberspace.listMembers?space=${q(space)}`,
+		);
 		expect(((await members.json()) as { members: unknown[] }).members).toEqual([
 			{ did: BOB, read: true, write: false },
 			{ did: CAROL, read: true, write: true },
@@ -1283,14 +1600,20 @@ describe("space routes: lifecycle and management", () => {
 		const record = await get(
 			`/xrpc/com.atproto.space.getRecord?space=${q(space)}&repo=${OPERATOR}&collection=app.bsky.feed.post&rkey=k`,
 		);
-		expect(((await record.json()) as { value: { text: string } }).value.text).toBe("keep me");
-		const { credential, key } = await obtainCredential(space, { user: { did: CAROL, keypair: carolKeypair } });
+		expect(
+			((await record.json()) as { value: { text: string } }).value.text,
+		).toBe("keep me");
+		const { credential, key } = await obtainCredential(space, {
+			user: { did: CAROL, keypair: carolKeypair },
+		});
 		const { res } = await credentialRequest(
 			`/xrpc/com.atproto.space.listRepos?space=${q(space)}`,
 			credential,
 			key,
 		);
-		const writers = ((await res.json()) as { repos: Array<{ did: string }> }).repos.map((r) => r.did);
+		const writers = (
+			(await res.json()) as { repos: Array<{ did: string }> }
+		).repos.map((r) => r.did);
 		expect(writers).toContain(CAROL);
 	});
 
@@ -1300,12 +1623,26 @@ describe("space routes: lifecycle and management", () => {
 		const bytes = encode(record);
 		const { cidForCbor } = await import("@atproto/lex-data");
 		const cid = await cidForCbor(bytes);
-		const data = new LtHash().add(`app.bsky.feed.post/r/${cid.toString()}`).digest();
+		const data = new LtHash()
+			.add(`app.bsky.feed.post/r/${cid.toString()}`)
+			.digest();
 		const archive = async (repo: string) => {
 			const chunks: Uint8Array[] = [];
 			for await (const chunk of serializeRepo(
-				{ ver: 1, repo: repo as never, space: space as never, rev: tidAt(Date.now()), data },
-				[{ collection: "app.bsky.feed.post" as never, rkey: "r" as never, bytes }],
+				{
+					ver: 1,
+					repo: repo as never,
+					space: space as never,
+					rev: tidAt(Date.now()),
+					data,
+				},
+				[
+					{
+						collection: "app.bsky.feed.post" as never,
+						rkey: "r" as never,
+						bytes,
+					},
+				],
 			)) {
 				chunks.push(chunk);
 			}

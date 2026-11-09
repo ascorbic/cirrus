@@ -362,9 +362,6 @@ importers:
       '@atproto/crypto':
         specifier: 0.0.0-spaces-alpha-20261105160032
         version: 0.0.0-spaces-alpha-20261105160032
-      '@atproto/lex-cbor':
-        specifier: 0.0.0-spaces-alpha-20261105160032
-        version: 0.0.0-spaces-alpha-20261105160032
       '@atproto/lex-data':
         specifier: 0.0.0-spaces-alpha-20261105160032
         version: 0.0.0-spaces-alpha-20261105160032
@@ -439,12 +436,6 @@ importers:
         specifier: 0.0.0-spaces-alpha-20261105160032
         version: 0.0.0-spaces-alpha-20261105160032
       '@atproto/space':
-        specifier: 0.0.0-spaces-alpha-20261105160032
-        version: 0.0.0-spaces-alpha-20261105160032
-      '@atproto/star':
-        specifier: 0.0.0-spaces-alpha-20261105160032
-        version: 0.0.0-spaces-alpha-20261105160032
-      '@atproto/syntax':
         specifier: 0.0.0-spaces-alpha-20261105160032
         version: 0.0.0-spaces-alpha-20261105160032
       '@cloudflare/vitest-pool-workers':

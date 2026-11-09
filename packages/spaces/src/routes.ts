@@ -73,7 +73,6 @@ import {
 	promoteStagedBlobToSpace,
 	spaceBlobKey,
 	spaceBlobPrefix,
-	stagedBlobKey,
 } from "./blob-keys.js";
 import { requireSpaceUri, spaceId, spaceRecordUri } from "./space-uri.js";
 import type { SpaceRef } from "./space-uri.js";
@@ -345,14 +344,18 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 		}
 	}
 
+	/**
+	 * A space created here is anchored on its creator's DID, so ownership
+	 * is a comparison against the space URI, made before anything else.
+	 */
 	function assertOwner(ref: SpaceRef, session: SpaceSessionAuth): void {
-		assertSpaceHost(ref);
 		if (session.did !== ref.authority) {
 			throw new SpaceError(
 				"NotSpaceOwner",
 				"Only the space owner may manage the space",
 			);
 		}
+		assertSpaceHost(ref);
 	}
 
 	/** The policy of a live space this host governs. */
@@ -1316,6 +1319,14 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			if (auth instanceof Response) return auth;
 			const cid = c.req.query("cid");
 			requireString(cid, "cid");
+
+			const stub = host.getSpaceDO(ref.uri);
+			await requireRepoExists(stub, ref);
+			// Refuse before touching the blobstore: do not reveal whether an
+			// unreferenced blob exists.
+			if (!(await stub.rpcHasSpaceBlob(cid!))) {
+				throw new SpaceError("BlobNotFound", `Blob not found: ${cid}`);
+			}
 			if (!host.blobs) {
 				return c.json(
 					{
@@ -1324,14 +1335,6 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 					},
 					503,
 				);
-			}
-
-			const stub = host.getSpaceDO(ref.uri);
-			await requireRepoExists(stub, ref);
-			// Refuse before touching the blobstore: do not reveal whether an
-			// unreferenced blob exists.
-			if (!(await stub.rpcHasSpaceBlob(cid!))) {
-				throw new SpaceError("BlobNotFound", `Blob not found: ${cid}`);
 			}
 			const key = spaceBlobKey(host.operatorDid, await spaceId(ref.uri), cid!);
 			let blob = await host.blobs.get(key);
@@ -1992,6 +1995,40 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 		}
 	});
 
+	app.get("/xrpc/com.atproto.space.listSpaces", async (c) => {
+		try {
+			const session = await host.authenticate(c);
+			if (session instanceof Response) return session;
+			const type = c.req.query("spaceType") || undefined;
+			const authority = c.req.query("did") || undefined;
+			// No one space to check against, so the filters are the target:
+			// an unfiltered listing needs a wildcard grant. It lists only the
+			// caller's own spaces, so read_self is the grant that fits.
+			const scopeError = assertScope(c, session, {
+				type: type ?? "*",
+				authority: authority ?? "*",
+				skey: "*",
+				action: "read_self",
+			});
+			if (scopeError) return scopeError;
+			const limit = clampLimit(c.req.query("limit"), 50, 100);
+			const page = await host.getIndexDO().rpcList({
+				type,
+				authority,
+				state: "active",
+				limit,
+				afterUri: c.req.query("cursor") || undefined,
+			});
+			const last = page.spaces[page.spaces.length - 1];
+			return c.json({
+				spaces: page.spaces.map((space) => ({ uri: space.uri })),
+				...(page.hasMore && last ? { cursor: last.uri } : {}),
+			});
+		} catch (err) {
+			return errorResponse(c, err);
+		}
+	});
+
 	// ---------------------------------------------------------------
 	// memberspace (authority role, session auth)
 	// ---------------------------------------------------------------
@@ -2285,5 +2322,3 @@ async function deleteR2Prefix(bucket: R2Bucket, prefix: string): Promise<void> {
 		cursor = listed.truncated ? listed.cursor : undefined;
 	} while (cursor);
 }
-
-export { stagedBlobKey };

@@ -118,9 +118,7 @@ describe("SpaceIndexDurableObject", () => {
 			afterUri: page1.spaces[1]!.uri,
 		});
 		expect(page2.spaces.length).toBeGreaterThan(0);
-		expect(
-			page2.spaces.every((s) => s.uri > page1.spaces[1]!.uri),
-		).toBe(true);
+		expect(page2.spaces.every((s) => s.uri > page1.spaces[1]!.uri)).toBe(true);
 	});
 
 	it("holds pending imported blobs until uploadBlob claims them", async () => {

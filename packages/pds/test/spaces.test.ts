@@ -58,12 +58,17 @@ describe("spaces integration", () => {
 		// The space host is #atproto_pds and space tokens are signed with
 		// #atproto, like any other account.
 		expect(doc.service.map((s) => s.id)).toEqual(["#atproto_pds"]);
-		const kem = doc.verificationMethod.find((m) => m.id.endsWith("#atproto_kem"));
+		const kem = doc.verificationMethod.find((m) =>
+			m.id.endsWith("#atproto_kem"),
+		);
 		expect(kem?.publicKeyMultibase).toBe(env.SPACES_KEM_KEY_PUBLIC);
 
-		const creds = await get("/xrpc/com.atproto.identity.getRecommendedDidCredentials", {
-			Authorization: `Bearer ${env.AUTH_TOKEN}`,
-		});
+		const creds = await get(
+			"/xrpc/com.atproto.identity.getRecommendedDidCredentials",
+			{
+				Authorization: `Bearer ${env.AUTH_TOKEN}`,
+			},
+		);
 		const body = (await creds.json()) as {
 			verificationMethods: Record<string, string>;
 		};
@@ -83,9 +88,7 @@ describe("spaces integration", () => {
 		});
 		expect(create.status).toBe(200);
 		const created = (await create.json()) as { uri: string; cid: string };
-		expect(created.uri).toBe(
-			`${space}/${env.DID}/test.cirrus.note/note1`,
-		);
+		expect(created.uri).toBe(`${space}/${env.DID}/test.cirrus.note/note1`);
 
 		const read = await get(
 			`/xrpc/com.atproto.space.getRecord?space=${encodeURIComponent(space)}&repo=${env.DID}&collection=test.cirrus.note&rkey=note1`,
@@ -219,7 +222,10 @@ describe("spaces integration", () => {
 		const { keyShare, sharedSecret } = await encapsulate(
 			`did:key:${env.SPACES_KEM_KEY_PUBLIC}`,
 		);
-		headers["atproto-space-want-mac"] = formatWantMacHeader(RECORD_MAC_TYPE, keyShare);
+		headers["atproto-space-want-mac"] = formatWantMacHeader(
+			RECORD_MAC_TYPE,
+			keyShare,
+		);
 		const read = await get(
 			`/xrpc/com.atproto.space.getRecord?space=${encodeURIComponent(space)}&repo=${env.DID}&collection=test.cirrus.note&rkey=roundtrip`,
 			headers,
@@ -240,14 +246,19 @@ describe("spaces integration", () => {
 			RECORD_MAC_TYPE,
 		);
 		expect(
-			await verifyRecord(record as never, { uri: record.uri, sharedSecret, mac }),
+			await verifyRecord(record as never, {
+				uri: record.uri,
+				sharedSecret,
+				mac,
+			}),
 		).toBe(true);
 	});
 
 	it("promotes blobs of an imported space repo when they are uploaded", async () => {
 		// Migration order: the space repo arrives first, its blobs after.
 		const bytes = new Uint8Array([0x4d, 0x49, 0x47, 0x52, 0x41, 0x54, 0x45]);
-		const { create, CODEC_RAW, CODEC_DCBOR, toString } = await import("@atcute/cid");
+		const { create, CODEC_RAW, CODEC_DCBOR, toString } =
+			await import("@atcute/cid");
 		const cid = toString(await create(CODEC_RAW, bytes));
 		const record = {
 			$type: "test.cirrus.file",
@@ -273,7 +284,13 @@ describe("spaces integration", () => {
 				rev: "3mabcdefghijk",
 				data,
 			},
-			[{ collection: "test.cirrus.file" as never, rkey: "f" as never, bytes: recordBytes }],
+			[
+				{
+					collection: "test.cirrus.file" as never,
+					rkey: "f" as never,
+					bytes: recordBytes,
+				},
+			],
 		)) {
 			chunks.push(chunk);
 		}
@@ -292,7 +309,9 @@ describe("spaces integration", () => {
 		expect(imported.status).toBe(200);
 
 		const blobPath = `/xrpc/com.atproto.space.getBlob?space=${encodeURIComponent(space)}&repo=${env.DID}&cid=${cid}`;
-		const before = await get(blobPath, { Authorization: `Bearer ${env.AUTH_TOKEN}` });
+		const before = await get(blobPath, {
+			Authorization: `Bearer ${env.AUTH_TOKEN}`,
+		});
 		expect(before.status).toBe(404);
 
 		const upload = await worker.fetch(
@@ -307,11 +326,15 @@ describe("spaces integration", () => {
 			env,
 		);
 		expect(upload.status).toBe(200);
-		const after = await get(blobPath, { Authorization: `Bearer ${env.AUTH_TOKEN}` });
+		const after = await get(blobPath, {
+			Authorization: `Bearer ${env.AUTH_TOKEN}`,
+		});
 		expect(after.status).toBe(200);
 		expect(new Uint8Array(await after.arrayBuffer())).toEqual(bytes);
 		// Still never public.
-		const publicBlob = await get(`/xrpc/com.atproto.sync.getBlob?did=${env.DID}&cid=${cid}`);
+		const publicBlob = await get(
+			`/xrpc/com.atproto.sync.getBlob?did=${env.DID}&cid=${cid}`,
+		);
 		expect(publicBlob.status).toBe(404);
 	});
 
@@ -329,10 +352,9 @@ describe("spaces integration", () => {
 
 	it("refuses app-password sessions on spaces but not the public repo", async () => {
 		// Create an app password and log in with it.
-		const created = await post(
-			"/xrpc/com.atproto.server.createAppPassword",
-			{ name: "spaces-test" },
-		);
+		const created = await post("/xrpc/com.atproto.server.createAppPassword", {
+			name: "spaces-test",
+		});
 		expect(created.status).toBe(200);
 		const { password } = (await created.json()) as { password: string };
 
@@ -419,9 +441,7 @@ describe("spaces integration", () => {
 		const listed = await get("/xrpc/com.atproto.space.listSpaces", {
 			Authorization: `Bearer ${env.AUTH_TOKEN}`,
 		});
-		expect(((await listed.json()) as { spaces: unknown[] }).spaces).toEqual(
-			[],
-		);
+		expect(((await listed.json()) as { spaces: unknown[] }).spaces).toEqual([]);
 		const read = await get(
 			`/xrpc/com.atproto.space.getRecord?space=${encodeURIComponent(space)}&repo=${env.DID}&collection=test.cirrus.note&rkey=x`,
 			{ Authorization: `Bearer ${env.AUTH_TOKEN}` },
@@ -440,9 +460,7 @@ describe("spaces integration", () => {
 		// initialisation and the index activation: a pending entry with a
 		// live, never-activated DO behind it.
 		const uri = `at://${env.DID}/space/app.bsky.group/orphaned1`;
-		const index = env.SPACES_INDEX!.get(
-			env.SPACES_INDEX!.idFromName("spaces"),
-		);
+		const index = env.SPACES_INDEX!.get(env.SPACES_INDEX!.idFromName("spaces"));
 		await index.rpcRegister({
 			uri,
 			authority: env.DID,
@@ -480,9 +498,7 @@ describe("spaces integration", () => {
 		const statusBody = (await status.json()) as {
 			spaces: Array<{ uri: string; state: string }>;
 		};
-		expect(statusBody.spaces.find((s) => s.uri === uri)?.state).toBe(
-			"deleted",
-		);
+		expect(statusBody.spaces.find((s) => s.uri === uri)?.state).toBe("deleted");
 
 		// Reset finds it through the tombstone and destroys the DO storage.
 		const reset = await post("/xrpc/gg.mk.experimental.spacesReset", {});

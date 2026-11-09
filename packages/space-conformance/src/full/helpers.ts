@@ -42,7 +42,7 @@ export {
 export type { Credential, ProbeSpace } from "../checks/probe.js";
 
 /** Adapt a harness identity to the `Keypair` surface token minting uses. */
-export function keypairFor(identity: HarnessIdentity) {
+function keypairFor(identity: HarnessIdentity) {
 	return {
 		jwtAlg: identity.jwtAlg,
 		sign: (bytes: Uint8Array) => identity.sign(bytes),

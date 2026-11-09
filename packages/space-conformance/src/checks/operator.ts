@@ -19,16 +19,12 @@ import { recordChecks } from "./records.js";
 import { spaceChecks } from "./space.js";
 
 export {
-	FOREIGN_DID,
-	POST,
-	PROBE_TYPE,
 	createProbeSpace,
 	credentialCall,
 	credentialGet,
 	deleteProbeSpace,
 	managedspace,
 	memberspace,
-	note,
 	obtainCredentialViaDelegation,
 	obtainPublicCredential,
 	operatorCreateRecord,

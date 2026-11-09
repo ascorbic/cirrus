@@ -151,7 +151,11 @@ describe("SpaceDurableObject", () => {
 		await stub.rpcApplyWrites([w]);
 
 		const state = await stub.rpcGetRepoState();
-		const commit = buildCommit({ spaceUri: uri, repo: AUTHORITY, state: state! });
+		const commit = buildCommit({
+			spaceUri: uri,
+			repo: AUTHORITY,
+			state: state!,
+		});
 		const kemDid = (await P256Keypair.import(TEST_KEM_KEY)).did();
 		const { keyShare, sharedSecret } = await encapsulate(kemDid);
 		const { formatWantMacHeader } = await import("@atproto/space");
@@ -163,7 +167,12 @@ describe("SpaceDurableObject", () => {
 		});
 		const mac = computeCommitMac(hostSecret!, commit as never);
 		expect(
-			verifyCommit(commit as never, { space: uri, repo: AUTHORITY, sharedSecret, mac }),
+			verifyCommit(commit as never, {
+				space: uri,
+				repo: AUTHORITY,
+				sharedSecret,
+				mac,
+			}),
 		).toBe(true);
 	});
 
@@ -176,7 +185,9 @@ describe("SpaceDurableObject", () => {
 		]);
 		const page = await stub.rpcListRecordsByPath({ limit: 1 });
 		// "app.bsky.feed.post/a" < "app.bsky.feed/z" byte-wise ('.' < '/').
-		expect(page.records.map((r) => r.collection)).toEqual(["app.bsky.feed.post"]);
+		expect(page.records.map((r) => r.collection)).toEqual([
+			"app.bsky.feed.post",
+		]);
 		expect(page.hasMore).toBe(true);
 		const next = await stub.rpcListRecordsByPath({
 			afterPath: "app.bsky.feed.post/a",
@@ -355,31 +366,56 @@ describe("SpaceDurableObject", () => {
 		const { uri, stub } = freshSpace();
 		await initSpace(stub, uri);
 		const data = new Uint8Array(32).fill(7);
-		const first = await stub.rpcRecordWriter("did:web:bob.test", "3kzzzzzzzzzzz", data);
+		const first = await stub.rpcRecordWriter(
+			"did:web:bob.test",
+			"3kzzzzzzzzzzz",
+			data,
+		);
 		expect(first?.spaceRev).toMatch(/^[2-7a-z]{13}$/);
 		expect(first?.prevSpaceRev).toBeUndefined();
-		const second = await stub.rpcRecordWriter("did:web:carol.test", "3kzzzzzzzzzzz", data);
+		const second = await stub.rpcRecordWriter(
+			"did:web:carol.test",
+			"3kzzzzzzzzzzz",
+			data,
+		);
 		expect(second?.prevSpaceRev).toBe(first?.spaceRev);
 		expect(second!.spaceRev > first!.spaceRev).toBe(true);
 
 		// A delayed or replayed notification with an older or equal rev never
 		// rolls the writer set backwards, and reports that nothing advanced.
-		expect(await stub.rpcRecordWriter("did:web:bob.test", "3kaaaaaaaaaaa", data)).toBe(null);
-		expect(await stub.rpcRecordWriter("did:web:bob.test", "3kzzzzzzzzzzz", data)).toBe(null);
+		expect(
+			await stub.rpcRecordWriter("did:web:bob.test", "3kaaaaaaaaaaa", data),
+		).toBe(null);
+		expect(
+			await stub.rpcRecordWriter("did:web:bob.test", "3kzzzzzzzzzzz", data),
+		).toBe(null);
 
 		// Bob advances again and moves to the end of the sequence.
-		const third = await stub.rpcRecordWriter("did:web:bob.test", "3lzzzzzzzzzzz", data);
+		const third = await stub.rpcRecordWriter(
+			"did:web:bob.test",
+			"3lzzzzzzzzzzz",
+			data,
+		);
 		expect(third?.prevSpaceRev).toBe(second?.spaceRev);
 		const all = await stub.rpcListWriters({ limit: 10 });
-		expect(all.map((w) => w.did)).toEqual(["did:web:carol.test", "did:web:bob.test"]);
-		expect(all[1]).toMatchObject({ repoRev: "3lzzzzzzzzzzz", spaceRev: third!.spaceRev });
-		const after = await stub.rpcListWriters({ limit: 10, cursor: all[0]!.spaceRev });
+		expect(all.map((w) => w.did)).toEqual([
+			"did:web:carol.test",
+			"did:web:bob.test",
+		]);
+		expect(all[1]).toMatchObject({
+			repoRev: "3lzzzzzzzzzzz",
+			spaceRev: third!.spaceRev,
+		});
+		const after = await stub.rpcListWriters({
+			limit: 10,
+			cursor: all[0]!.spaceRev,
+		});
 		expect(after.map((w) => w.did)).toEqual(["did:web:bob.test"]);
 
 		await stub.rpcRemoveWriter("did:web:bob.test");
-		expect((await stub.rpcListWriters({ limit: 10 })).map((w) => w.did)).toEqual([
-			"did:web:carol.test",
-		]);
+		expect(
+			(await stub.rpcListWriters({ limit: 10 })).map((w) => w.did),
+		).toEqual(["did:web:carol.test"]);
 		// Revoking write access drops a member from the writer set.
 		await stub.rpcPutMember("did:web:carol.test", { read: true, write: false });
 		expect(await stub.rpcListWriters({ limit: 10 })).toEqual([]);
@@ -388,7 +424,10 @@ describe("SpaceDurableObject", () => {
 	it("registers and unregisters notification services", async () => {
 		const { uri, stub } = freshSpace();
 		await initSpace(stub, uri);
-		const reg = await stub.rpcRegisterNotify("did:web:syncer.test", "https://syncer.test");
+		const reg = await stub.rpcRegisterNotify(
+			"did:web:syncer.test",
+			"https://syncer.test",
+		);
 		expect(Date.parse(reg.expiresAt)).toBeGreaterThan(Date.now());
 		expect(await stub.rpcGetActiveRegistrations()).toEqual([
 			{
@@ -407,15 +446,21 @@ describe("SpaceDurableObject", () => {
 		const { uri, stub } = freshSpace();
 		await initSpace(stub, uri);
 		await stub.rpcPutMember("did:web:bob.test", { read: true, write: true });
-		expect(await stub.rpcUpdatePolicy({ ...MEMBERSPACE, publicRead: true })).toBe(null);
-		expect((await stub.rpcGetAuthorityState()).policy).toMatchObject({ publicRead: true });
+		expect(
+			await stub.rpcUpdatePolicy({ ...MEMBERSPACE, publicRead: true }),
+		).toBe(null);
+		expect((await stub.rpcGetAuthorityState()).policy).toMatchObject({
+			publicRead: true,
+		});
 		expect(await stub.rpcGetMember("did:web:bob.test")).not.toBe(null);
 		await stub.rpcUpdatePolicy({
 			$type: "com.atproto.managedspace.policy",
 			managingApp: "did:web:app.test#svc",
 			publishPolicy: false,
 		});
-		expect(await rpcError(stub, (i) => i.rpcGetMember("did:web:bob.test"))).toBe("");
+		expect(
+			await rpcError(stub, (i) => i.rpcGetMember("did:web:bob.test")),
+		).toBe("");
 		expect(await stub.rpcGetMember("did:web:bob.test")).toBe(null);
 		expect(await rpcError(stub, (i) => i.rpcListMembers({ limit: 1 }))).toMatch(
 			/PolicyMismatch/,
@@ -433,10 +478,14 @@ describe("SpaceDurableObject", () => {
 			policy: { ...MEMBERSPACE, publishPolicy: true },
 		});
 		expect(commit?.rev).toMatch(/^[2-7a-z]{13}$/);
-		expect(await stub.rpcGetRecord("com.atproto.space.policy", "self")).not.toBe(null);
+		expect(
+			await stub.rpcGetRecord("com.atproto.space.policy", "self"),
+		).not.toBe(null);
 		const withdrawn = await stub.rpcUpdatePolicy(MEMBERSPACE);
 		expect(withdrawn?.rev && withdrawn.rev > commit!.rev).toBe(true);
-		expect(await stub.rpcGetRecord("com.atproto.space.policy", "self")).toBe(null);
+		expect(await stub.rpcGetRecord("com.atproto.space.policy", "self")).toBe(
+			null,
+		);
 	});
 
 	it("clears records, keeping the given collections", async () => {
@@ -444,11 +493,16 @@ describe("SpaceDurableObject", () => {
 		await initSpace(stub, uri);
 		await stub.rpcApplyWrites([
 			write("create", "a", { n: 1 }),
-			{ ...write("create", "self", { n: 2 }), collection: "com.atproto.space.policy" },
+			{
+				...write("create", "self", { n: 2 }),
+				collection: "com.atproto.space.policy",
+			},
 		]);
 		const cleared = await stub.rpcClearRecords(["com.atproto.space.policy"]);
 		const remaining = await stub.rpcListRecords({ limit: 10 });
-		expect(remaining.records.map((r) => r.collection)).toEqual(["com.atproto.space.policy"]);
+		expect(remaining.records.map((r) => r.collection)).toEqual([
+			"com.atproto.space.policy",
+		]);
 		const expected = new LtHash().add(
 			`com.atproto.space.policy/self/${remaining.records[0]!.cid}`,
 		);
@@ -461,7 +515,9 @@ describe("SpaceDurableObject", () => {
 	it("imports a repo wholesale at a new rev", async () => {
 		const { uri, stub } = freshSpace();
 		await initSpace(stub, uri);
-		const before = await stub.rpcApplyWrites([write("create", "old", { n: 1 })]);
+		const before = await stub.rpcApplyWrites([
+			write("create", "old", { n: 1 }),
+		]);
 		const imported = write("create", "new", { n: 2 }, ["bafkblob"]);
 		const result = await stub.rpcImportRepo([
 			{
@@ -507,14 +563,16 @@ describe("SpaceDurableObject", () => {
 			),
 		).toMatch(/SpaceAlreadyExists/);
 
-		await stub.rpcApplyWrites([write("create", "gone", { $type: "app.bsky.feed.post" })]);
+		await stub.rpcApplyWrites([
+			write("create", "gone", { $type: "app.bsky.feed.post" }),
+		]);
 		const del = await stub.rpcDeleteSpace();
 		expect(del.registrations).toEqual([]);
 
 		// Tombstone: reads fail SpaceNotFound, authority state shows deleted.
-		expect(await rpcError(stub, (i) => i.rpcGetRecord("app.bsky.feed.post", "gone"))).toMatch(
-			/SpaceNotFound/,
-		);
+		expect(
+			await rpcError(stub, (i) => i.rpcGetRecord("app.bsky.feed.post", "gone")),
+		).toMatch(/SpaceNotFound/);
 		const state = await stub.rpcGetAuthorityState();
 		expect(state.meta?.deletedAt).not.toBe(null);
 		expect(state.policy).toBe(null);
@@ -643,7 +701,9 @@ describe("SpaceDurableObject", () => {
 			expect((await instance.rpcStatus()).queuedNotifications).toBe(0);
 
 			// A passed deadline drops the item undelivered.
-			await instance.rpcEnqueueNotify([{ ...item("4"), deadline: Date.now() - 1 }]);
+			await instance.rpcEnqueueNotify([
+				{ ...item("4"), deadline: Date.now() - 1 },
+			]);
 			await instance.alarm();
 			expect((await instance.rpcStatus()).queuedNotifications).toBe(0);
 		});

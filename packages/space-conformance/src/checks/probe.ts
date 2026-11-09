@@ -377,5 +377,5 @@ export function credentialGet(
 export const describe = (res: XrpcResult): string =>
 	`${res.status}${res.error ? ` ${res.error}` : ""}`;
 
-export const isAuthRefusal = (res: XrpcResult): boolean =>
+const isAuthRefusal = (res: XrpcResult): boolean =>
 	res.status === 401 || res.status === 403;

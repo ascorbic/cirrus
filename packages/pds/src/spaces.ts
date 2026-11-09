@@ -4,8 +4,8 @@
  * The engine lives in @getcirrus/spaces; this module supplies the
  * account-specific pieces: the concrete Durable Object classes, the host
  * adapter (operator identity, DID resolution, session auth, record
- * validation), and the user's-PDS role endpoints (getDelegationToken,
- * listSpaces). Everything mounts behind the SPACES_ENABLED flag.
+ * validation), and the user's-PDS role endpoint getDelegationToken.
+ * Everything mounts behind the SPACES_ENABLED flag.
  */
 
 import { Hono } from "hono";
@@ -153,8 +153,7 @@ export function createSpacesUnavailableApp(): Hono {
 
 /**
  * Build the host adapter and the complete spaces Hono app: the engine's
- * space and memberspace routes plus the PDS-level getDelegationToken and
- * listSpaces.
+ * space and memberspace routes plus the PDS-level getDelegationToken.
  */
 export function createSpacesApp(deps: SpacesAppDeps): Hono {
 	const { env, didResolver, getKeypair } = deps;
@@ -194,6 +193,12 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 		service: string,
 	): Promise<string | null> {
 		const [did, fragment] = service.split("#") as [string, string?];
+		// A Worker cannot fetch its own hostname, so the operator's own
+		// service (a syncer registering this PDS, a space it writes into
+		// as its own authority) is answered from the env.
+		if (did === env.DID && (!fragment || fragment === "atproto_pds")) {
+			return `https://${env.PDS_HOSTNAME}`;
+		}
 		const doc = await didResolver.resolve(did);
 		if (!doc) return null;
 		const services = (doc.service ?? []) as Array<{
@@ -373,7 +378,7 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 	const app = createSpaceRoutes(host);
 
 	// ------------------------------------------------------------------
-	// User's-PDS role: delegation minting and the space index
+	// User's-PDS role: delegation minting
 	// ------------------------------------------------------------------
 
 	app.get("/xrpc/com.atproto.space.getDelegationToken", async (c) => {
@@ -405,53 +410,6 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 				await getKeypair(),
 			);
 			return c.json({ token });
-		} catch (err) {
-			return spacesErrorResponse(c, err);
-		}
-	});
-
-	app.get("/xrpc/com.atproto.space.listSpaces", async (c) => {
-		try {
-			const session = await authenticate(c);
-			if (session instanceof Response) return session;
-			const type = c.req.query("spaceType");
-			const authority = c.req.query("did");
-			if (!session.fullTrust) {
-				// An unfiltered listing needs a wildcard grant.
-				const allowed = session.allowsSpace({
-					type: type ?? "*",
-					authority: authority ?? "*",
-					skey: "*",
-					action: "read_self",
-				});
-				if (!allowed) {
-					return c.json(
-						{
-							error: "InsufficientScope",
-							message: "Token does not cover listing these spaces",
-						},
-						403,
-					);
-				}
-			}
-			const limitRaw = c.req.query("limit");
-			const limit = Math.min(
-				Math.max(limitRaw ? Number.parseInt(limitRaw, 10) || 50 : 50, 1),
-				100,
-			);
-			const index = getSpaceIndexDO(env);
-			const page = await index.rpcList({
-				type,
-				authority,
-				state: "active",
-				limit,
-				afterUri: c.req.query("cursor"),
-			});
-			const last = page.spaces[page.spaces.length - 1];
-			return c.json({
-				spaces: page.spaces.map((space) => ({ uri: space.uri })),
-				...(page.hasMore && last ? { cursor: last.uri } : {}),
-			});
 		} catch (err) {
 			return spacesErrorResponse(c, err);
 		}

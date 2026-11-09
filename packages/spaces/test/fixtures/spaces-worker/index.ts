@@ -7,7 +7,10 @@
  */
 
 import { Secp256k1Keypair } from "@atproto/crypto";
-import { SpaceDurableObject, SpaceIndexDurableObject } from "../../../src/index";
+import {
+	SpaceDurableObject,
+	SpaceIndexDurableObject,
+} from "../../../src/index";
 import type { SpaceHostConfig } from "../../../src/index";
 
 /** Deterministic test signing key (hex-encoded secp256k1 private key). */

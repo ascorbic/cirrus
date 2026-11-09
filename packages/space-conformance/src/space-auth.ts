@@ -106,7 +106,7 @@ export function formatDidKey(alg: DidKeyAlg, keyBytes: Uint8Array): string {
 }
 
 /** Parse a did:key, returning its algorithm and compressed key bytes. */
-export function parseDidKey(didKey: string): {
+function parseDidKey(didKey: string): {
 	alg: DidKeyAlg;
 	compressed: Uint8Array;
 } {
@@ -207,7 +207,7 @@ export async function spaceSigHeaders(
 export const COMMIT_MAC_TYPE = "atproto-space-repo";
 export const RECORD_MAC_TYPE = "atproto-space-record";
 export type MacType = typeof COMMIT_MAC_TYPE | typeof RECORD_MAC_TYPE;
-export const WANT_MAC_HEADER = "atproto-space-want-mac";
+const WANT_MAC_HEADER = "atproto-space-want-mac";
 export const MAC_HEADER = "atproto-space-mac";
 
 /** `type="…", ver=1, key_share="did:key:…"` — both MAC types are on v1. */
