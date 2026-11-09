@@ -39,8 +39,22 @@ import {
 	xrpcPost,
 	xrpcPostBytes,
 } from "../http.js";
-import { fail, pass, type Check, type CheckContext, type CheckOutcome } from "../model.js";
-import { bytesEqual, decodeJwt, isTid, lexBytes, tidAt, tidNow, toBase64 } from "../encoding.js";
+import {
+	fail,
+	pass,
+	type Check,
+	type CheckContext,
+	type CheckOutcome,
+} from "../model.js";
+import {
+	bytesEqual,
+	decodeJwt,
+	isTid,
+	lexBytes,
+	tidAt,
+	tidNow,
+	toBase64,
+} from "../encoding.js";
 import { resolveDidDocument, verificationMethodDidKey } from "../did.js";
 import { createCredentialKey } from "../space-auth.js";
 import {
@@ -74,8 +88,10 @@ import {
 	serviceJwt,
 } from "./helpers.js";
 
-const crypto$ = (id: string, run: (ctx: CheckContext) => Promise<CheckOutcome>): Check =>
-	defineCheck({ ...descriptor(id), run });
+const crypto$ = (
+	id: string,
+	run: (ctx: CheckContext) => Promise<CheckOutcome>,
+): Check => defineCheck({ ...descriptor(id), run });
 
 /** A public-read space with two records and a credential for it. */
 async function withPublicSpace<T>(
@@ -96,23 +112,46 @@ async function withPublicSpace<T>(
 
 const macCommit = crypto$("mac.commit-verifies", (ctx) =>
 	withPublicSpace(ctx, async (space, credential) => {
-		const res = await credentialGet(ctx, credential, "com.atproto.space.getLatestCommit", {
-			space,
-			repo: ctx.target.did,
-		});
-		if (res.status !== 200) return fail(`getLatestCommit ${describe(res)}`, res.json);
+		const res = await credentialGet(
+			ctx,
+			credential,
+			"com.atproto.space.getLatestCommit",
+			{
+				space,
+				repo: ctx.target.did,
+			},
+		);
+		if (res.status !== 200)
+			return fail(`getLatestCommit ${describe(res)}`, res.json);
 		const raw = (res.json as { commit?: Record<string, unknown> }).commit ?? {};
 		const keys = Object.keys(raw).sort().join(",");
 		if (keys !== "data,repo,rev,space,ver") {
-			return fail(`commit carries {${keys}}, expected exactly {data,repo,rev,space,ver}`, raw);
+			return fail(
+				`commit carries {${keys}}, expected exactly {data,repo,rev,space,ver}`,
+				raw,
+			);
 		}
 		const commit = commitFromJson(raw);
-		if (!commit || commit.ver !== 1 || !isTid(commit.rev) || commit.data.length !== 32) {
-			return fail("commit fields malformed (ver 1, TID rev, 32-byte data)", raw);
+		if (
+			!commit ||
+			commit.ver !== 1 ||
+			!isTid(commit.rev) ||
+			commit.data.length !== 32
+		) {
+			return fail(
+				"commit fields malformed (ver 1, TID rev, 32-byte data)",
+				raw,
+			);
 		}
 		const mac = responseMac(res);
-		if (!mac) return fail("no parseable Atproto-Space-Mac header on a MAC'd read");
-		return verifyCommit(commit, { space, repo: ctx.target.did, sharedSecret: res.sharedSecret!, mac })
+		if (!mac)
+			return fail("no parseable Atproto-Space-Mac header on a MAC'd read");
+		return verifyCommit(commit, {
+			space,
+			repo: ctx.target.did,
+			sharedSecret: res.sharedSecret!,
+			mac,
+		})
 			? pass("commit shape as specified; its MAC verifies")
 			: fail("the commit MAC does not verify", raw);
 	}),
@@ -120,16 +159,26 @@ const macCommit = crypto$("mac.commit-verifies", (ctx) =>
 
 const macRecord = crypto$("mac.record-verifies", (ctx) =>
 	withPublicSpace(ctx, async (space, credential) => {
-		const res = await credentialGet(ctx, credential, "com.atproto.space.getRecord", {
-			space,
-			repo: ctx.target.did,
-			collection: POST,
-			rkey: "a",
-		});
+		const res = await credentialGet(
+			ctx,
+			credential,
+			"com.atproto.space.getRecord",
+			{
+				space,
+				repo: ctx.target.did,
+				collection: POST,
+				rkey: "a",
+			},
+		);
 		if (res.status !== 200) return fail(`getRecord ${describe(res)}`, res.json);
-		const record = res.json as { uri: string; cid: string; value: Record<string, unknown> };
+		const record = res.json as {
+			uri: string;
+			cid: string;
+			value: Record<string, unknown>;
+		};
 		const mac = responseMac(res);
-		if (!mac) return fail("no parseable Atproto-Space-Mac header on a MAC'd read");
+		if (!mac)
+			return fail("no parseable Atproto-Space-Mac header on a MAC'd read");
 		const ok = await verifyRecord(record as never, {
 			uri: record.uri,
 			sharedSecret: res.sharedSecret!,
@@ -151,20 +200,40 @@ const oplogFolds = crypto$("sync.oplog-folds-to-commit", (ctx) =>
 			rkey: "a",
 			record: { $type: POST, text: "one, again" },
 		});
-		const res = await credentialGet(ctx, credential, "com.atproto.space.listRepoOps", {
-			space,
-			repo: ctx.target.did,
-		});
-		if (res.status !== 200) return fail(`listRepoOps ${describe(res)}`, res.json);
+		const res = await credentialGet(
+			ctx,
+			credential,
+			"com.atproto.space.listRepoOps",
+			{
+				space,
+				repo: ctx.target.did,
+			},
+		);
+		if (res.status !== 200)
+			return fail(`listRepoOps ${describe(res)}`, res.json);
 		const body = res.json as {
-			ops: Array<{ collection: string; rkey: string; cid: string | null; prev: string | null }>;
+			ops: Array<{
+				collection: string;
+				rkey: string;
+				cid: string | null;
+				prev: string | null;
+			}>;
 			commit?: unknown;
 		};
 		const commit = commitFromJson(body.commit);
-		if (!commit) return fail("listRepoOps reached the head but returned no commit", body);
+		if (!commit)
+			return fail("listRepoOps reached the head but returned no commit", body);
 		const mac = responseMac(res);
-		if (!mac) return fail("a page with the commit carried no Atproto-Space-Mac header");
-		if (!verifyCommit(commit, { space, repo: ctx.target.did, sharedSecret: res.sharedSecret!, mac })) {
+		if (!mac)
+			return fail("a page with the commit carried no Atproto-Space-Mac header");
+		if (
+			!verifyCommit(commit, {
+				space,
+				repo: ctx.target.did,
+				sharedSecret: res.sharedSecret!,
+				mac,
+			})
+		) {
 			return fail("the head commit's MAC does not verify");
 		}
 		const folded = new RepoCommit().applyOps(
@@ -183,15 +252,22 @@ const oplogFolds = crypto$("sync.oplog-folds-to-commit", (ctx) =>
 
 const getRepoStar = crypto$("sync.getrepo-star", (ctx) =>
 	withPublicSpace(ctx, async (space, credential) => {
-		const res = await credentialGet(ctx, credential, "com.atproto.space.getRepo", {
-			space,
-			repo: ctx.target.did,
-		});
+		const res = await credentialGet(
+			ctx,
+			credential,
+			"com.atproto.space.getRepo",
+			{
+				space,
+				repo: ctx.target.did,
+			},
+		);
 		if (res.status !== 200) return fail(`getRepo ${describe(res)}`, res.json);
 		const type = res.headers.get("Content-Type") ?? "";
-		if (!type.includes("application/octet-stream")) return fail(`getRepo content-type was ${type}`);
+		if (!type.includes("application/octet-stream"))
+			return fail(`getRepo content-type was ${type}`);
 		const mac = responseMac(res);
-		if (!mac) return fail("no parseable Atproto-Space-Mac header on a MAC'd getRepo");
+		if (!mac)
+			return fail("no parseable Atproto-Space-Mac header on a MAC'd getRepo");
 		const bytes = new Uint8Array(await res.response.arrayBuffer());
 		try {
 			const { records } = await verifyRepoStarFull([bytes], {
@@ -205,7 +281,9 @@ const getRepoStar = crypto$("sync.getrepo-star", (ctx) =>
 				? pass("STAR archive verified against its MAC; both records present")
 				: fail(`archive verified but held ${rkeys.join(", ") || "no records"}`);
 		} catch (err) {
-			return fail(`verifyRepoStarFull rejected the archive: ${(err as Error).message}`);
+			return fail(
+				`verifyRepoStarFull rejected the archive: ${(err as Error).message}`,
+			);
 		}
 	}),
 );
@@ -213,40 +291,55 @@ const getRepoStar = crypto$("sync.getrepo-star", (ctx) =>
 // --- token signatures -------------------------------------------------
 
 async function atprotoKey(ctx: CheckContext, did: string): Promise<string> {
-	const key = verificationMethodDidKey(await resolveDidDocument(ctx, did), "atproto");
+	const key = verificationMethodDidKey(
+		await resolveDidDocument(ctx, did),
+		"atproto",
+	);
 	if (!key) throw new Error(`${did} publishes no #atproto key`);
 	return key;
 }
 
-const credentialSigned = crypto$("credential.signed-by-authority", async (ctx) => {
-	const space = await createProbeSpace(ctx, publicRead());
-	try {
-		const credential = await obtainPublicCredential(ctx, space.uri);
+const credentialSigned = crypto$(
+	"credential.signed-by-authority",
+	async (ctx) => {
+		const space = await createProbeSpace(ctx, publicRead());
 		try {
-			await verifySpaceToken("credential", credential.credential, {
-				getSigningKey: (iss) => atprotoKey(ctx, iss),
-				sub: space.uri,
-			});
-			return pass("verifies against the authority's #atproto key");
-		} catch (err) {
-			return fail(`credential did not verify: ${(err as Error).message}`);
+			const credential = await obtainPublicCredential(ctx, space.uri);
+			try {
+				await verifySpaceToken("credential", credential.credential, {
+					getSigningKey: (iss) => atprotoKey(ctx, iss),
+					sub: space.uri,
+				});
+				return pass("verifies against the authority's #atproto key");
+			} catch (err) {
+				return fail(`credential did not verify: ${(err as Error).message}`);
+			}
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
 		}
-	} finally {
-		await deleteProbeSpace(ctx, space.uri);
-	}
-});
+	},
+);
 
 const delegationSigned = crypto$("delegation.signed-by-user", async (ctx) => {
 	const space = await createProbeSpace(ctx, memberspace());
 	try {
-		const res = await xrpcGet(asOperator(ctx), "com.atproto.space.getDelegationToken", { space: space.uri });
-		if (res.status !== 200) return fail(`getDelegationToken ${describe(res)}`, res.json);
+		const res = await xrpcGet(
+			asOperator(ctx),
+			"com.atproto.space.getDelegationToken",
+			{ space: space.uri },
+		);
+		if (res.status !== 200)
+			return fail(`getDelegationToken ${describe(res)}`, res.json);
 		try {
-			await verifySpaceToken("delegation", (res.json as { token: string }).token, {
-				getSigningKey: (iss) => atprotoKey(ctx, iss),
-				aud: spaceHostAud(ctx.target.did),
-				sub: space.uri,
-			});
+			await verifySpaceToken(
+				"delegation",
+				(res.json as { token: string }).token,
+				{
+					getSigningKey: (iss) => atprotoKey(ctx, iss),
+					aud: spaceHostAud(ctx.target.did),
+					sub: space.uri,
+				},
+			);
 			return pass("verifies against the user's #atproto key");
 		} catch (err) {
 			return fail(`delegation token did not verify: ${(err as Error).message}`);
@@ -263,7 +356,9 @@ async function exportMeta(ctx: CheckContext, space: string) {
 		`${ctx.target.origin}/xrpc/com.atproto.space.exportSpaceMeta?space=${encodeURIComponent(space)}`,
 	);
 	if (res.status !== 200) {
-		throw new Error(`exportSpaceMeta ${res.status} ${await res.text().catch(() => "")}`);
+		throw new Error(
+			`exportSpaceMeta ${res.status} ${await res.text().catch(() => "")}`,
+		);
 	}
 	return {
 		type: res.headers.get("Content-Type") ?? "",
@@ -293,12 +388,16 @@ const exportSpaceMeta = crypto$("migration.export-space-meta", async (ctx) => {
 		await mustCreateRecord(ctx, space.uri, "a");
 		const { type, archive } = await exportMeta(ctx, space.uri);
 		const problems: string[] = [];
-		if (!type.includes("application/octet-stream")) problems.push(`content-type ${type}`);
+		if (!type.includes("application/octet-stream"))
+			problems.push(`content-type ${type}`);
 		if (archive.space !== space.uri) problems.push(`space ${archive.space}`);
-		if (archive.policy.$type !== "com.atproto.memberspace.policy") problems.push(`policy ${String(archive.policy.$type)}`);
+		if (archive.policy.$type !== "com.atproto.memberspace.policy")
+			problems.push(`policy ${String(archive.policy.$type)}`);
 		const entry = archive.policyState.find((e) => e.key === memberKey(member));
-		if (!entry || entry.value.read !== true || entry.value.write !== false) problems.push("member entry missing or wrong");
-		if (!archive.writers.some((w) => w.did === ctx.target.did)) problems.push("the authority is not in the writer set");
+		if (!entry || entry.value.read !== true || entry.value.write !== false)
+			problems.push("member entry missing or wrong");
+		if (!archive.writers.some((w) => w.did === ctx.target.did))
+			problems.push("the authority is not in the writer set");
 		return problems.length
 			? fail(problems.join("; "), archive)
 			: pass("archive carries the policy, the member and the writer set");
@@ -328,16 +427,33 @@ const importSpaceMeta = crypto$("migration.import-space-meta", async (ctx) => {
 			policyState: [
 				{
 					key: memberKey(after),
-					value: { $type: "com.atproto.memberspace.member", read: true, write: false },
+					value: {
+						$type: "com.atproto.memberspace.member",
+						read: true,
+						write: false,
+					},
 				},
 			],
 		});
-		if (imported.status !== 200) return fail(`importSpaceMeta ${describe(imported)}`, imported.json);
-		const got = await xrpcGet(asOperator(ctx), "com.atproto.space.getSpace", { space: space.uri });
-		const policy = (got.json as { policy?: { publicRead?: boolean } } | undefined)?.policy;
-		const list = await xrpcGet(asOperator(ctx), "com.atproto.memberspace.listMembers", { space: space.uri });
-		const dids = ((list.json as { members?: Array<{ did: string }> } | undefined)?.members ?? []).map((m) => m.did);
-		if (policy?.publicRead !== true) return fail("getSpace does not reflect the imported policy", got.json);
+		if (imported.status !== 200)
+			return fail(`importSpaceMeta ${describe(imported)}`, imported.json);
+		const got = await xrpcGet(asOperator(ctx), "com.atproto.space.getSpace", {
+			space: space.uri,
+		});
+		const policy = (
+			got.json as { policy?: { publicRead?: boolean } } | undefined
+		)?.policy;
+		const list = await xrpcGet(
+			asOperator(ctx),
+			"com.atproto.memberspace.listMembers",
+			{ space: space.uri },
+		);
+		const dids = (
+			(list.json as { members?: Array<{ did: string }> } | undefined)
+				?.members ?? []
+		).map((m) => m.did);
+		if (policy?.publicRead !== true)
+			return fail("getSpace does not reflect the imported policy", got.json);
 		return dids.includes(after) && !dids.includes(before)
 			? pass("imported policy and member list replaced the old ones")
 			: fail(`members after import: ${dids.join(", ") || "none"}`, list.json);
@@ -348,33 +464,42 @@ const importSpaceMeta = crypto$("migration.import-space-meta", async (ctx) => {
 	}
 });
 
-const importMetaNotOwner = crypto$("migration.import-space-meta-not-owner", async (ctx) => {
-	const res = await importMeta(ctx, {
-		space: unknownSpaceUri(FOREIGN_DID) as never,
-		policy: { $type: "com.atproto.personalspace.policy" },
-		policyState: [],
-		writers: [],
-	});
-	return res.error === "NotSpaceOwner"
-		? pass("answered NotSpaceOwner")
-		: fail(`answered ${describe(res)}, expected NotSpaceOwner`, res.json);
-});
+const importMetaNotOwner = crypto$(
+	"migration.import-space-meta-not-owner",
+	async (ctx) => {
+		const res = await importMeta(ctx, {
+			space: unknownSpaceUri(FOREIGN_DID) as never,
+			policy: { $type: "com.atproto.personalspace.policy" },
+			policyState: [],
+			writers: [],
+		});
+		return res.error === "NotSpaceOwner"
+			? pass("answered NotSpaceOwner")
+			: fail(`answered ${describe(res)}, expected NotSpaceOwner`, res.json);
+	},
+);
 
-const importMetaUnsupported = crypto$("migration.import-space-meta-unsupported-policy", async (ctx) => {
-	const space = unknownSpaceUri(ctx.target.did);
-	const res = await importMeta(ctx, {
-		space: space as never,
-		policy: { $type: "com.example.mysteryPolicy" },
-		policyState: [],
-		writers: [],
-	});
-	if (res.status === 200) await deleteProbeSpace(ctx, space);
-	return res.error === "UnsupportedPolicy"
-		? pass("answered UnsupportedPolicy")
-		: fail(`answered ${describe(res)}, expected UnsupportedPolicy`, res.json);
-});
+const importMetaUnsupported = crypto$(
+	"migration.import-space-meta-unsupported-policy",
+	async (ctx) => {
+		const space = unknownSpaceUri(ctx.target.did);
+		const res = await importMeta(ctx, {
+			space: space as never,
+			policy: { $type: "com.example.mysteryPolicy" },
+			policyState: [],
+			writers: [],
+		});
+		if (res.status === 200) await deleteProbeSpace(ctx, space);
+		return res.error === "UnsupportedPolicy"
+			? pass("answered UnsupportedPolicy")
+			: fail(`answered ${describe(res)}, expected UnsupportedPolicy`, res.json);
+	},
+);
 
-async function ownRepoArchive(ctx: CheckContext, space: string): Promise<Uint8Array> {
+async function ownRepoArchive(
+	ctx: CheckContext,
+	space: string,
+): Promise<Uint8Array> {
 	const res = await operatorFetch(ctx)(
 		`${ctx.target.origin}/xrpc/com.atproto.space.getRepo?space=${encodeURIComponent(space)}&repo=${encodeURIComponent(ctx.target.did)}`,
 	);
@@ -393,23 +518,47 @@ const importRepo = crypto$("migration.import-repo", async (ctx) => {
 		await exported[Symbol.asyncDispose]();
 		// Change the repo after export, so the import visibly replaces it.
 		await mustCreateRecord(ctx, space.uri, "c", "three");
-		const res = await xrpcPostBytes(asOperator(ctx), "com.atproto.space.importRepo", bytes);
-		if (res.status !== 200) return fail(`importRepo ${describe(res)}`, res.json);
-		const list = await xrpcGet(asOperator(ctx), "com.atproto.space.listRecords", {
-			space: space.uri,
-			repo: ctx.target.did,
-		});
-		const rkeys = ((list.json as { records?: Array<{ rkey: string }> } | undefined)?.records ?? [])
+		const res = await xrpcPostBytes(
+			asOperator(ctx),
+			"com.atproto.space.importRepo",
+			bytes,
+		);
+		if (res.status !== 200)
+			return fail(`importRepo ${describe(res)}`, res.json);
+		const list = await xrpcGet(
+			asOperator(ctx),
+			"com.atproto.space.listRecords",
+			{
+				space: space.uri,
+				repo: ctx.target.did,
+			},
+		);
+		const rkeys = (
+			(list.json as { records?: Array<{ rkey: string }> } | undefined)
+				?.records ?? []
+		)
 			.map((r) => r.rkey)
 			.sort();
-		if (rkeys.join(",") !== "a,b") return fail(`records after import: ${rkeys.join(",")}`, list.json);
-		const latest = await xrpcGet(asOperator(ctx), "com.atproto.space.getLatestCommit", {
-			space: space.uri,
-			repo: ctx.target.did,
-		});
-		const now = commitFromJson((latest.json as { commit?: unknown } | undefined)?.commit);
-		if (!now) return fail(`getLatestCommit after import ${describe(latest)}`, latest.json);
-		if (!bytesEqual(now.data, commit.data)) return fail("commit data changed across the import");
+		if (rkeys.join(",") !== "a,b")
+			return fail(`records after import: ${rkeys.join(",")}`, list.json);
+		const latest = await xrpcGet(
+			asOperator(ctx),
+			"com.atproto.space.getLatestCommit",
+			{
+				space: space.uri,
+				repo: ctx.target.did,
+			},
+		);
+		const now = commitFromJson(
+			(latest.json as { commit?: unknown } | undefined)?.commit,
+		);
+		if (!now)
+			return fail(
+				`getLatestCommit after import ${describe(latest)}`,
+				latest.json,
+			);
+		if (!bytesEqual(now.data, commit.data))
+			return fail("commit data changed across the import");
 		return now.rev > commit.rev
 			? pass("records replaced from the archive; same data, new rev")
 			: fail(`rev ${now.rev} did not advance past the archive's ${commit.rev}`);
@@ -420,30 +569,35 @@ const importRepo = crypto$("migration.import-repo", async (ctx) => {
 	}
 });
 
-const importRepoNotFound = crypto$("migration.import-repo-space-not-found", async (ctx) => {
-	// A well-formed archive of an empty repo in an own space this host has
-	// never heard of: the authority's space must be imported first.
-	const space = `at://${ctx.target.did}/space/${PROBE_TYPE}/${probeSkey()}`;
-	const commit = new RepoCommit().toCommit({
-		space: space as never,
-		repo: ctx.target.did as never,
-		rev: tidNow(),
-	});
-	const res = await xrpcPostBytes(
-		asOperator(ctx),
-		"com.atproto.space.importRepo",
-		await collectBytes(serializeRepo(commit, [])),
-	);
-	if (res.status === 200) await deleteProbeSpace(ctx, space);
-	return res.error === "SpaceNotFound"
-		? pass("answered SpaceNotFound")
-		: fail(`answered ${describe(res)}, expected SpaceNotFound`, res.json);
-});
+const importRepoNotFound = crypto$(
+	"migration.import-repo-space-not-found",
+	async (ctx) => {
+		// A well-formed archive of an empty repo in an own space this host has
+		// never heard of: the authority's space must be imported first.
+		const space = `at://${ctx.target.did}/space/${PROBE_TYPE}/${probeSkey()}`;
+		const commit = new RepoCommit().toCommit({
+			space: space as never,
+			repo: ctx.target.did as never,
+			rev: tidNow(),
+		});
+		const res = await xrpcPostBytes(
+			asOperator(ctx),
+			"com.atproto.space.importRepo",
+			await collectBytes(serializeRepo(commit, [])),
+		);
+		if (res.status === 200) await deleteProbeSpace(ctx, space);
+		return res.error === "SpaceNotFound"
+			? pass("answered SpaceNotFound")
+			: fail(`answered ${describe(res)}, expected SpaceNotFound`, res.json);
+	},
+);
 
 // --- foreign identities --------------------------------------------------
 
 const isUserRefusal = (error?: string) =>
-	error === "SpaceNotFound" || error === "UserNotAuthorized" || error === "NotAuthorized";
+	error === "SpaceNotFound" ||
+	error === "UserNotAuthorized" ||
+	error === "NotAuthorized";
 
 const memberGate = crypto$("credential.member-gate", async (ctx) => {
 	const reader = await ctx.identities!.identity("reader");
@@ -460,23 +614,40 @@ const memberGate = crypto$("credential.member-gate", async (ctx) => {
 		const stranger = await obtainCredential(ctx, reader, space.uri);
 		if (stranger.credential) return fail("a non-member obtained a credential");
 		if (!isUserRefusal(stranger.result.error)) {
-			return fail(`non-member refused with ${describe(stranger.result)}; expected SpaceNotFound, UserNotAuthorized or NotAuthorized`);
+			return fail(
+				`non-member refused with ${describe(stranger.result)}; expected SpaceNotFound, UserNotAuthorized or NotAuthorized`,
+			);
 		}
 		await put(false);
 		const writeOnly = await obtainCredential(ctx, reader, space.uri);
-		if (writeOnly.credential) return fail("a member with read: false obtained a credential");
+		if (writeOnly.credential)
+			return fail("a member with read: false obtained a credential");
 		await put(true);
 		const member = await obtainCredential(ctx, reader, space.uri);
-		if (!member.credential) return fail(`a reader was refused: ${describe(member.result)}`, member.result.json);
-		const read = await credentialGet(ctx, member.credential, "com.atproto.space.getRecord", {
-			space: space.uri,
-			repo: ctx.target.did,
-			collection: POST,
-			rkey: "shared",
-		});
+		if (!member.credential)
+			return fail(
+				`a reader was refused: ${describe(member.result)}`,
+				member.result.json,
+			);
+		const read = await credentialGet(
+			ctx,
+			member.credential,
+			"com.atproto.space.getRecord",
+			{
+				space: space.uri,
+				repo: ctx.target.did,
+				collection: POST,
+				rkey: "shared",
+			},
+		);
 		return read.status === 200
-			? pass(`non-member refused (${stranger.result.error}), read:false refused, reader admitted and read`)
-			: fail(`the reader's credential could not read: ${describe(read)}`, read.json);
+			? pass(
+					`non-member refused (${stranger.result.error}), read:false refused, reader admitted and read`,
+				)
+			: fail(
+					`the reader's credential could not read: ${describe(read)}`,
+					read.json,
+				);
 	} finally {
 		await deleteProbeSpace(ctx, space.uri);
 	}
@@ -487,46 +658,66 @@ const personalOnly = crypto$("policy.personalspace-owner-only", async (ctx) => {
 	const space = await createProbeSpace(ctx, personalspace());
 	try {
 		const res = await obtainCredential(ctx, reader, space.uri);
-		if (res.credential) return fail("a personalspace issued a credential to another user");
+		if (res.credential)
+			return fail("a personalspace issued a credential to another user");
 		return isUserRefusal(res.result.error)
 			? pass(`refused with ${res.result.error}`)
-			: fail(`refused with ${describe(res.result)}; expected SpaceNotFound, UserNotAuthorized or NotAuthorized`);
+			: fail(
+					`refused with ${describe(res.result)}; expected SpaceNotFound, UserNotAuthorized or NotAuthorized`,
+				);
 	} finally {
 		await deleteProbeSpace(ctx, space.uri);
 	}
 });
 
-const delegationWrongAud = crypto$("delegation.wrong-audience-refused", async (ctx) => {
-	const reader = await ctx.identities!.identity("reader");
-	const space = await createProbeSpace(ctx, memberspace());
-	try {
-		await xrpcPost(asOperator(ctx), "com.atproto.memberspace.putMember", {
-			space: space.uri,
-			did: reader.did,
-			read: true,
-			write: false,
-		});
-		// Positive control: with the right audience the reader is admitted, so
-		// the refusal below is the audience's and not an unresolvable reader.
-		const control = await obtainCredential(ctx, reader, space.uri);
-		if (!control.credential) {
-			return fail(`correct-aud control failed (${describe(control.result)}); cannot attribute the wrong-aud refusal`);
+const delegationWrongAud = crypto$(
+	"delegation.wrong-audience-refused",
+	async (ctx) => {
+		const reader = await ctx.identities!.identity("reader");
+		const space = await createProbeSpace(ctx, memberspace());
+		try {
+			await xrpcPost(asOperator(ctx), "com.atproto.memberspace.putMember", {
+				space: space.uri,
+				did: reader.did,
+				read: true,
+				write: false,
+			});
+			// Positive control: with the right audience the reader is admitted, so
+			// the refusal below is the audience's and not an unresolvable reader.
+			const control = await obtainCredential(ctx, reader, space.uri);
+			if (!control.credential) {
+				return fail(
+					`correct-aud control failed (${describe(control.result)}); cannot attribute the wrong-aud refusal`,
+				);
+			}
+			const { result, credential } = await obtainCredential(
+				ctx,
+				reader,
+				space.uri,
+				{
+					audOverride: `${FOREIGN_DID}#atproto_pds`,
+				},
+			);
+			if (credential)
+				return fail("a token addressed to another host was accepted");
+			return result.error === "InvalidDelegationToken"
+				? pass("refused with InvalidDelegationToken")
+				: fail(
+						`refused with ${describe(result)}, expected InvalidDelegationToken`,
+					);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
 		}
-		const { result, credential } = await obtainCredential(ctx, reader, space.uri, {
-			audOverride: `${FOREIGN_DID}#atproto_pds`,
-		});
-		if (credential) return fail("a token addressed to another host was accepted");
-		return result.error === "InvalidDelegationToken"
-			? pass("refused with InvalidDelegationToken")
-			: fail(`refused with ${describe(result)}, expected InvalidDelegationToken`);
-	} finally {
-		await deleteProbeSpace(ctx, space.uri);
-	}
-});
+	},
+);
 
 async function notifyWrite(
 	ctx: CheckContext,
-	writer: { did: string; jwtAlg: string; sign(b: Uint8Array): Promise<Uint8Array> },
+	writer: {
+		did: string;
+		jwtAlg: string;
+		sign(b: Uint8Array): Promise<Uint8Array>;
+	},
 	space: string,
 	repoRev: string,
 	data: Uint8Array,
@@ -538,7 +729,12 @@ async function notifyWrite(
 	return xrpcPost(
 		ctx,
 		"com.atproto.space.notifyWrite",
-		{ space, repo: writer.did, repoRev, data: { $bytes: toBase64(data).replace(/=+$/, "") } },
+		{
+			space,
+			repo: writer.did,
+			repoRev,
+			data: { $bytes: toBase64(data).replace(/=+$/, "") },
+		},
 		{ Authorization: `Bearer ${jwt}` },
 	);
 }
@@ -556,15 +752,27 @@ const notifyAccepted = crypto$("host.notifywrite-accepted", async (ctx) => {
 		const repoRev = tidNow();
 		const data = globalThis.crypto.getRandomValues(new Uint8Array(32));
 		const res = await notifyWrite(ctx, writer, space.uri, repoRev, data);
-		if (res.status !== 200) return fail(`notifyWrite ${describe(res)}`, res.json);
+		if (res.status !== 200)
+			return fail(`notifyWrite ${describe(res)}`, res.json);
 		const credential = await obtainPublicCredential(ctx, space.uri);
-		const list = await credentialCall(ctx, credential, "com.atproto.space.listRepos", {
-			params: { space: space.uri },
-			audience: ctx.target.did,
-		});
-		const entry = ((list.json as { repos?: Array<{ did: string; repoRev: string; data: unknown }> } | undefined)
-			?.repos ?? []).find((r) => r.did === writer.did);
-		if (!entry) return fail("the notified writer is not in listRepos", list.json);
+		const list = await credentialCall(
+			ctx,
+			credential,
+			"com.atproto.space.listRepos",
+			{
+				params: { space: space.uri },
+				audience: ctx.target.did,
+			},
+		);
+		const entry = (
+			(
+				list.json as
+					| { repos?: Array<{ did: string; repoRev: string; data: unknown }> }
+					| undefined
+			)?.repos ?? []
+		).find((r) => r.did === writer.did);
+		if (!entry)
+			return fail("the notified writer is not in listRepos", list.json);
 		const listed = lexBytes(entry.data);
 		return entry.repoRev === repoRev && listed && bytesEqual(listed, data)
 			? pass("accepted; listRepos reports the notified repoRev and data")
@@ -579,7 +787,13 @@ const notifyFuture = crypto$("host.notifywrite-future-rev", async (ctx) => {
 	const space = await createProbeSpace(ctx, memberspace({ publicWrite: true }));
 	try {
 		const hourAhead = BigInt(Date.now() + 60 * 60 * 1000) * 1000n;
-		const res = await notifyWrite(ctx, writer, space.uri, tidAt(hourAhead), new Uint8Array(32));
+		const res = await notifyWrite(
+			ctx,
+			writer,
+			space.uri,
+			tidAt(hourAhead),
+			new Uint8Array(32),
+		);
 		return res.error === "FutureRev"
 			? pass("a repoRev an hour ahead answered FutureRev")
 			: fail(`answered ${describe(res)}, expected FutureRev`, res.json);
@@ -590,7 +804,13 @@ const notifyFuture = crypto$("host.notifywrite-future-rev", async (ctx) => {
 
 const notifyUnknown = crypto$("host.notifywrite-unknown-space", async (ctx) => {
 	const writer = await ctx.identities!.identity("writer");
-	const res = await notifyWrite(ctx, writer, unknownSpaceUri(ctx.target.did), tidNow(), new Uint8Array(32));
+	const res = await notifyWrite(
+		ctx,
+		writer,
+		unknownSpaceUri(ctx.target.did),
+		tidNow(),
+		new Uint8Array(32),
+	);
 	return res.error === "SpaceNotFound"
 		? pass("answered SpaceNotFound")
 		: fail(`answered ${describe(res)}, expected SpaceNotFound`, res.json);
@@ -604,11 +824,23 @@ const notifyUnknown = crypto$("host.notifywrite-unknown-space", async (ctx) => {
 async function revocationFlow(
 	ctx: CheckContext,
 	revoker: "authority" | "stranger",
-): Promise<{ before: number; after?: { status: number; error?: string }; revoke?: { status: number; error?: string }; detail?: string }> {
+): Promise<{
+	before: number;
+	after?: { status: number; error?: string };
+	revoke?: { status: number; error?: string };
+	detail?: string;
+}> {
 	const authority = await ctx.identities!.identity("authority");
 	const space = `at://${authority.did}/space/${PROBE_TYPE}/${probeSkey()}`;
-	const write = await operatorCreateRecord(ctx, space, POST, "shared", { $type: POST, text: "for the authority" });
-	if (write.status !== 200) return { before: write.status, detail: `operator write into a foreign space: ${describe(write)}` };
+	const write = await operatorCreateRecord(ctx, space, POST, "shared", {
+		$type: POST,
+		text: "for the authority",
+	});
+	if (write.status !== 200)
+		return {
+			before: write.status,
+			detail: `operator write into a foreign space: ${describe(write)}`,
+		};
 	const key = await createCredentialKey();
 	const credential: Credential = {
 		credential: await mintCredential(authority, space, key.did),
@@ -623,9 +855,19 @@ async function revocationFlow(
 			rkey: "shared",
 		});
 	const before = await read();
-	if (before.status !== 200) return { before: before.status, detail: `foreign authority's credential could not read: ${describe(before)}` };
-	const signer = revoker === "authority" ? authority : await ctx.identities!.identity("stranger");
-	const jwt = await serviceJwt(signer, { aud: ctx.target.did, lxm: "com.atproto.space.notifyCredentialRevoked" });
+	if (before.status !== 200)
+		return {
+			before: before.status,
+			detail: `foreign authority's credential could not read: ${describe(before)}`,
+		};
+	const signer =
+		revoker === "authority"
+			? authority
+			: await ctx.identities!.identity("stranger");
+	const jwt = await serviceJwt(signer, {
+		aud: ctx.target.did,
+		lxm: "com.atproto.space.notifyCredentialRevoked",
+	});
 	const { payload } = decodeJwt(credential.credential);
 	const revoke = await xrpcPost(
 		ctx,
@@ -637,14 +879,22 @@ async function revocationFlow(
 	return { before: 200, revoke, after };
 }
 
-const revocationRefused = crypto$("revocation.revoked-credential-refused", async (ctx) => {
-	const flow = await revocationFlow(ctx, "authority");
-	if (flow.detail) return fail(flow.detail);
-	if (flow.revoke!.status !== 200) return fail(`notifyCredentialRevoked ${flow.revoke!.status} ${flow.revoke!.error ?? ""}`);
-	return flow.after!.status >= 400 && flow.after!.status < 500
-		? pass(`foreign credential read 200; after revocation refused (${flow.after!.status} ${flow.after!.error ?? ""})`)
-		: fail(`a revoked credential still read (${flow.after!.status})`);
-});
+const revocationRefused = crypto$(
+	"revocation.revoked-credential-refused",
+	async (ctx) => {
+		const flow = await revocationFlow(ctx, "authority");
+		if (flow.detail) return fail(flow.detail);
+		if (flow.revoke!.status !== 200)
+			return fail(
+				`notifyCredentialRevoked ${flow.revoke!.status} ${flow.revoke!.error ?? ""}`,
+			);
+		return flow.after!.status >= 400 && flow.after!.status < 500
+			? pass(
+					`foreign credential read 200; after revocation refused (${flow.after!.status} ${flow.after!.error ?? ""})`,
+				)
+			: fail(`a revoked credential still read (${flow.after!.status})`);
+	},
+);
 
 const revocationName = crypto$("revocation.error-name", async (ctx) => {
 	const flow = await revocationFlow(ctx, "authority");
@@ -654,14 +904,24 @@ const revocationName = crypto$("revocation.error-name", async (ctx) => {
 		: fail(`refused with ${flow.after!.status} ${flow.after!.error ?? ""}`);
 });
 
-const revocationStranger = crypto$("revocation.non-authority-refused", async (ctx) => {
-	const flow = await revocationFlow(ctx, "stranger");
-	if (flow.detail) return fail(flow.detail);
-	if (flow.revoke!.status === 200) return fail("accepted a revocation signed by someone other than the authority");
-	return flow.after!.status === 200
-		? pass(`stranger's revocation refused (${flow.revoke!.status} ${flow.revoke!.error ?? ""}); credential still reads`)
-		: fail(`the revocation was refused but the credential stopped working (${flow.after!.status})`);
-});
+const revocationStranger = crypto$(
+	"revocation.non-authority-refused",
+	async (ctx) => {
+		const flow = await revocationFlow(ctx, "stranger");
+		if (flow.detail) return fail(flow.detail);
+		if (flow.revoke!.status === 200)
+			return fail(
+				"accepted a revocation signed by someone other than the authority",
+			);
+		return flow.after!.status === 200
+			? pass(
+					`stranger's revocation refused (${flow.revoke!.status} ${flow.revoke!.error ?? ""}); credential still reads`,
+				)
+			: fail(
+					`the revocation was refused but the credential stopped working (${flow.after!.status})`,
+				);
+	},
+);
 
 const managedSpace = crypto$("managedspace.checkuseraccess", async (ctx) => {
 	const inbox = ctx.syncerInbox!;
@@ -673,19 +933,31 @@ const managedSpace = crypto$("managedspace.checkuseraccess", async (ctx) => {
 	try {
 		const since = Date.now();
 		const denied = await obtainCredential(ctx, reader, space.uri);
-		if (denied.credential) return fail("issued a credential the managing app refused");
-		const asked = await inbox.waitFor((d) => d.lxm === lxm && d.receivedAt >= since, 5_000);
-		if (!asked) return fail(`the managing app was never asked (${describe(denied.result)})`);
+		if (denied.credential)
+			return fail("issued a credential the managing app refused");
+		const asked = await inbox.waitFor(
+			(d) => d.lxm === lxm && d.receivedAt >= since,
+			5_000,
+		);
+		if (!asked)
+			return fail(
+				`the managing app was never asked (${describe(denied.result)})`,
+			);
 		const p = asked.params ?? {};
 		if (p.space !== space.uri || p.user !== reader.did || p.access !== "read") {
 			return fail("checkUserAccess carried the wrong params", p);
 		}
-		if (!asked.authorization?.startsWith("Bearer ")) return fail("checkUserAccess was sent without service auth");
+		if (!asked.authorization?.startsWith("Bearer "))
+			return fail("checkUserAccess was sent without service auth");
 		decision = true;
 		const allowed = await obtainCredential(ctx, reader, space.uri);
 		return allowed.credential
-			? pass(`asked the managing app (space, user, access=read); refused on false (${denied.result.error}), issued on true`)
-			: fail(`the managing app authorised but the credential was refused: ${describe(allowed.result)}`);
+			? pass(
+					`asked the managing app (space, user, access=read); refused on false (${denied.result.error}), issued on true`,
+				)
+			: fail(
+					`the managing app authorised but the credential was refused: ${describe(allowed.result)}`,
+				);
 	} finally {
 		inbox.respond(lxm, undefined);
 		await deleteProbeSpace(ctx, space.uri);

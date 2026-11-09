@@ -359,7 +359,9 @@ describe("coverage", () => {
 		expect(exempt).not.toContain(
 			"com.atproto.space.getRecord@error:RepoTakendown",
 		);
-		expect(exempt).toContain("com.atproto.space.getRecord@error:RecordNotFound");
+		expect(exempt).toContain(
+			"com.atproto.space.getRecord@error:RecordNotFound",
+		);
 		expect(report.gaps.map((g) => g.ref)).not.toContain(
 			"com.atproto.space.getRepo@error:RepoTakendown",
 		);

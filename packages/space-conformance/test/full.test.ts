@@ -67,7 +67,9 @@ describe("full catalog", () => {
 		for (const check of fullCatalog) {
 			for (const c of check.citations) {
 				if (c.source === "changeset") {
-					expect(changesets.has(c.ref), `${check.id} cites ${c.ref}`).toBe(true);
+					expect(changesets.has(c.ref), `${check.id} cites ${c.ref}`).toBe(
+						true,
+					);
 				}
 			}
 		}
@@ -155,7 +157,10 @@ describe("full catalog", () => {
 			expect(check.needs, check.id).toContain("operator");
 			// A check that uses the target's own delegation tokens must say so.
 			const source = check.run.toString();
-			if (source.includes("getDelegationToken") || source.includes("obtainCredentialViaDelegation")) {
+			if (
+				source.includes("getDelegationToken") ||
+				source.includes("obtainCredentialViaDelegation")
+			) {
 				expect(check.needs, check.id).toContain("pds-delegation");
 			}
 			if (source.includes("ctx.identities")) {
@@ -219,10 +224,14 @@ describe("browser-safe space auth matches @atproto/space", () => {
 			authorization: "Atproto-Space-Credential a.b.c",
 			audience: "did:plc:abcdefghijklmnopqrstuvwx",
 		});
-		await expect(verifyCredentialSig(headers, key.did as never)).resolves.toBeUndefined();
+		await expect(
+			verifyCredentialSig(headers, key.did as never),
+		).resolves.toBeUndefined();
 		// And a different key's did is refused — the verification is real.
 		const other = await createCredentialKey();
-		await expect(verifyCredentialSig(headers, other.did as never)).rejects.toThrow();
+		await expect(
+			verifyCredentialSig(headers, other.did as never),
+		).rejects.toThrow();
 	});
 
 	it("encapsulate derives the secret the repo host decapsulates", async () => {
@@ -237,16 +246,30 @@ describe("browser-safe space auth matches @atproto/space", () => {
 			[COMMIT_MAC_TYPE, REF_COMMIT_MAC_TYPE],
 			[RECORD_MAC_TYPE, REF_RECORD_MAC_TYPE],
 		] as const) {
-			expect(formatWantMacHeader(ours, share)).toBe(refFormatWantMacHeader(theirs, share));
-			expect(parseWantMacHeader(formatWantMacHeader(ours, share), theirs)).toBe(share);
+			expect(formatWantMacHeader(ours, share)).toBe(
+				refFormatWantMacHeader(theirs, share),
+			);
+			expect(parseWantMacHeader(formatWantMacHeader(ours, share), theirs)).toBe(
+				share,
+			);
 		}
 	});
 
 	it("parses the reference's Atproto-Space-Mac header", () => {
 		const mac = crypto.getRandomValues(new Uint8Array(32));
-		expect(parseMacHeader(formatMacHeader(REF_COMMIT_MAC_TYPE, mac), COMMIT_MAC_TYPE)).toEqual(mac);
+		expect(
+			parseMacHeader(
+				formatMacHeader(REF_COMMIT_MAC_TYPE, mac),
+				COMMIT_MAC_TYPE,
+			),
+		).toEqual(mac);
 		// Wrong type is refused rather than misread.
-		expect(parseMacHeader(formatMacHeader(REF_RECORD_MAC_TYPE, mac), COMMIT_MAC_TYPE)).toBeUndefined();
+		expect(
+			parseMacHeader(
+				formatMacHeader(REF_RECORD_MAC_TYPE, mac),
+				COMMIT_MAC_TYPE,
+			),
+		).toBeUndefined();
 	});
 
 	it("compresses and decompresses P-256 points like @atproto/crypto", async () => {
@@ -269,16 +292,24 @@ describe("browser-safe space auth matches @atproto/space", () => {
 		const doc = {
 			id: "did:plc:abcdefghijklmnopqrstuvwx",
 			verificationMethod: [
-				{ id: "#atproto", type: "EcdsaSecp256k1VerificationKey2019", publicKeyMultibase: legacy(k256.did(), SECP256K1_JWT_ALG) },
-				{ id: "#atproto_kem", type: "EcdsaSecp256r1VerificationKey2019", publicKeyMultibase: legacy(p256.did(), P256_JWT_ALG) },
+				{
+					id: "#atproto",
+					type: "EcdsaSecp256k1VerificationKey2019",
+					publicKeyMultibase: legacy(k256.did(), SECP256K1_JWT_ALG),
+				},
+				{
+					id: "#atproto_kem",
+					type: "EcdsaSecp256r1VerificationKey2019",
+					publicKeyMultibase: legacy(p256.did(), P256_JWT_ALG),
+				},
 			],
 		};
 		expect(verificationMethodDidKey(doc, "atproto")).toBe(k256.did());
 		expect(verificationMethodDidKey(doc, "atproto_kem")).toBe(p256.did());
 		// Sanity: the legacy encoding round-trips through the reference decoder.
-		expect(multibaseToBytes(doc.verificationMethod[1]!.publicKeyMultibase)).toEqual(
-			cryptoParseDidKey(p256.did()).keyBytes,
-		);
+		expect(
+			multibaseToBytes(doc.verificationMethod[1]!.publicKeyMultibase),
+		).toEqual(cryptoParseDidKey(p256.did()).keyBytes);
 	});
 });
 
@@ -297,9 +328,15 @@ describe("encoding helpers", () => {
 	});
 
 	it("resolves did:web and did:plc document URLs like the reference", () => {
-		expect(didDocumentUrl("did:web:example.com")).toBe("https://example.com/.well-known/did.json");
-		expect(didDocumentUrl("did:web:localhost%3A2583")).toBe("http://localhost:2583/.well-known/did.json");
-		expect(didDocumentUrl("did:plc:abc", "https://plc.test/")).toBe("https://plc.test/did:plc:abc");
+		expect(didDocumentUrl("did:web:example.com")).toBe(
+			"https://example.com/.well-known/did.json",
+		);
+		expect(didDocumentUrl("did:web:localhost%3A2583")).toBe(
+			"http://localhost:2583/.well-known/did.json",
+		);
+		expect(didDocumentUrl("did:plc:abc", "https://plc.test/")).toBe(
+			"https://plc.test/did:plc:abc",
+		);
 		expect(() => didDocumentUrl("did:web:example.com:path")).toThrow();
 	});
 

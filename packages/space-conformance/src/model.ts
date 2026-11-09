@@ -31,7 +31,12 @@ export interface Citation {
 	 * - `reference`: what the reference implementation happens to do. Fine
 	 *   for a `should`; never enough on its own for a `must`.
 	 */
-	source: "lexicon" | "proposal" | "pds-design-spec" | "changeset" | "reference";
+	source:
+		| "lexicon"
+		| "proposal"
+		| "pds-design-spec"
+		| "changeset"
+		| "reference";
 	/**
 	 * Locator within the source: a lexicon id (optionally `#def` or
 	 * `@error:Name`), a proposal section anchor, a design-spec heading or a

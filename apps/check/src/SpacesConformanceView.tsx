@@ -56,11 +56,16 @@ async function resolveDid(origin: string): Promise<string> {
  * for that authority — which also covers multi-tenant did:plc hosts with
  * no did.json at their origin; a hostname resolves through did.json.
  */
-async function resolveTarget(input: string): Promise<{ origin: string; did: string }> {
+async function resolveTarget(
+	input: string,
+): Promise<{ origin: string; did: string }> {
 	const trimmed = input.trim();
 	if (trimmed.startsWith("did:")) {
 		const doc = await resolveDidDocument(
-			{ fetch: window.fetch.bind(window), target: { origin: "", did: trimmed } },
+			{
+				fetch: window.fetch.bind(window),
+				target: { origin: "", did: trimmed },
+			},
 			trimmed,
 		);
 		const pds = serviceEndpoint(doc, "atproto_pds");
@@ -236,10 +241,10 @@ export function SpacesConformanceView(props: { onExit: () => void }) {
 						when={authedRun()}
 						fallback={
 							<>
-								Discovery and request-shape checks against a live spaces host
-								(a hostname, or a DID to check its space host). Sign in from
-								the landing page to run the space, write, blob and credential
-								checks against your own PDS.
+								Discovery and request-shape checks against a live spaces host (a
+								hostname, or a DID to check its space host). Sign in from the
+								landing page to run the space, write, blob and credential checks
+								against your own PDS.
 							</>
 						}
 					>

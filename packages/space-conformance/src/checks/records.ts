@@ -36,19 +36,37 @@ const writesCreateRead = defineCheck({
 	id: "writes.create-and-read",
 	title: "Operator creates a record and reads it back",
 	tier: "must",
-	citations: [L("com.atproto.space.createRecord"), L("com.atproto.space.getRecord")],
+	citations: [
+		L("com.atproto.space.createRecord"),
+		L("com.atproto.space.getRecord"),
+	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
 		const space = await createProbeSpace(ctx);
 		try {
-			const created = await operatorCreateRecord(ctx, space.uri, POST, "rec1", note("hello"));
-			if (created.status !== 200) return fail(`createRecord ${describe(created)}`, created.json);
+			const created = await operatorCreateRecord(
+				ctx,
+				space.uri,
+				POST,
+				"rec1",
+				note("hello"),
+			);
+			if (created.status !== 200)
+				return fail(`createRecord ${describe(created)}`, created.json);
 			const read = await operatorGetRecord(ctx, space.uri, "rec1");
-			if (read.status !== 200) return fail(`getRecord ${describe(read)}`, read.json);
-			const body = read.json as { uri?: string; cid?: string; value?: { text?: string } };
+			if (read.status !== 200)
+				return fail(`getRecord ${describe(read)}`, read.json);
+			const body = read.json as {
+				uri?: string;
+				cid?: string;
+				value?: { text?: string };
+			};
 			if (body.cid !== (created.json as { cid?: string }).cid) {
-				return fail("getRecord cid differs from the createRecord cid", read.json);
+				return fail(
+					"getRecord cid differs from the createRecord cid",
+					read.json,
+				);
 			}
 			return body.value?.text === "hello"
 				? pass("round-tripped the record value and cid")
@@ -80,10 +98,17 @@ const writesUnauthReadRefused = defineCheck({
 				collection: POST,
 				rkey: "private",
 			});
-			if (res.status === 200) return fail("an existing space record was served with no auth", res.json);
+			if (res.status === 200)
+				return fail(
+					"an existing space record was served with no auth",
+					res.json,
+				);
 			return res.status === 401 || res.status === 403
 				? pass(`unauthenticated read of a real record refused (${res.status})`)
-				: fail(`refused, but with ${describe(res)} rather than 401/403`, res.json);
+				: fail(
+						`refused, but with ${describe(res)} rather than 401/403`,
+						res.json,
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -101,7 +126,13 @@ const writesDuplicate = defineCheck({
 		const space = await createProbeSpace(ctx);
 		try {
 			await mustCreateRecord(ctx, space.uri, "dup", "one");
-			const second = await operatorCreateRecord(ctx, space.uri, POST, "dup", note("two"));
+			const second = await operatorCreateRecord(
+				ctx,
+				space.uri,
+				POST,
+				"dup",
+				note("two"),
+			);
 			if (second.status === 200) return fail("duplicate create returned 200");
 			return second.error === "RecordAlreadyExists"
 				? pass("refused with RecordAlreadyExists")
@@ -131,14 +162,20 @@ const writesPutRecord = defineCheck({
 			});
 		try {
 			const first = await put("v1");
-			if (first.status !== 200) return fail(`putRecord (create) ${describe(first)}`, first.json);
+			if (first.status !== 200)
+				return fail(`putRecord (create) ${describe(first)}`, first.json);
 			const second = await put("v2");
-			if (second.status !== 200) return fail(`putRecord (update) ${describe(second)}`, second.json);
+			if (second.status !== 200)
+				return fail(`putRecord (update) ${describe(second)}`, second.json);
 			const read = await operatorGetRecord(ctx, space.uri, "upsert");
-			const text = (read.json as { value?: { text?: string } } | undefined)?.value?.text;
+			const text = (read.json as { value?: { text?: string } } | undefined)
+				?.value?.text;
 			return text === "v2"
 				? pass("created then replaced the record")
-				: fail(`after two puts the record reads ${describe(read)} ${text}`, read.json);
+				: fail(
+						`after two puts the record reads ${describe(read)} ${text}`,
+						read.json,
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -171,7 +208,10 @@ const writesDeleteIdempotent = defineCheck({
 	id: "writes.delete-idempotent",
 	title: "deleteRecord removes the record and is idempotent",
 	tier: "must",
-	citations: [L("com.atproto.space.deleteRecord"), L("com.atproto.space.getRecord")],
+	citations: [
+		L("com.atproto.space.deleteRecord"),
+		L("com.atproto.space.getRecord"),
+	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
@@ -188,16 +228,24 @@ const writesDeleteIdempotent = defineCheck({
 			// nothing happens) would pass on idempotency alone.
 			await mustCreateRecord(ctx, space.uri, "doomed", "bye");
 			const removed = await del("doomed");
-			if (removed.status !== 200) return fail(`delete of an existing record returned ${describe(removed)}`, removed.json);
+			if (removed.status !== 200)
+				return fail(
+					`delete of an existing record returned ${describe(removed)}`,
+					removed.json,
+				);
 			const after = await operatorGetRecord(ctx, space.uri, "doomed");
-			if (after.status === 200) return fail("a deleted record was still readable", after.json);
+			if (after.status === 200)
+				return fail("a deleted record was still readable", after.json);
 			const again = await del("doomed");
 			const ghost = await del("ghost");
 			if (again.status !== 200 || ghost.status !== 200) {
-				return fail(`repeat delete returned ${describe(again)}, absent-key delete returned ${describe(ghost)}`, {
-					again: again.json,
-					ghost: ghost.json,
-				});
+				return fail(
+					`repeat delete returned ${describe(again)}, absent-key delete returned ${describe(ghost)}`,
+					{
+						again: again.json,
+						ghost: ghost.json,
+					},
+				);
 			}
 			return pass("delete removed the record; repeat and absent deletes 200");
 		} finally {
@@ -234,7 +282,11 @@ const writesApplyWritesAtomic = defineCheck({
 				repo: ctx.target.did,
 				writes: [create("ok1", "1"), create("ok2", "2")],
 			});
-			if (ok.status !== 200) return fail(`applyWrites did not accept a valid batch (${describe(ok)})`, ok.json);
+			if (ok.status !== 200)
+				return fail(
+					`applyWrites did not accept a valid batch (${describe(ok)})`,
+					ok.json,
+				);
 			const batch = await xrpcPost(op(ctx), "com.atproto.space.applyWrites", {
 				space: space.uri,
 				repo: ctx.target.did,
@@ -242,7 +294,10 @@ const writesApplyWritesAtomic = defineCheck({
 			});
 			if (batch.status === 200) return fail("colliding batch returned 200");
 			if (batch.error !== "RecordAlreadyExists") {
-				return fail(`colliding batch refused with ${describe(batch)}, expected RecordAlreadyExists`, batch.json);
+				return fail(
+					`colliding batch refused with ${describe(batch)}, expected RecordAlreadyExists`,
+					batch.json,
+				);
 			}
 			const check = await operatorGetRecord(ctx, space.uri, "fresh");
 			return check.status !== 200
@@ -290,9 +345,37 @@ const writesApplyWritesMissing = defineCheck({
 function writeProbes(ctx: CheckContext, space: string) {
 	const repo = ctx.target.did;
 	return [
-		["createRecord", () => xrpcPost(op(ctx), "com.atproto.space.createRecord", { space, repo, collection: POST, rkey: "w", record: note("w") })],
-		["putRecord", () => xrpcPost(op(ctx), "com.atproto.space.putRecord", { space, repo, collection: POST, rkey: "w", record: note("w") })],
-		["applyWrites", () => xrpcPost(op(ctx), "com.atproto.space.applyWrites", { space, repo, writes: [create("w", "w")] })],
+		[
+			"createRecord",
+			() =>
+				xrpcPost(op(ctx), "com.atproto.space.createRecord", {
+					space,
+					repo,
+					collection: POST,
+					rkey: "w",
+					record: note("w"),
+				}),
+		],
+		[
+			"putRecord",
+			() =>
+				xrpcPost(op(ctx), "com.atproto.space.putRecord", {
+					space,
+					repo,
+					collection: POST,
+					rkey: "w",
+					record: note("w"),
+				}),
+		],
+		[
+			"applyWrites",
+			() =>
+				xrpcPost(op(ctx), "com.atproto.space.applyWrites", {
+					space,
+					repo,
+					writes: [create("w", "w")],
+				}),
+		],
 	] as Array<[string, () => Promise<XrpcResult>]>;
 }
 
@@ -303,14 +386,16 @@ async function expectNotFound(
 	const misses: string[] = [];
 	for (const [name, call] of probes) {
 		const res = await call();
-		if (res.error !== "SpaceNotFound") misses.push(`${label} ${name} → ${describe(res)}`);
+		if (res.error !== "SpaceNotFound")
+			misses.push(`${label} ${name} → ${describe(res)}`);
 	}
 	return misses;
 }
 
 const writesSpaceNotFound = defineCheck({
 	id: "writes.space-not-found",
-	title: "The authority's writes to a missing or deleted space answer SpaceNotFound",
+	title:
+		"The authority's writes to a missing or deleted space answer SpaceNotFound",
 	tier: "must",
 	citations: [
 		L("com.atproto.space.createRecord@error:SpaceNotFound"),
@@ -329,18 +414,24 @@ const writesSpaceNotFound = defineCheck({
 		await mustCreateRecord(ctx, deleted.uri, "before");
 		await deleteProbeSpace(ctx, deleted.uri);
 		const misses = [
-			...(await expectNotFound(writeProbes(ctx, unknownSpaceUri(ctx.target.did)), "unknown:")),
+			...(await expectNotFound(
+				writeProbes(ctx, unknownSpaceUri(ctx.target.did)),
+				"unknown:",
+			)),
 			...(await expectNotFound(writeProbes(ctx, deleted.uri), "deleted:")),
 		];
 		return misses.length
 			? fail(`expected SpaceNotFound: ${misses.join("; ")}`)
-			: pass("create, put and applyWrites answered SpaceNotFound for a missing and a deleted space");
+			: pass(
+					"create, put and applyWrites answered SpaceNotFound for a missing and a deleted space",
+				);
 	},
 });
 
 const writesDeleteSpaceNotFound = defineCheck({
 	id: "writes.delete-in-missing-space",
-	title: "The authority's deleteRecord in a missing or deleted space answers SpaceNotFound",
+	title:
+		"The authority's deleteRecord in a missing or deleted space answers SpaceNotFound",
 	tier: "must",
 	citations: [
 		L("com.atproto.space.deleteRecord@error:SpaceNotFound"),
@@ -358,14 +449,18 @@ const writesDeleteSpaceNotFound = defineCheck({
 		await mustCreateRecord(ctx, deleted.uri, "w");
 		await deleteProbeSpace(ctx, deleted.uri);
 		const misses: string[] = [];
-		for (const [label, space] of [["unknown", unknownSpaceUri(ctx.target.did)], ["deleted", deleted.uri]]) {
+		for (const [label, space] of [
+			["unknown", unknownSpaceUri(ctx.target.did)],
+			["deleted", deleted.uri],
+		]) {
 			const res = await xrpcPost(op(ctx), "com.atproto.space.deleteRecord", {
 				space,
 				repo: ctx.target.did,
 				collection: POST,
 				rkey: "w",
 			});
-			if (res.error !== "SpaceNotFound") misses.push(`${label} → ${describe(res)}`);
+			if (res.error !== "SpaceNotFound")
+				misses.push(`${label} → ${describe(res)}`);
 		}
 		return misses.length
 			? fail(`expected SpaceNotFound: ${misses.join("; ")}`)
@@ -408,7 +503,8 @@ const readsAfterDelete = defineCheck({
 		const misses: string[] = [];
 		for (const [name, params] of reads) {
 			const res = await xrpcGet(op(ctx), `com.atproto.space.${name}`, params);
-			if (res.error !== "SpaceNotFound") misses.push(`${name} → ${describe(res)}`);
+			if (res.error !== "SpaceNotFound")
+				misses.push(`${name} → ${describe(res)}`);
 		}
 		return misses.length
 			? fail(`expected SpaceNotFound: ${misses.join("; ")}`)
@@ -433,8 +529,19 @@ const writesPublishedRefused = defineCheck({
 		const space = await createProbeSpace(ctx, memberspace());
 		try {
 			const attempts: Array<[string, string, Record<string, unknown>]> = [
-				["com.atproto.space.policy", "self", { $type: "com.atproto.space.policy", policy: memberspace({ publicRead: true }) }],
-				["com.atproto.memberspace.member", "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa", { $type: "com.atproto.memberspace.member", read: true, write: true }],
+				[
+					"com.atproto.space.policy",
+					"self",
+					{
+						$type: "com.atproto.space.policy",
+						policy: memberspace({ publicRead: true }),
+					},
+				],
+				[
+					"com.atproto.memberspace.member",
+					"did:plc:aaaaaaaaaaaaaaaaaaaaaaaa",
+					{ $type: "com.atproto.memberspace.member", read: true, write: true },
+				],
 			];
 			const accepted: string[] = [];
 			for (const [collection, rkey, record] of attempts) {
@@ -466,11 +573,17 @@ async function latestCommit(ctx: CheckContext, space: string) {
 		space,
 		repo: ctx.target.did,
 	});
-	const commit = (res.json as { commit?: { rev?: string; data?: unknown } } | undefined)?.commit;
+	const commit = (
+		res.json as { commit?: { rev?: string; data?: unknown } } | undefined
+	)?.commit;
 	return { res, rev: commit?.rev, data: lexBytes(commit?.data) };
 }
 
-async function listRecords(ctx: CheckContext, space: string, extra: Record<string, string> = {}) {
+async function listRecords(
+	ctx: CheckContext,
+	space: string,
+	extra: Record<string, string> = {},
+) {
 	const res = await xrpcGet(op(ctx), "com.atproto.space.listRecords", {
 		space,
 		repo: ctx.target.did,
@@ -478,41 +591,66 @@ async function listRecords(ctx: CheckContext, space: string, extra: Record<strin
 	});
 	return {
 		res,
-		records: ((res.json as { records?: Array<Record<string, unknown>> } | undefined)?.records ?? []),
+		records:
+			(res.json as { records?: Array<Record<string, unknown>> } | undefined)
+				?.records ?? [],
 	};
 }
 
 const writesClearRecords = defineCheck({
 	id: "writes.clearrecords",
-	title: "clearRecords empties the repo at a new rev with the empty-repo digest",
+	title:
+		"clearRecords empties the repo at a new rev with the empty-repo digest",
 	tier: "must",
-	citations: [L("com.atproto.space.clearRecords"), L("com.atproto.space.listRecords")],
+	citations: [
+		L("com.atproto.space.clearRecords"),
+		L("com.atproto.space.listRecords"),
+	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
 		const space = await createProbeSpace(ctx);
 		const clear = () =>
-			xrpcPost(op(ctx), "com.atproto.space.clearRecords", { space: space.uri, repo: ctx.target.did });
+			xrpcPost(op(ctx), "com.atproto.space.clearRecords", {
+				space: space.uri,
+				repo: ctx.target.did,
+			});
 		try {
 			await mustCreateRecord(ctx, space.uri, "a");
 			await mustCreateRecord(ctx, space.uri, "b");
 			const before = await latestCommit(ctx, space.uri);
 			const cleared = await clear();
-			if (cleared.status !== 200) return fail(`clearRecords ${describe(cleared)}`, cleared.json);
+			if (cleared.status !== 200)
+				return fail(`clearRecords ${describe(cleared)}`, cleared.json);
 			const { records } = await listRecords(ctx, space.uri);
-			if (records.length) return fail(`${records.length} record(s) survived clearRecords`, records);
+			if (records.length)
+				return fail(
+					`${records.length} record(s) survived clearRecords`,
+					records,
+				);
 			const after = await latestCommit(ctx, space.uri);
 			if (!after.rev || !before.rev || after.rev <= before.rev) {
-				return fail(`rev did not advance (${before.rev} → ${after.rev})`, after.res.json);
+				return fail(
+					`rev did not advance (${before.rev} → ${after.rev})`,
+					after.res.json,
+				);
 			}
 			if (!after.data || !bytesEqual(after.data, await emptyRepoData())) {
-				return fail("commit data after clearRecords is not the empty repo's digest", after.res.json);
+				return fail(
+					"commit data after clearRecords is not the empty repo's digest",
+					after.res.json,
+				);
 			}
 			// "Succeeds whether or not the repo held any records to delete."
 			const again = await clear();
 			return again.status === 200
-				? pass("cleared at a new rev with the empty digest; clearing again is a no-op")
-				: fail(`clearing an empty repo returned ${describe(again)}`, again.json);
+				? pass(
+						"cleared at a new rev with the empty digest; clearing again is a no-op",
+					)
+				: fail(
+						`clearing an empty repo returned ${describe(again)}`,
+						again.json,
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -521,26 +659,44 @@ const writesClearRecords = defineCheck({
 
 const writesClearKeepsPublished = defineCheck({
 	id: "writes.clearrecords-keeps-published",
-	title: "clearRecords in the authority's repo keeps the published policy record",
+	title:
+		"clearRecords in the authority's repo keeps the published policy record",
 	tier: "must",
 	citations: [L("com.atproto.space.clearRecords")],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
-		const space = await createProbeSpace(ctx, memberspace({ publishPolicy: true }));
+		const space = await createProbeSpace(
+			ctx,
+			memberspace({ publishPolicy: true }),
+		);
 		try {
 			await mustCreateRecord(ctx, space.uri, "mine");
-			const cleared = await xrpcPost(op(ctx), "com.atproto.space.clearRecords", {
-				space: space.uri,
-				repo: ctx.target.did,
-			});
-			if (cleared.status !== 200) return fail(`clearRecords ${describe(cleared)}`, cleared.json);
+			const cleared = await xrpcPost(
+				op(ctx),
+				"com.atproto.space.clearRecords",
+				{
+					space: space.uri,
+					repo: ctx.target.did,
+				},
+			);
+			if (cleared.status !== 200)
+				return fail(`clearRecords ${describe(cleared)}`, cleared.json);
 			const own = await operatorGetRecord(ctx, space.uri, "mine");
-			if (own.status === 200) return fail("the operator's own record survived clearRecords");
-			const policy = await operatorGetRecord(ctx, space.uri, "self", "com.atproto.space.policy");
+			if (own.status === 200)
+				return fail("the operator's own record survived clearRecords");
+			const policy = await operatorGetRecord(
+				ctx,
+				space.uri,
+				"self",
+				"com.atproto.space.policy",
+			);
 			return policy.status === 200
 				? pass("own record cleared; the published policy record kept")
-				: fail(`the published policy record was cleared too (${describe(policy)})`, policy.json);
+				: fail(
+						`the published policy record was cleared too (${describe(policy)})`,
+						policy.json,
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -560,17 +716,32 @@ const syncListRecords = defineCheck({
 			const a = await mustCreateRecord(ctx, space.uri, "aaa", "first");
 			await mustCreateRecord(ctx, space.uri, "bbb", "second");
 			const full = await listRecords(ctx, space.uri, { collection: POST });
-			if (full.res.status !== 200) return fail(`listRecords ${describe(full.res)}`, full.res.json);
+			if (full.res.status !== 200)
+				return fail(`listRecords ${describe(full.res)}`, full.res.json);
 			const entry = full.records.find((r) => r.rkey === "aaa");
-			if (full.records.length !== 2 || !entry) return fail(`listed ${full.records.length} record(s)`, full.records);
-			if (entry.collection !== POST || entry.cid !== a.cid || (entry.value as { text?: string })?.text !== "first") {
+			if (full.records.length !== 2 || !entry)
+				return fail(`listed ${full.records.length} record(s)`, full.records);
+			if (
+				entry.collection !== POST ||
+				entry.cid !== a.cid ||
+				(entry.value as { text?: string })?.text !== "first"
+			) {
 				return fail("listed entry does not match the written record", entry);
 			}
-			const bare = await listRecords(ctx, space.uri, { collection: POST, excludeValues: "true" });
-			if (bare.records.length !== 2) return fail(`excludeValues listed ${bare.records.length} record(s)`, bare.records);
+			const bare = await listRecords(ctx, space.uri, {
+				collection: POST,
+				excludeValues: "true",
+			});
+			if (bare.records.length !== 2)
+				return fail(
+					`excludeValues listed ${bare.records.length} record(s)`,
+					bare.records,
+				);
 			return bare.records.some((r) => "value" in r)
 				? fail("excludeValues still inlined values", bare.records)
-				: pass("listed both records with values; excludeValues listed metadata only");
+				: pass(
+						"listed both records with values; excludeValues listed metadata only",
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -590,8 +761,11 @@ const syncListRecordsDescending = defineCheck({
 	async run(ctx) {
 		const space = await createProbeSpace(ctx);
 		try {
-			for (const rkey of ["aaa", "bbb", "ccc"]) await mustCreateRecord(ctx, space.uri, rkey);
-			const { res, records } = await listRecords(ctx, space.uri, { collection: POST });
+			for (const rkey of ["aaa", "bbb", "ccc"])
+				await mustCreateRecord(ctx, space.uri, rkey);
+			const { res, records } = await listRecords(ctx, space.uri, {
+				collection: POST,
+			});
 			if (res.status !== 200) return fail(`listRecords ${describe(res)}`);
 			const rkeys = records.map((r) => r.rkey);
 			return rkeys.join(",") === "ccc,bbb,aaa"
@@ -623,7 +797,10 @@ const blobsSpaceNotPublic = defineCheck({
 	id: "blobs.space-blob-not-public",
 	title: "A blob is not publicly served unless a public record references it",
 	tier: "must",
-	citations: [L("com.atproto.space.getBlob"), { source: "proposal", ref: "0016#blob-sync" }],
+	citations: [
+		L("com.atproto.space.getBlob"),
+		{ source: "proposal", ref: "0016#blob-sync" },
+	],
 	// uploadBlob and sync.getBlob are host-PDS endpoints, not space methods.
 	needs: ["operator", "pds-blobs"],
 	destructive: true,
@@ -633,21 +810,35 @@ const blobsSpaceNotPublic = defineCheck({
 		// then referenced only from a space.
 		const space = await createProbeSpace(ctx);
 		try {
-			const blob = await uploadBlob(ctx, crypto.getRandomValues(new Uint8Array(16)));
+			const blob = await uploadBlob(
+				ctx,
+				crypto.getRandomValues(new Uint8Array(16)),
+			);
 			const publicUrl = `${ctx.target.origin}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(ctx.target.did)}&cid=${blob.ref.$link}`;
 			const stagedGet = await ctx.fetch(publicUrl);
 			if (stagedGet.status === 200) {
-				return fail("an uploaded, unreferenced blob was served by the public sync.getBlob");
+				return fail(
+					"an uploaded, unreferenced blob was served by the public sync.getBlob",
+				);
 			}
-			const write = await operatorCreateRecord(ctx, space.uri, "earth.cirrus.check.withblob", "self", {
-				$type: "earth.cirrus.check.withblob",
-				file: blob,
-			});
-			if (write.status !== 200) return fail(`referencing write ${describe(write)}`, write.json);
+			const write = await operatorCreateRecord(
+				ctx,
+				space.uri,
+				"earth.cirrus.check.withblob",
+				"self",
+				{
+					$type: "earth.cirrus.check.withblob",
+					file: blob,
+				},
+			);
+			if (write.status !== 200)
+				return fail(`referencing write ${describe(write)}`, write.json);
 			const publicGet = await ctx.fetch(publicUrl);
 			return publicGet.status === 200
 				? fail("a space blob was served by the public sync.getBlob")
-				: pass(`public sync.getBlob refused the blob unreferenced (${stagedGet.status}) and space-referenced (${publicGet.status})`);
+				: pass(
+						`public sync.getBlob refused the blob unreferenced (${stagedGet.status}) and space-referenced (${publicGet.status})`,
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -666,17 +857,28 @@ const blobsListAndGet = defineCheck({
 		try {
 			const bytes = crypto.getRandomValues(new Uint8Array(24));
 			const blob = await uploadBlob(ctx, bytes);
-			const write = await operatorCreateRecord(ctx, space.uri, "earth.cirrus.check.withblob", "self", {
-				$type: "earth.cirrus.check.withblob",
-				file: blob,
-			});
-			if (write.status !== 200) return fail(`referencing write ${describe(write)}`, write.json);
+			const write = await operatorCreateRecord(
+				ctx,
+				space.uri,
+				"earth.cirrus.check.withblob",
+				"self",
+				{
+					$type: "earth.cirrus.check.withblob",
+					file: blob,
+				},
+			);
+			if (write.status !== 200)
+				return fail(`referencing write ${describe(write)}`, write.json);
 			const list = await xrpcGet(op(ctx), "com.atproto.space.listBlobs", {
 				space: space.uri,
 				repo: ctx.target.did,
 			});
 			const cids = (list.json as { cids?: string[] } | undefined)?.cids ?? [];
-			if (!cids.includes(blob.ref.$link)) return fail(`listBlobs ${describe(list)} did not list the blob`, list.json);
+			if (!cids.includes(blob.ref.$link))
+				return fail(
+					`listBlobs ${describe(list)} did not list the blob`,
+					list.json,
+				);
 			const res = await operatorFetch(ctx)(
 				`${ctx.target.origin}/xrpc/com.atproto.space.getBlob?space=${encodeURIComponent(space.uri)}&repo=${encodeURIComponent(ctx.target.did)}&cid=${blob.ref.$link}`,
 			);
@@ -693,7 +895,8 @@ const blobsListAndGet = defineCheck({
 
 const blobsNotFound = defineCheck({
 	id: "blobs.getblob-not-found",
-	title: "space.getBlob of a blob the space does not reference answers BlobNotFound",
+	title:
+		"space.getBlob of a blob the space does not reference answers BlobNotFound",
 	tier: "must",
 	citations: [L("com.atproto.space.getBlob@error:BlobNotFound")],
 	needs: ["operator"],

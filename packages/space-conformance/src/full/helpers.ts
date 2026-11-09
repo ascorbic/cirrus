@@ -83,7 +83,9 @@ export async function obtainCredential(
 ): Promise<{ result: XrpcResult; credential?: Credential }> {
 	return requestCredential(ctx, space, {
 		delegationToken: await mintDelegation(identity, space, opts.audOverride),
-		...(opts.clientAttestation ? { clientAttestation: opts.clientAttestation } : {}),
+		...(opts.clientAttestation
+			? { clientAttestation: opts.clientAttestation }
+			: {}),
 	});
 }
 
@@ -99,7 +101,11 @@ export async function mintCredential(
 ): Promise<string> {
 	return createSpaceToken(
 		"credential",
-		{ iss: authority.did, sub: space, keyId: keyDid as `did:${string}:${string}` },
+		{
+			iss: authority.did,
+			sub: space,
+			keyId: keyDid as `did:${string}:${string}`,
+		},
 		keypairFor(authority),
 	);
 }

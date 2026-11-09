@@ -57,7 +57,8 @@ export async function resolveDidDocument(
 	const res = await ctx.fetch(url, {
 		headers: { accept: "application/did+ld+json,application/json" },
 	});
-	if (!res.ok) throw new Error(`resolving ${did}: ${url} returned ${res.status}`);
+	if (!res.ok)
+		throw new Error(`resolving ${did}: ${url} returned ${res.status}`);
 	const doc = (await res.json()) as DidDocument;
 	if (doc.id !== did) {
 		throw new Error(`DID document for ${did} names itself ${doc.id}`);
@@ -91,7 +92,10 @@ export function verificationMethodDidKey(
 		}
 		if (method.type === "EcdsaSecp256k1VerificationKey2019") {
 			// Point compression is curve-agnostic: parity of y, then x.
-			return formatDidKey("ES256K", raw.length === 65 ? compressP256(raw) : raw);
+			return formatDidKey(
+				"ES256K",
+				raw.length === 65 ? compressP256(raw) : raw,
+			);
 		}
 	} catch {
 		return undefined;

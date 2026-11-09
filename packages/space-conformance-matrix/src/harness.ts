@@ -93,7 +93,8 @@ export async function startHarnessServices(): Promise<HarnessServices> {
 	const inboxDid = syncer.did;
 
 	const inbox: SyncerInbox = {
-		service: inboxDid,
+		// Named by fragment, the form registerNotify's lexicon describes.
+		service: `${inboxDid}#atproto_pds`,
 		async waitFor(predicate, timeoutMs) {
 			const deadline = Date.now() + timeoutMs;
 			for (;;) {

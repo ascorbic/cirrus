@@ -107,11 +107,11 @@ export async function createProbeSpace(
 	policy: Policy = memberspace(),
 	skey: string = probeSkey(),
 ): Promise<ProbeSpace> {
-	const res = await xrpcPost(
-		asOperator(ctx),
-		"com.atproto.space.createSpace",
-		{ spaceType: PROBE_TYPE, skey, policy },
-	);
+	const res = await xrpcPost(asOperator(ctx), "com.atproto.space.createSpace", {
+		spaceType: PROBE_TYPE,
+		skey,
+		policy,
+	});
 	if (res.status !== 200) {
 		throw new Error(
 			`createSpace failed: ${res.status} ${res.error ?? ""} ${JSON.stringify(res.json)}`,
@@ -311,8 +311,7 @@ export async function credentialCall(
 	opts: CredentialCallOptions = {},
 ): Promise<CredentialResult> {
 	const repo = opts.params?.repo;
-	const audience =
-		opts.audience ?? repo ?? spaceAuthority(credential.space);
+	const audience = opts.audience ?? repo ?? spaceAuthority(credential.space);
 	const authorization = `${opts.scheme ?? SPACE_CREDENTIAL_SCHEME} ${credential.credential}`;
 	const headers = new Headers(
 		opts.unsigned
@@ -326,7 +325,11 @@ export async function credentialCall(
 	let sharedSecret: Uint8Array | undefined;
 	let macType: MacType | undefined;
 	const want = opts.wantMac ?? MAC_TYPES[nsid];
-	if (typeof want === "string" && want !== COMMIT_MAC_TYPE && want !== RECORD_MAC_TYPE) {
+	if (
+		typeof want === "string" &&
+		want !== COMMIT_MAC_TYPE &&
+		want !== RECORD_MAC_TYPE
+	) {
 		headers.set("atproto-space-want-mac", want);
 	} else if (want) {
 		if (!repo) throw new Error(`${nsid}: a MAC request needs the repo DID`);
@@ -347,10 +350,10 @@ export async function credentialCall(
 			body: JSON.stringify(opts.body),
 		});
 	} else {
-		response = await ctx.fetch(
-			xrpcUrl(ctx.target.origin, nsid, opts.params),
-			{ method: "GET", headers },
-		);
+		response = await ctx.fetch(xrpcUrl(ctx.target.origin, nsid, opts.params), {
+			method: "GET",
+			headers,
+		});
 	}
 	const result = await toResult(response);
 	return {

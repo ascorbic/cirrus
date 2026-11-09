@@ -13,11 +13,25 @@ beforeAll(async () => {
 	didDoc = {
 		id: DID,
 		verificationMethod: [
-			{ id: `${DID}#atproto`, type: "Multikey", controller: DID, publicKeyMultibase: signing.did().slice(8) },
-			{ id: `${DID}#atproto_kem`, type: "Multikey", controller: DID, publicKeyMultibase: kem.did().slice(8) },
+			{
+				id: `${DID}#atproto`,
+				type: "Multikey",
+				controller: DID,
+				publicKeyMultibase: signing.did().slice(8),
+			},
+			{
+				id: `${DID}#atproto_kem`,
+				type: "Multikey",
+				controller: DID,
+				publicKeyMultibase: kem.did().slice(8),
+			},
 		],
 		service: [
-			{ id: "#atproto_pds", type: "AtprotoPersonalDataServer", serviceEndpoint: "https://target.test" },
+			{
+				id: "#atproto_pds",
+				type: "AtprotoPersonalDataServer",
+				serviceEndpoint: "https://target.test",
+			},
 		],
 	};
 });
@@ -195,7 +209,10 @@ describe("runConformance (CLI core)", () => {
 							serviceEndpoint: "https://target.test",
 						},
 					],
-					verificationMethod: (didDoc.verificationMethod as unknown[]).slice(0, 1),
+					verificationMethod: (didDoc.verificationMethod as unknown[]).slice(
+						0,
+						1,
+					),
 				});
 			}
 			return Response.json({ error: "AuthMissing" }, { status: 401 });
@@ -205,7 +222,8 @@ describe("runConformance (CLI core)", () => {
 			fetch: brokenTarget,
 			suiteVersion: "0.0.0-test",
 		});
-		const status = (id: string) => report.results.find((r) => r.id === id)!.status;
+		const status = (id: string) =>
+			report.results.find((r) => r.id === id)!.status;
 		expect(status("discovery.pds-service")).toBe("fail");
 		expect(status("discovery.kem-key")).toBe("fail");
 		expect(status("discovery.signing-key")).toBe("pass");
@@ -241,7 +259,9 @@ describe("runConformance (CLI core)", () => {
 			suiteVersion: "0.0.0-test",
 		});
 		expect(report.target.plcDirectory).toBe("https://plc.test");
-		expect(report.results.find((r) => r.id === "discovery.kem-key")!.status).toBe("pass");
+		expect(
+			report.results.find((r) => r.id === "discovery.kem-key")!.status,
+		).toBe("pass");
 		expect(requested).toContain(`https://plc.test/${plcDid}`);
 	});
 

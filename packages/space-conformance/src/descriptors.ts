@@ -41,7 +41,8 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 	// --- MAC verification ------------------------------------------------
 	{
 		id: "mac.commit-verifies",
-		title: "getLatestCommit's commit has the specified shape and its MAC verifies",
+		title:
+			"getLatestCommit's commit has the specified shape and its MAC verifies",
 		tier: "must",
 		needs: ["operator"],
 		citations: [
@@ -88,7 +89,10 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 		title: "A credential verifies against the authority's #atproto key",
 		tier: "must",
 		needs: ["operator"],
-		citations: [L("com.atproto.space.getSpaceCredential"), C("plain-keys-resolve")],
+		citations: [
+			L("com.atproto.space.getSpaceCredential"),
+			C("plain-keys-resolve"),
+		],
 		destructive: true,
 	},
 	{
@@ -96,7 +100,10 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 		title: "A delegation token verifies against the user's #atproto key",
 		tier: "must",
 		needs: ["operator", "pds-delegation"],
-		citations: [L("com.atproto.space.getDelegationToken"), C("plain-keys-resolve")],
+		citations: [
+			L("com.atproto.space.getDelegationToken"),
+			C("plain-keys-resolve"),
+		],
 		destructive: true,
 	},
 	// --- migration -------------------------------------------------------
@@ -125,7 +132,8 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 	},
 	{
 		id: "migration.import-space-meta-unsupported-policy",
-		title: "importSpaceMeta of an unimplemented policy answers UnsupportedPolicy",
+		title:
+			"importSpaceMeta of an unimplemented policy answers UnsupportedPolicy",
 		tier: "must",
 		needs: ["operator"],
 		citations: [L("com.atproto.space.importSpaceMeta@error:UnsupportedPolicy")],
@@ -133,7 +141,8 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 	},
 	{
 		id: "migration.import-repo",
-		title: "importRepo of a getRepo archive keeps the records and data at a new rev",
+		title:
+			"importRepo of a getRepo archive keeps the records and data at a new rev",
 		tier: "must",
 		needs: ["operator"],
 		citations: [
@@ -145,7 +154,8 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 	},
 	{
 		id: "migration.import-repo-space-not-found",
-		title: "importRepo into an own space that was never imported answers SpaceNotFound",
+		title:
+			"importRepo into an own space that was never imported answers SpaceNotFound",
 		tier: "must",
 		needs: ["operator"],
 		citations: [L("com.atproto.space.importRepo@error:SpaceNotFound")],
@@ -153,7 +163,8 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 	// --- foreign identities ----------------------------------------------
 	{
 		id: "credential.member-gate",
-		title: "A memberspace refuses a non-member and a read:false member, and admits a reader",
+		title:
+			"A memberspace refuses a non-member and a read:false member, and admits a reader",
 		tier: "must",
 		needs: ["operator", "identities"],
 		citations: [
@@ -176,7 +187,9 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 		title: "A delegation token addressed to another host is refused",
 		tier: "must",
 		needs: ["operator", "identities"],
-		citations: [L("com.atproto.space.getSpaceCredential@error:InvalidDelegationToken")],
+		citations: [
+			L("com.atproto.space.getSpaceCredential@error:InvalidDelegationToken"),
+		],
 		destructive: true,
 	},
 	{
@@ -184,7 +197,10 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 		title: "An authorised writer's notifyWrite enters the writer set",
 		tier: "must",
 		needs: ["operator", "identities"],
-		citations: [L("com.atproto.space.notifyWrite"), L("com.atproto.space.listRepos")],
+		citations: [
+			L("com.atproto.space.notifyWrite"),
+			L("com.atproto.space.listRepos"),
+		],
 		destructive: true,
 	},
 	{
@@ -197,14 +213,16 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 	},
 	{
 		id: "host.notifywrite-unknown-space",
-		title: "notifyWrite for a space the authority does not have answers SpaceNotFound",
+		title:
+			"notifyWrite for a space the authority does not have answers SpaceNotFound",
 		tier: "must",
 		needs: ["operator", "identities"],
 		citations: [L("com.atproto.space.notifyWrite@error:SpaceNotFound")],
 	},
 	{
 		id: "revocation.revoked-credential-refused",
-		title: "A repo host accepts a foreign authority's credential until it is revoked",
+		title:
+			"A repo host accepts a foreign authority's credential until it is revoked",
 		tier: "must",
 		needs: ["operator", "identities"],
 		citations: [
@@ -219,12 +237,15 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 		title: "A revoked credential is refused with CredentialRevoked",
 		tier: "should",
 		needs: ["operator", "identities"],
-		citations: [{ source: "reference", ref: "pds auth-verifier spaceCredentialAuth" }],
+		citations: [
+			{ source: "reference", ref: "pds auth-verifier spaceCredentialAuth" },
+		],
 		destructive: true,
 	},
 	{
 		id: "revocation.non-authority-refused",
-		title: "notifyCredentialRevoked from anyone but the space authority is refused",
+		title:
+			"notifyCredentialRevoked from anyone but the space authority is refused",
 		tier: "must",
 		needs: ["operator", "identities"],
 		citations: [L("com.atproto.space.notifyCredentialRevoked")],

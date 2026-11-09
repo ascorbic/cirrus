@@ -763,14 +763,15 @@ function ConfirmSpacesView(props: {
 								collections inside those probe spaces
 							</li>
 							<li>
-								<span class="text-ink">·</span> Upload one 16-byte test blob and
-								verify it is <em>not</em> served publicly
+								<span class="text-ink">·</span> Upload two small random test
+								blobs, check one is <em>not</em> served publicly and the other
+								is served only through the space
 							</li>
 							<li>
-								<span class="text-ink">·</span> Exercise your PDS's own{" "}
-								<code class="bg-line/40 px-1 py-0.5">getDelegationToken</code> →{" "}
-								<code class="bg-line/40 px-1 py-0.5">getSpaceCredential</code> →
-								read flow
+								<span class="text-ink">·</span> Obtain space credentials for the
+								probe spaces (including through your PDS's own{" "}
+								<code class="bg-line/40 px-1 py-0.5">getDelegationToken</code>)
+								and present them with signed, MAC-requesting reads
 							</li>
 						</ul>
 						<p class="text-muted text-xs">

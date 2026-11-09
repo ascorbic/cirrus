@@ -89,7 +89,11 @@ const discoveryKemKey = defineCheck({
 		// account's repos can be authenticated at all.
 		const doc = await targetDoc(ctx);
 		const key = verificationMethodDidKey(doc, "atproto_kem");
-		if (!key) return fail("no #atproto_kem verification method", doc.verificationMethod);
+		if (!key)
+			return fail(
+				"no #atproto_kem verification method",
+				doc.verificationMethod,
+			);
 		return isP256DidKey(key)
 			? pass(`#atproto_kem is ${key}`)
 			: fail(`#atproto_kem is not a P-256 key: ${key}`);
@@ -147,9 +151,12 @@ const authGetRecordRequiresAuth = defineCheck({
 
 const credentialTokenlessUnknown = defineCheck({
 	id: "credential.tokenless-unknown-space",
-	title: "A tokenless credential request for an unknown space gets SpaceNotFound",
+	title:
+		"A tokenless credential request for an unknown space gets SpaceNotFound",
 	tier: "must",
-	citations: [lexicon("com.atproto.space.getSpaceCredential@error:SpaceNotFound")],
+	citations: [
+		lexicon("com.atproto.space.getSpaceCredential@error:SpaceNotFound"),
+	],
 	needs: [],
 	async run(ctx) {
 		// No delegation token, a space nobody created: there is nothing public
@@ -160,7 +167,8 @@ const credentialTokenlessUnknown = defineCheck({
 			space: unknownSpaceUri(ctx.target.did),
 			credentialKid: key.did,
 		});
-		if (res.status === 200) return fail("issued a credential for an unknown space");
+		if (res.status === 200)
+			return fail("issued a credential for an unknown space");
 		return res.error === "SpaceNotFound"
 			? pass("refused with SpaceNotFound")
 			: fail(`refused with ${describe(res)}, expected SpaceNotFound`, res.json);
@@ -181,7 +189,10 @@ const requestInvalidSpaceUri = defineCheck({
 		if (res.status >= 400 && res.status < 500) {
 			return pass(`rejected with ${describe(res)}`);
 		}
-		return fail(`did not reject a malformed space uri (${res.status})`, res.json);
+		return fail(
+			`did not reject a malformed space uri (${res.status})`,
+			res.json,
+		);
 	},
 });
 

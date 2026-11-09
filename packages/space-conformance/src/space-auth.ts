@@ -71,7 +71,10 @@ export function compressP256(uncompressed: Uint8Array): Uint8Array {
 
 /** 0x02/0x03 || x → 0x04 || x || y. */
 export function decompressP256(compressed: Uint8Array): Uint8Array {
-	if (compressed.length !== 33 || (compressed[0] !== 2 && compressed[0] !== 3)) {
+	if (
+		compressed.length !== 33 ||
+		(compressed[0] !== 2 && compressed[0] !== 3)
+	) {
 		throw new Error("expected a compressed P-256 point");
 	}
 	const x = bytesToBigInt(compressed.subarray(1));
@@ -212,7 +215,11 @@ export const formatWantMacHeader = (type: MacType, keyShare: string): string =>
 	`type="${type}", ver=1, key_share="${keyShare}"`;
 
 const uint16be = (n: number) => new Uint8Array([n >>> 8, n & 0xff]);
-const KEM_PREFIX = concatBytes([utf8("HPKE-v1"), utf8("KEM"), uint16be(0x0010)]);
+const KEM_PREFIX = concatBytes([
+	utf8("HPKE-v1"),
+	utf8("KEM"),
+	uint16be(0x0010),
+]);
 
 /**
  * Syncer side of the space KEM: ECDH between a fresh ephemeral P-256 key

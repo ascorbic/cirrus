@@ -29,10 +29,7 @@ import {
 } from "@getcirrus/space-conformance";
 import { fullCatalog } from "@getcirrus/space-conformance/full";
 import { startReferencePds, type ReferencePds } from "../src/reference.js";
-import {
-	startHarnessServices,
-	type HarnessServices,
-} from "../src/harness.js";
+import { startHarnessServices, type HarnessServices } from "../src/harness.js";
 
 /** The alpha build this partition was calibrated against. */
 const CALIBRATED_ALPHA = "0.0.0-spaces-alpha-20261105160032";
