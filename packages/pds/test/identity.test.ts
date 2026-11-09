@@ -29,7 +29,7 @@ describe("Identity Endpoints", () => {
 			const data = (await response.json()) as {
 				rotationKeys: string[];
 				alsoKnownAs: string[];
-				verificationMethods: { atproto: string };
+				verificationMethods: { atproto: string; atproto_kem?: string };
 				services: {
 					atproto_pds: { type: string; endpoint: string };
 				};
@@ -41,7 +41,12 @@ describe("Identity Endpoints", () => {
 
 			expect(data.rotationKeys).toEqual([expectedSigningKey]);
 			expect(data.alsoKnownAs).toEqual([`at://${env.HANDLE}`]);
-			expect(data.verificationMethods).toEqual({ atproto: expectedSigningKey });
+			// The test environment configures the spaces KEM key, which is
+			// carried through a migration alongside the signing key.
+			expect(data.verificationMethods).toEqual({
+				atproto: expectedSigningKey,
+				atproto_kem: `did:key:${env.SPACES_KEM_KEY_PUBLIC}`,
+			});
 			expect(data.services).toEqual({
 				atproto_pds: {
 					type: "AtprotoPersonalDataServer",

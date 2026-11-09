@@ -5,7 +5,7 @@
  * iat, exp}` signed with the account signing key (alg from the keypair).
  */
 
-import type { Keypair } from "@atproto/crypto";
+import type { SpaceSigningKeypair } from "./types.js";
 
 const encoder = new TextEncoder();
 
@@ -25,7 +25,7 @@ export interface ServiceJwtParams {
 
 export async function createServiceJwt(
 	params: ServiceJwtParams,
-	keypair: Keypair,
+	keypair: SpaceSigningKeypair,
 ): Promise<string> {
 	const iat = Math.floor(Date.now() / 1000);
 	const header = { typ: "JWT", alg: keypair.jwtAlg };

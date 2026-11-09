@@ -2,7 +2,17 @@
  * Shared types crossing the Worker ↔ Durable Object RPC boundary.
  */
 
-import type { Keypair } from "@atproto/crypto";
+/**
+ * The minimal keypair shape the engine signs with: the account's
+ * `#atproto` key, for space tokens and service-auth JWTs. Structural, so a
+ * host can pass any `@atproto/crypto` keypair without the engine's public
+ * types depending on a particular build of that package.
+ */
+export interface SpaceSigningKeypair {
+	jwtAlg: string;
+	did(): string;
+	sign(msg: Uint8Array): Promise<Uint8Array>;
+}
 
 /** A write prepared by the Worker: validated, CBOR-encoded, CID computed. */
 export type PreparedSpaceWrite =
@@ -21,10 +31,14 @@ export type PreparedSpaceWrite =
 			rkey: string;
 	  };
 
-export interface ApplyWritesResult {
+/** A repo revision that is owed a write notification. */
+export interface RepoCommitResult {
 	rev: string;
-	/** sha256 digest of the LtHash state after the batch. */
-	hash: Uint8Array;
+	/** sha256 digest of the LtHash state: the commit's `data`. */
+	data: Uint8Array;
+}
+
+export interface ApplyWritesResult extends RepoCommitResult {
 	results: Array<{
 		action: "create" | "update" | "delete";
 		collection: string;
@@ -43,18 +57,48 @@ export interface SpaceMeta {
 	deletedAt: string | null;
 }
 
+export const PERSONALSPACE_POLICY = "com.atproto.personalspace.policy";
+export const MEMBERSPACE_POLICY = "com.atproto.memberspace.policy";
+export const MANAGEDSPACE_POLICY = "com.atproto.managedspace.policy";
+
+/**
+ * A space policy as stored and enforced: one of the three baseline
+ * policies, normalised with its defaults filled in. The wire shape and the
+ * stored shape are the same object.
+ */
 export type SpacePolicy =
-	| { kind: "public" }
-	| { kind: "member-list" }
-	| { kind: "managing-app"; managingApp: string };
+	| { $type: typeof PERSONALSPACE_POLICY }
+	| {
+			$type: typeof MEMBERSPACE_POLICY;
+			publicRead: boolean;
+			publicWrite: boolean;
+			allowedApps?: string[];
+			publishPolicy: boolean;
+			publishMembers: boolean;
+	  }
+	| {
+			$type: typeof MANAGEDSPACE_POLICY;
+			managingApp: string;
+			publishPolicy: boolean;
+	  };
 
-export type SpaceAppAccess =
-	| { kind: "open" }
-	| { kind: "allowList"; allowed: string[] };
+export interface SpaceMember {
+	did: string;
+	read: boolean;
+	write: boolean;
+}
 
-export interface SpaceConfig {
-	policy: SpacePolicy;
-	appAccess: SpaceAppAccess;
+export interface SpaceWriter {
+	did: string;
+	repoRev: string;
+	data: Uint8Array;
+	spaceRev: string;
+}
+
+/** The space sequence position assigned to an accepted repo update. */
+export interface SpaceSequence {
+	spaceRev: string;
+	prevSpaceRev?: string;
 }
 
 export interface RepoState {
@@ -80,11 +124,27 @@ export interface OplogEntry {
 	bytes?: Uint8Array;
 }
 
+/** A record imported from a repo archive, prepared by the Worker. */
+export interface ImportedRecord {
+	collection: string;
+	rkey: string;
+	cid: string;
+	bytes: Uint8Array;
+	blobCids: string[];
+}
+
 export interface NotifyItem {
 	service: string;
 	endpoint: string;
 	lxm: string;
 	body: Record<string, unknown>;
+	/**
+	 * Pending items sharing a key are coalesced: a newer one replaces the
+	 * older, resetting its backoff and deadline.
+	 */
+	coalesceKey?: string;
+	/** Give up retrying after this time (ms since epoch). */
+	deadline?: number;
 }
 
 /**
@@ -96,6 +156,6 @@ export interface NotifyItem {
 export interface SpaceHostConfig {
 	/** The DID whose permissioned repos this engine serves. */
 	operatorDid: string;
-	/** Signing keypair provider (service JWTs for notification fan-out). */
-	getKeypair(): Promise<Keypair>;
+	/** Signing keypair provider (service JWTs for notification delivery). */
+	getKeypair(): Promise<SpaceSigningKeypair>;
 }

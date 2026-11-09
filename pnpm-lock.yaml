@@ -305,6 +305,9 @@ importers:
       '@atproto/api':
         specifier: ^0.18.9
         version: 0.18.20
+      '@atproto/space':
+        specifier: 0.0.0-spaces-alpha-20261105160032
+        version: 0.0.0-spaces-alpha-20261105160032
       '@cloudflare/vite-plugin':
         specifier: ^1.17.0
         version: 1.23.1(vite@6.4.1(@types/node@24.10.11)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.0))(workerd@1.20260521.1)(wrangler@4.94.0(@cloudflare/workers-types@4.20260524.1))

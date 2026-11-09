@@ -45,3 +45,14 @@ export function tidCutoff(msAgo: number): string {
 	}
 	return out;
 }
+
+/** The timestamp a TID encodes, in milliseconds since the epoch. */
+export function tidTimestampMs(tid: string): number {
+	let value = 0n;
+	for (const char of tid) {
+		const idx = S32_CHAR.indexOf(char);
+		if (idx === -1) throw new Error(`Invalid TID: ${tid}`);
+		value = (value << 5n) | BigInt(idx);
+	}
+	return Number(value >> 10n) / 1000;
+}

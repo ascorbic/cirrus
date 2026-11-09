@@ -69,7 +69,11 @@ export async function verifyClientAttestation(
 			"Attestation client_id is not a URL",
 		);
 	}
-	if (clientUrl.protocol !== "https:" || clientUrl.username || clientUrl.password) {
+	if (
+		clientUrl.protocol !== "https:" ||
+		clientUrl.username ||
+		clientUrl.password
+	) {
 		throw new SpaceError(
 			"InvalidClientAttestation",
 			"Attestation client_id must be a plain https URL",

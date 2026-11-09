@@ -839,7 +839,11 @@
 					for (const space of status.spaces) {
 						const row = el("div", "space-row");
 						row.append(el("span", "space-uri", space.uri));
-						const flags = [space.role, space.state]
+						const policy = space.policy
+							? space.policy.replace(/^com\.atproto\.|\.policy$/g, "")
+							: null;
+						const flags = [space.role, policy, space.state]
+							.filter(Boolean)
 							.concat(space.outdated ? ["OUTDATED"] : [])
 							.join(" · ");
 						row.append(
@@ -850,6 +854,8 @@
 							),
 						);
 						if (space.role === "authority" && space.state === "active") {
+							const isMemberspace =
+								space.policy === "com.atproto.memberspace.policy";
 							const actions = el("span", "space-actions");
 							const del = el("button", null, "delete");
 							del.addEventListener("click", async () => {
@@ -857,7 +863,7 @@
 								try {
 									await xrpc(
 										"POST",
-										"com.atproto.simplespace.deleteSpace",
+										"com.atproto.space.deleteSpace",
 										{ body: { space: space.uri } },
 									);
 									load();
@@ -871,14 +877,14 @@
 							const members = el("div", "space-members");
 							const input = el("input");
 							input.placeholder = "did:… to add/remove";
-							const mkBtn = (label, nsid) => {
+							const mkBtn = (label, nsid, extra = {}) => {
 								const btn = el("button", null, label);
 								btn.addEventListener("click", async () => {
 									const did = input.value.trim();
 									if (!did) return;
 									try {
 										await xrpc("POST", nsid, {
-											body: { space: space.uri, did },
+											body: { space: space.uri, did, ...extra },
 										});
 										input.value = "";
 										load();
@@ -890,13 +896,17 @@
 							};
 							members.append(
 								input,
-								mkBtn("add member", "com.atproto.simplespace.addMember"),
+								mkBtn("add member", "com.atproto.memberspace.putMember", {
+									read: true,
+									write: true,
+								}),
 								mkBtn(
 									"remove member",
-									"com.atproto.simplespace.removeMember",
+									"com.atproto.memberspace.removeMember",
 								),
 							);
-							row.append(members);
+							// Only memberspace keeps a member list.
+							if (isMemberspace) row.append(members);
 						}
 						body.append(row);
 					}

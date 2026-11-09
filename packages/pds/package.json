@@ -50,9 +50,11 @@
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
 		"@atproto/api": "^0.18.9",
+		"@atproto/space": "0.0.0-spaces-alpha-20261105160032",
 		"@cloudflare/vite-plugin": "^1.17.0",
 		"@cloudflare/vitest-pool-workers": "^0.16.9",
 		"@cloudflare/workers-types": "^4.20260524.1",
+		"@getcirrus/space-conformance": "workspace:*",
 		"@ipld/car": "^5.4.2",
 		"@types/qrcode": "^1.5.6",
 		"@types/ws": "^8.18.1",
@@ -63,8 +65,7 @@
 		"vite": "^6.4.1",
 		"vitest": "4.1.0-beta.1",
 		"wrangler": "^4.93.0",
-		"ws": "^8.18.3",
-		"@getcirrus/space-conformance": "workspace:*"
+		"ws": "^8.18.3"
 	},
 	"repository": {
 		"type": "git",

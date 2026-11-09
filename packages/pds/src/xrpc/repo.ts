@@ -13,6 +13,7 @@ import { detectContentType } from "../format.js";
 import { BlobStore, extractJsonBlobCids } from "../repo/blobs.js";
 import { buildScopeChecker, requireScope } from "../middleware/auth.js";
 import { pokeRelaysIfUnheard } from "../relay.js";
+import { promoteUploadedSpaceBlob } from "../spaces.js";
 
 /**
  * Promote any staged blobs referenced by the given records to their public
@@ -712,6 +713,9 @@ export async function uploadBlob(
 	if (referenced) {
 		await blobStore.promoteBlob(blobRef.ref.$link);
 	}
+	// Likewise for space repos imported during migration, whose records
+	// already reference the blob.
+	await promoteUploadedSpaceBlob(c.env, blobRef.ref.$link);
 	return c.json({ blob: blobRef });
 }
 

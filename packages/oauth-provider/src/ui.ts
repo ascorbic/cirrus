@@ -324,7 +324,7 @@ function describeSpaceScope(
 	}
 	out.push(line);
 
-	if (p.manage.length > 0) {
+	if (p.manage && p.manage.length > 0) {
 		const ops = p.manage.join(", ");
 		out.push(
 			`Manage (${ops}) ${authorityLabel} ${typeLabel}, including membership`,

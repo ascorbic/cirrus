@@ -1,45 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { createDpopProof } from "@atproto/space";
+import { P256Keypair } from "@atproto/crypto";
+import {
+	RECORD_MAC_TYPE,
+	createSpaceSigHeaders,
+	encapsulate,
+	formatWantMacHeader,
+	parseMacHeader,
+	serializeRepo,
+	verifyRecord,
+} from "@atproto/space";
+import { encode } from "@atproto/lex-cbor";
 import { env, worker, runInDurableObject } from "./helpers";
 import { createSpacesUnavailableApp } from "../src/spaces";
-
-/**
- * Minimal WebCrypto-backed DPoP key satisfying the `Key` surface
- * `createDpopProof` uses (`bareJwk`, `algorithms`, `createJwt`). Avoids
- * @atproto/jwk-jose, whose bundled jose resolves to its Node build under
- * the vitest workers pool and fails to sign.
- */
-async function makeDpopKey() {
-	const pair = await crypto.subtle.generateKey(
-		{ name: "ECDSA", namedCurve: "P-256" },
-		true,
-		["sign"],
-	);
-	const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
-	const bareJwk = { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y };
-	const b64url = (bytes: Uint8Array) =>
-		btoa(String.fromCharCode(...bytes))
-			.replace(/\+/g, "-")
-			.replace(/\//g, "_")
-			.replace(/=+$/, "");
-	const encode = (obj: unknown) =>
-		b64url(new TextEncoder().encode(JSON.stringify(obj)));
-	return {
-		bareJwk,
-		algorithms: ["ES256"] as const,
-		async createJwt(header: unknown, payload: unknown) {
-			const input = `${encode(header)}.${encode(payload)}`;
-			const sig = new Uint8Array(
-				await crypto.subtle.sign(
-					{ name: "ECDSA", hash: "SHA-256" },
-					pair.privateKey,
-					new TextEncoder().encode(input),
-				),
-			);
-			return `${input}.${b64url(sig)}`;
-		},
-	} as never;
-}
 
 const authed = {
 	"Content-Type": "application/json",
@@ -67,33 +39,37 @@ function post(
 
 let spaceN = 0;
 async function createSpace(): Promise<string> {
-	const res = await post("/xrpc/com.atproto.simplespace.createSpace", {
-		type: "app.bsky.group",
+	const res = await post("/xrpc/com.atproto.space.createSpace", {
+		spaceType: "app.bsky.group",
 		skey: `pds${spaceN++}x`,
-		policy: { $type: "com.atproto.simplespace.defs#memberListPolicy" },
-		appAccess: { $type: "com.atproto.simplespace.defs#open" },
+		policy: { $type: "com.atproto.memberspace.policy" },
 	});
 	expect(res.status).toBe(200);
 	return ((await res.json()) as { uri: string }).uri;
 }
 
 describe("spaces integration", () => {
-	it("advertises the space host in the DID document", async () => {
+	it("publishes #atproto_kem and no space-specific service entry", async () => {
 		const res = await get("/.well-known/did.json");
 		const doc = (await res.json()) as {
-			service: Array<{ id: string; type: string; serviceEndpoint: string }>;
-			verificationMethod: Array<{ id: string }>;
+			service: Array<{ id: string }>;
+			verificationMethod: Array<{ id: string; publicKeyMultibase: string }>;
 		};
-		const entry = doc.service.find((s) => s.id === "#atproto_space_host");
-		expect(entry).toMatchObject({
-			type: "AtprotoSpaceHost",
-			serviceEndpoint: `https://${env.PDS_HOSTNAME}`,
+		// The space host is #atproto_pds and space tokens are signed with
+		// #atproto, like any other account.
+		expect(doc.service.map((s) => s.id)).toEqual(["#atproto_pds"]);
+		const kem = doc.verificationMethod.find((m) => m.id.endsWith("#atproto_kem"));
+		expect(kem?.publicKeyMultibase).toBe(env.SPACES_KEM_KEY_PUBLIC);
+
+		const creds = await get("/xrpc/com.atproto.identity.getRecommendedDidCredentials", {
+			Authorization: `Bearer ${env.AUTH_TOKEN}`,
 		});
-		// No dedicated #atproto_space verification key: the proposal falls
-		// back to #atproto.
-		expect(
-			doc.verificationMethod.some((m) => m.id.endsWith("#atproto_space")),
-		).toBe(false);
+		const body = (await creds.json()) as {
+			verificationMethods: Record<string, string>;
+		};
+		expect(body.verificationMethods.atproto_kem).toBe(
+			`did:key:${env.SPACES_KEM_KEY_PUBLIC}`,
+		);
 	});
 
 	it("stores and returns private records (S1)", async () => {
@@ -197,7 +173,7 @@ describe("spaces integration", () => {
 		expect(decode(payloadB64)).toMatchObject({
 			iss: env.DID,
 			sub: space,
-			aud: `${authority}#atproto_space_host`,
+			aud: `${authority}#atproto_pds`,
 		});
 	});
 
@@ -225,38 +201,118 @@ describe("spaces integration", () => {
 		expect(delegationRes.status).toBe(200);
 		const { token } = (await delegationRes.json()) as { token: string };
 
-		const dpopKey = await makeDpopKey();
-		const exchangeProof = await createDpopProof(dpopKey, {
-			htm: "POST",
-			htu: `https://${env.PDS_HOSTNAME}/xrpc/com.atproto.space.getSpaceCredential`,
-		});
+		const key = await P256Keypair.create();
 		const credentialRes = await post(
 			"/xrpc/com.atproto.space.getSpaceCredential",
-			{ space },
-			{
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${token}`,
-				DPoP: exchangeProof,
-			},
+			{ space, credentialKid: key.did(), delegationToken: token },
+			{ "Content-Type": "application/json" },
 		);
 		expect(credentialRes.status).toBe(200);
 		const { credential } = (await credentialRes.json()) as {
 			credential: string;
 		};
 
-		const readProof = await createDpopProof(dpopKey, {
-			htm: "GET",
-			htu: `https://${env.PDS_HOSTNAME}/xrpc/com.atproto.space.getRecord`,
-			credential,
+		const headers: Record<string, string> = await createSpaceSigHeaders(key, {
+			authorization: `Atproto-Space-Credential ${credential}`,
+			audience: env.DID as `did:${string}:${string}`,
 		});
+		const { keyShare, sharedSecret } = await encapsulate(
+			`did:key:${env.SPACES_KEM_KEY_PUBLIC}`,
+		);
+		headers["atproto-space-want-mac"] = formatWantMacHeader(RECORD_MAC_TYPE, keyShare);
 		const read = await get(
 			`/xrpc/com.atproto.space.getRecord?space=${encodeURIComponent(space)}&repo=${env.DID}&collection=test.cirrus.note&rkey=roundtrip`,
-			{ Authorization: `DPoP ${credential}`, DPoP: readProof },
+			headers,
 		);
 		expect(read.status).toBe(200);
+		// The MAC header must reach a browser app across origins.
+		expect(read.headers.get("Access-Control-Expose-Headers")).toMatch(
+			/atproto-space-mac/i,
+		);
+		const record = (await read.json()) as {
+			uri: string;
+			cid: string;
+			value: { text: string };
+		};
+		expect(record.value.text).toBe("note");
+		const mac = parseMacHeader(
+			read.headers.get("atproto-space-mac") ?? undefined,
+			RECORD_MAC_TYPE,
+		);
 		expect(
-			((await read.json()) as { value: { text: string } }).value.text,
-		).toBe("note");
+			await verifyRecord(record as never, { uri: record.uri, sharedSecret, mac }),
+		).toBe(true);
+	});
+
+	it("promotes blobs of an imported space repo when they are uploaded", async () => {
+		// Migration order: the space repo arrives first, its blobs after.
+		const bytes = new Uint8Array([0x4d, 0x49, 0x47, 0x52, 0x41, 0x54, 0x45]);
+		const { create, CODEC_RAW, CODEC_DCBOR, toString } = await import("@atcute/cid");
+		const cid = toString(await create(CODEC_RAW, bytes));
+		const record = {
+			$type: "test.cirrus.file",
+			file: {
+				$type: "blob",
+				ref: { $link: cid },
+				mimeType: "application/octet-stream",
+				size: bytes.length,
+			},
+		};
+		const space = `at://did:web:elsewhere.test/space/app.bsky.group/migrated${spaceN++}`;
+		const { jsonToLex } = await import("@atproto/lex-json");
+		const recordBytes = encode(jsonToLex(record) as never);
+		const recordCid = toString(await create(CODEC_DCBOR, recordBytes));
+		const { LtHash } = await import("@atproto/space");
+		const data = new LtHash().add(`test.cirrus.file/f/${recordCid}`).digest();
+		const chunks: Uint8Array[] = [];
+		for await (const chunk of serializeRepo(
+			{
+				ver: 1,
+				repo: env.DID as never,
+				space: space as never,
+				rev: "3mabcdefghijk",
+				data,
+			},
+			[{ collection: "test.cirrus.file" as never, rkey: "f" as never, bytes: recordBytes }],
+		)) {
+			chunks.push(chunk);
+		}
+		const archive = new Uint8Array(await new Blob(chunks).arrayBuffer());
+		const imported = await worker.fetch(
+			new Request("http://pds.test/xrpc/com.atproto.space.importRepo", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/octet-stream",
+					Authorization: `Bearer ${env.AUTH_TOKEN}`,
+				},
+				body: archive,
+			}),
+			env,
+		);
+		expect(imported.status).toBe(200);
+
+		const blobPath = `/xrpc/com.atproto.space.getBlob?space=${encodeURIComponent(space)}&repo=${env.DID}&cid=${cid}`;
+		const before = await get(blobPath, { Authorization: `Bearer ${env.AUTH_TOKEN}` });
+		expect(before.status).toBe(404);
+
+		const upload = await worker.fetch(
+			new Request("http://pds.test/xrpc/com.atproto.repo.uploadBlob", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/octet-stream",
+					Authorization: `Bearer ${env.AUTH_TOKEN}`,
+				},
+				body: bytes,
+			}),
+			env,
+		);
+		expect(upload.status).toBe(200);
+		const after = await get(blobPath, { Authorization: `Bearer ${env.AUTH_TOKEN}` });
+		expect(after.status).toBe(200);
+		expect(new Uint8Array(await after.arrayBuffer())).toEqual(bytes);
+		// Still never public.
+		const publicBlob = await get(`/xrpc/com.atproto.sync.getBlob?did=${env.DID}&cid=${cid}`);
+		expect(publicBlob.status).toBe(404);
 	});
 
 	it("lists spaces from the index", async () => {
@@ -436,7 +492,7 @@ describe("spaces integration", () => {
 
 	it("degrades to 503 when the flag is set without bindings", async () => {
 		// The fallback app mounted when SPACES / SPACES_INDEX are absent:
-		// space and simplespace methods answer 503, everything else falls
+		// space and memberspace methods answer 503, everything else falls
 		// through to later routes (the proxy).
 		const app = createSpacesUnavailableApp();
 		const space = await app.request(
@@ -446,11 +502,11 @@ describe("spaces integration", () => {
 		expect(((await space.json()) as { error: string }).error).toBe(
 			"ServiceUnavailable",
 		);
-		const simplespace = await app.request(
-			"/xrpc/com.atproto.simplespace.createSpace",
+		const memberspace = await app.request(
+			"/xrpc/com.atproto.memberspace.putMember",
 			{ method: "POST" },
 		);
-		expect(simplespace.status).toBe(503);
+		expect(memberspace.status).toBe(503);
 		// Non-space methods are untouched.
 		const other = await app.request("/xrpc/com.atproto.repo.getRecord");
 		expect(other.status).toBe(404);

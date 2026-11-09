@@ -72,6 +72,16 @@ export interface PDSEnv {
 	 * unknown method.
 	 */
 	SPACES_ENABLED?: string;
+	/**
+	 * The account's `#atproto_kem` P-256 private key (hex), with which the
+	 * spaces alpha MACs space data for syncers. Secret.
+	 */
+	SPACES_KEM_KEY?: string;
+	/**
+	 * Public half of SPACES_KEM_KEY (multibase), published as the
+	 * `#atproto_kem` verification method in the DID document.
+	 */
+	SPACES_KEM_KEY_PUBLIC?: string;
 	/** Durable Object namespace for spaces (one per space URI). */
 	SPACES?: DurableObjectNamespace<SpaceDurableObject>;
 	/** Durable Object namespace for the space index singleton. */

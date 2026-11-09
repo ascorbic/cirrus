@@ -8,12 +8,14 @@
  * shape.
  */
 
-/** Protocol error names used across space and simplespace endpoints. */
+/** Protocol error names used across the space and policy endpoints. */
 export const SPACE_ERROR_CODES = [
 	"SpaceNotFound",
 	"SpaceDeleted",
 	"SpaceAlreadyExists",
 	"RepoNotFound",
+	"RepoDeactivated",
+	"RepoTakendown",
 	"RecordNotFound",
 	"RecordAlreadyExists",
 	"BlobNotFound",
@@ -24,12 +26,30 @@ export const SPACE_ERROR_CODES = [
 	"InvalidClientAttestation",
 	"InvalidCredential",
 	"NotSpaceOwner",
+	"PolicyMismatch",
 	"UnsupportedPolicy",
-	"UnsupportedAppAccess",
 	"ServiceNotResolvable",
 	"MalformedCursor",
 	"InvalidSpaceUri",
 	"InvalidRequest",
+	"FutureRev",
+	"BadSpaceMac",
+	// Space credential authentication failures, named as the reference
+	// names them (all 401).
+	"MissingJwt",
+	"BadJwt",
+	"BadJwtType",
+	"BadJwtIss",
+	"BadJwtSub",
+	"BadJwtAudience",
+	"BadJwtCnf",
+	"BadJwtSignature",
+	"JwtExpired",
+	"BadSpaceSignature",
+	"BadSpaceAudience",
+	"CredentialRevoked",
+	"Forbidden",
+	"KemKeyUnavailable",
 	"SpacesSchemaOutdated",
 ] as const;
 
@@ -48,9 +68,21 @@ const ERROR_STATUS: Partial<Record<SpaceErrorCode, number>> = {
 	AppNotAuthorized: 403,
 	NotAuthorized: 403,
 	NotSpaceOwner: 403,
-	InvalidDelegationToken: 401,
+	Forbidden: 403,
 	InvalidClientAttestation: 401,
-	InvalidCredential: 401,
+	MissingJwt: 401,
+	BadJwt: 401,
+	BadJwtType: 401,
+	BadJwtIss: 401,
+	BadJwtSub: 401,
+	BadJwtAudience: 401,
+	BadJwtCnf: 401,
+	BadJwtSignature: 401,
+	JwtExpired: 401,
+	BadSpaceSignature: 401,
+	BadSpaceAudience: 401,
+	CredentialRevoked: 401,
+	KemKeyUnavailable: 503,
 	SpacesSchemaOutdated: 503,
 };
 
