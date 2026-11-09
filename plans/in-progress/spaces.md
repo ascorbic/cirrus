@@ -86,6 +86,27 @@ upstream builds landed in between and the protocol changed substantially:
 - **Schema version 2**: existing space DOs refuse until
   `pds spaces reset`, per the alpha policy.
 
+### Conformance at 1105
+
+The suite grew from 24 to 92 checks (87 must, 4 should, 1 info), with
+coverage requiring zero gaps against the vendored lexicons (the only
+exemptions are the admin-only `RepoTakendown` / `RepoSuspended` /
+`RepoDeactivated` errors). Results on 2026-11-09:
+
+- **Reference (matrix):** 89 pass, 3 pinned divergences, nothing
+  skipped: `writes.delete-in-missing-space` (its deleteRecord answers 200
+  before checking the space), `space.reads-after-delete-not-found` (reads
+  of a deleted space don't answer `SpaceNotFound`) and
+  `credential.garbage-attestation-refused` (a malformed attestation is a
+  500). See the matrix README.
+- **Cirrus space routes (in-process):** every runnable must and should
+  check passes, the three above included. Only the `pds-blobs` and
+  `pds-delegation` checks skip; the PDS run covers them.
+- Running it found four Cirrus bugs, all fixed: getBlob's order of
+  checks, `NotSpaceOwner` on foreign spaces, `listSpaces` living outside
+  the engine, and the PDS fetching its own DID document to resolve its own
+  `#atproto_pds`.
+
 ### Packaging: the alpha is bundled
 
 `@atproto/space@1105` depends on the alpha `lex-cbor` / `lex-data` /
@@ -134,7 +155,8 @@ move to a new one (the update loop from the space-conformance spec, #228):
 
 ## Not done / next
 
-- **Interop runs** against the reference alpha Docker image and rsky.
+- **Interop runs** against rsky and a live deployment. The reference is
+  covered in-process by the conformance matrix (above).
   bulletin.my's S1 flow is verified live against pds.mk.gg (2026-08-29):
   OAuth with space: scopes, board space creation, delegation →
   credential exchange, reads, registerNotify and listRepos all work.
