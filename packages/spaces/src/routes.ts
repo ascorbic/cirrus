@@ -1392,6 +1392,9 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 					"credentialKid must be a P-256 did:key",
 				);
 			}
+			// Before anything touches the space DO: a space this host doesn't
+			// govern must not get one created for it by a well-formed request.
+			assertSpaceHost(ref);
 			const stub = host.getSpaceDO(ref.uri);
 
 			// Absent when the request carries no delegation token, which only a
