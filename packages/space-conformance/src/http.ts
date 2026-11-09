@@ -28,7 +28,7 @@ export interface XrpcResult {
 	response: Response;
 }
 
-async function toResult(response: Response): Promise<XrpcResult> {
+export async function toResult(response: Response): Promise<XrpcResult> {
 	const contentType = response.headers.get("Content-Type") ?? "";
 	let json: unknown;
 	let error: string | undefined;
@@ -95,8 +95,8 @@ export async function operatorHeaders(
 
 /**
  * A fetch that carries the operator's credentials: the operator's own
- * signing fetch when it has one (a DPoP-bound OAuth session must sign each
- * request individually), otherwise the transport fetch with
+ * signing fetch when it has one (an OAuth session's DPoP proof must sign
+ * each request individually), otherwise the transport fetch with
  * `authorize`-injected headers. With no operator at all it falls back to
  * the plain transport — the runner skips operator-needing checks then, so
  * that path is only reached by checks that can also run anonymously.
@@ -120,4 +120,21 @@ export function operatorFetch(ctx: CheckContext): typeof fetch {
  */
 export function asOperator(ctx: CheckContext): CheckContext {
 	return { ...ctx, fetch: operatorFetch(ctx) };
+}
+
+/** POST raw bytes (an archive upload) to an XRPC procedure. */
+export async function xrpcPostBytes(
+	ctx: CheckContext,
+	nsid: string,
+	bytes: Uint8Array,
+	headers?: HeadersInit,
+): Promise<XrpcResult> {
+	const merged = new Headers(headers);
+	merged.set("Content-Type", "application/octet-stream");
+	const response = await ctx.fetch(xrpcUrl(ctx.target.origin, nsid), {
+		method: "POST",
+		headers: merged,
+		body: bytes as BodyInit,
+	});
+	return toResult(response);
 }

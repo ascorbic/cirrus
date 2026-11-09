@@ -13,16 +13,25 @@ import { baseChecks } from "./checks/base.js";
 import { operatorChecks } from "./checks/operator.js";
 import { cryptoChecks } from "./full/checks.js";
 
-export { KeypairIdentityProvider, createDpopKey } from "./identity.js";
-export type { HarnessIdentityWithKey } from "./identity.js";
+export { KeypairIdentityProvider, createCredentialKey } from "./identity.js";
+export type {
+	CredentialKey,
+	HarnessIdentityWithKey,
+	IdentityDocumentOptions,
+} from "./identity.js";
 
 export {
 	createProbeSpace,
 	deleteProbeSpace,
 	obtainCredential,
 	obtainCredentialViaDelegation,
+	obtainPublicCredential,
+	credentialCall,
 	credentialGet,
+	requestCredential,
+	mintCredential,
 	mintDelegation,
+	serviceJwt,
 	operatorCreateRecord,
 } from "./full/helpers.js";
 export type { Credential, ProbeSpace } from "./full/helpers.js";
