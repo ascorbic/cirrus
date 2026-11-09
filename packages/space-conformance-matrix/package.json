@@ -9,7 +9,7 @@
 		"check": "tsc --noEmit -p tsconfig.json"
 	},
 	"devDependencies": {
-		"@atproto/dev-env": "0.0.0-spaces-alpha-20260818163953",
+		"@atproto/dev-env": "0.0.0-spaces-alpha-20261105160032",
 		"@getcirrus/space-conformance": "workspace:*",
 		"typescript": "^5.9.3",
 		"vitest": "4.1.0-beta.1"
