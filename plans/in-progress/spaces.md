@@ -201,7 +201,8 @@ requirements, zero gaps, 36 exempt. Results on 2026-11-13:
   `space.reads-after-delete-not-found` is gone: 1112 dropped its citation.
 - **Cirrus space routes (in-process):** every runnable must and should
   check passes. Skips: the `pds-blobs` / `pds-delegation` checks (the PDS
-  run covers them) and the slow check.
+  run covers them) and the slow check, which passes when run by hand
+  (607s, waiting out the credential).
 - **Cirrus PDS (integrated worker):** passes, self-flow credential
   round-trip included.
 - Found one Cirrus bug, fixed: `listMembers` accepted a cursor that isn't
