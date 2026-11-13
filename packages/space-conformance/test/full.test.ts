@@ -9,12 +9,12 @@ import {
 	multibaseToBytes,
 } from "@atproto/crypto";
 import {
-	COMMIT_MAC_TYPE as REF_COMMIT_MAC_TYPE,
-	RECORD_MAC_TYPE as REF_RECORD_MAC_TYPE,
+	COMMIT_MAC_PROFILE as REF_COMMIT_MAC_PROFILE,
+	RECORD_MAC_PROFILE as REF_RECORD_MAC_PROFILE,
+	createSpaceSigHeaders,
 	decapsulate,
-	formatMacHeader,
-	formatWantMacHeader as refFormatWantMacHeader,
-	parseWantMacHeader,
+	formatMacRequest as refFormatMacRequest,
+	parseMacRequest,
 	verifyCredentialSig,
 } from "@atproto/space";
 import { parseCid } from "@atproto/lex-data";
@@ -24,6 +24,7 @@ import {
 	cryptoCheckDescriptors,
 	filterCatalog,
 	knownChangesets,
+	knownProposalAnchors,
 	operatorChecks,
 	baseChecks,
 } from "../src/index";
@@ -34,15 +35,15 @@ import {
 	fullCatalog,
 } from "../src/full";
 import {
-	COMMIT_MAC_TYPE,
-	RECORD_MAC_TYPE,
+	COMMIT_MAC_PROFILE,
+	RECORD_MAC_PROFILE,
 	compressP256,
 	decompressP256,
 	encapsulate,
-	formatWantMacHeader,
-	parseMacHeader,
+	formatMacRequest,
 	spaceSigHeaders,
 } from "../src/space-auth";
+import { createSyncerInbox } from "../src/inbox";
 import { verificationMethodDidKey, didDocumentUrl } from "../src/did";
 import { isTid, rawCid, tidAt, tidNow, fromBase58 } from "../src/encoding";
 
@@ -64,12 +65,20 @@ describe("full catalog", () => {
 		const report = coverageReport(fullCatalog);
 		expect(report.danglingCitations).toEqual([]);
 		const changesets = new Set(knownChangesets);
+		const anchors = new Set(knownProposalAnchors);
 		for (const check of fullCatalog) {
 			for (const c of check.citations) {
 				if (c.source === "changeset") {
 					expect(changesets.has(c.ref), `${check.id} cites ${c.ref}`).toBe(
 						true,
 					);
+				}
+				if (c.source === "proposal") {
+					expect(c.ref, `${check.id} cites ${c.ref}`).toMatch(/^0016#/);
+					expect(
+						anchors.has(c.ref.slice(5)),
+						`${check.id} cites ${c.ref}`,
+					).toBe(true);
 				}
 			}
 		}
@@ -82,7 +91,9 @@ describe("full catalog", () => {
 		// Exemptions are the moderation-state errors only; anything else
 		// uncovered is a gap, not an exemption.
 		for (const { ref, reason } of report.exempt) {
-			expect(ref).toMatch(/@error:Repo(Takendown|Suspended|Deactivated)$/);
+			expect(ref).toMatch(
+				/@error:(Repo(Takendown|Suspended|Deactivated)|InvalidCursor)$|^com\.atproto\.space\.(getRecord|listRecords|getLatestCommit|listRepoOps|getRepo|listBlobs|getBlob)@error:SpaceNotFound$/,
+			);
 			expect(reason.length).toBeGreaterThan(20);
 		}
 	});
@@ -237,39 +248,58 @@ describe("browser-safe space auth matches @atproto/space", () => {
 	it("encapsulate derives the secret the repo host decapsulates", async () => {
 		const kem = await P256Keypair.create();
 		const { keyShare, sharedSecret } = await encapsulate(kem.did());
-		expect(decapsulate(kem, keyShare)).toEqual(sharedSecret);
+		expect(decapsulate(kem, keyShare as never)).toEqual(sharedSecret);
 	});
 
-	it("formats Want-Mac headers the reference parses, byte for byte", async () => {
+	it("formats MAC requests exactly as the reference does, and it parses them", async () => {
 		const share = (await P256Keypair.create()).did();
 		for (const [ours, theirs] of [
-			[COMMIT_MAC_TYPE, REF_COMMIT_MAC_TYPE],
-			[RECORD_MAC_TYPE, REF_RECORD_MAC_TYPE],
+			[COMMIT_MAC_PROFILE, REF_COMMIT_MAC_PROFILE],
+			[RECORD_MAC_PROFILE, REF_RECORD_MAC_PROFILE],
 		] as const) {
-			expect(formatWantMacHeader(ours, share)).toBe(
-				refFormatWantMacHeader(theirs, share),
+			expect(formatMacRequest(ours, share)).toBe(
+				refFormatMacRequest(theirs, share as never),
 			);
-			expect(parseWantMacHeader(formatWantMacHeader(ours, share), theirs)).toBe(
-				share,
-			);
+			expect(
+				parseMacRequest(formatMacRequest(ours, share, { label: "x" }), theirs),
+			).toMatchObject({
+				label: "x",
+				keyShare: share,
+			});
 		}
 	});
 
-	it("parses the reference's Atproto-Space-Mac header", () => {
-		const mac = crypto.getRandomValues(new Uint8Array(32));
-		expect(
-			parseMacHeader(
-				formatMacHeader(REF_COMMIT_MAC_TYPE, mac),
-				COMMIT_MAC_TYPE,
-			),
-		).toEqual(mac);
-		// Wrong type is refused rather than misread.
-		expect(
-			parseMacHeader(
-				formatMacHeader(REF_RECORD_MAC_TYPE, mac),
-				COMMIT_MAC_TYPE,
-			),
-		).toBeUndefined();
+	it("signs credential requests exactly as the reference does", async () => {
+		// ECDSA is randomised, so compare the signature input, and check the
+		// reference verifies a variant with a custom label and extra
+		// parameters (hosts find the signature by tag).
+		const ours = await createCredentialKey();
+		const ref = await P256Keypair.create();
+		const opts = {
+			authorization: "Atproto-Space-Credential a.b.c",
+			audience: "did:plc:abcdefghijklmnopqrstuvwx",
+		};
+		const { headers } = await createSpaceSigHeaders({
+			...opts,
+			audience: opts.audience as never,
+			keypair: ref,
+		});
+		const mine = await spaceSigHeaders({ sign: (b) => ref.sign(b) }, opts);
+		expect(mine["signature-input"]).toBe(headers["signature-input"]);
+		await expect(
+			verifyCredentialSig(mine, ref.did() as never),
+		).resolves.toBeUndefined();
+		const variant = await spaceSigHeaders(ours, {
+			...opts,
+			label: "x7",
+			params: [
+				["created", 1],
+				["keyid", ours.did],
+			],
+		});
+		await expect(
+			verifyCredentialSig(variant, ours.did as never),
+		).resolves.toBeUndefined();
 	});
 
 	it("compresses and decompresses P-256 points like @atproto/crypto", async () => {
@@ -310,6 +340,59 @@ describe("browser-safe space auth matches @atproto/space", () => {
 		expect(
 			multibaseToBytes(doc.verificationMethod[1]!.publicKeyMultibase),
 		).toEqual(cryptoParseDidKey(p256.did()).keyBytes);
+	});
+});
+
+describe("syncer inbox", () => {
+	it("confirms and accepts only tokens it issued for the space", async () => {
+		const { inbox, handle, deliveries } = createSyncerInbox({
+			endpoint: "https://inbox.test",
+			service: "did:web:inbox.test#atproto_pds",
+		});
+		const space =
+			"at://did:plc:abcdefghijklmnopqrstuvwx/space/earth.cirrus.check.space/x";
+		const token = inbox.issueToken(space);
+		const post = (lxm: string, body: unknown) =>
+			handle(
+				new Request(`https://inbox.test/xrpc/${lxm}`, {
+					method: "POST",
+					body: JSON.stringify(body),
+				}),
+			);
+		const ok = await post("com.atproto.space.confirmRegistration", {
+			space,
+			token,
+			challenge: "c1",
+		});
+		expect(await ok.json()).toEqual({ challenge: "c1" });
+		const wrongSpace = await post("com.atproto.space.confirmRegistration", {
+			space: `${space}y`,
+			token,
+			challenge: "c2",
+		});
+		expect(wrongSpace.status).toBe(400);
+		const unknown = await post("com.atproto.space.notifySpaceUpdate", {
+			space,
+			token: "nope",
+			update: {},
+		});
+		expect(unknown.status).toBe(400);
+		inbox.respond("com.atproto.managedspace.checkAccess", () => ({
+			read: true,
+			write: false,
+		}));
+		const answer = await handle(
+			new Request(
+				`https://inbox.test/xrpc/com.atproto.managedspace.checkAccess?space=${encodeURIComponent(space)}`,
+			),
+		);
+		expect(await answer.json()).toEqual({ read: true, write: false });
+		expect(deliveries().map((d) => d.status)).toEqual([200, 400, 400, 200]);
+		const seen = await inbox.waitFor(
+			(d) => d.lxm === "com.atproto.managedspace.checkAccess",
+			10,
+		);
+		expect(seen?.params?.space).toBe(space);
 	});
 });
 

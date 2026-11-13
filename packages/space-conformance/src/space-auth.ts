@@ -1,13 +1,14 @@
 /**
  * Browser-safe space credential presentation: P-256 did:key credential
  * keys, the `atproto-space-credential` HTTP message signature, and the
- * KEM key share a syncer sends in `Atproto-Space-Want-Mac`.
+ * MAC request (`Accept-Signature`, keyed by an HPKE-exported secret) a
+ * syncer sends with every credentialed read of a commit or record.
  *
  * Deliberately dependency-free (WebCrypto and BigInt only) so the checks
  * that present a credential — the operator's own credential flow, the MAC
  * and signature refusals — run in a browser bundle too. Every format here
  * mirrors `@atproto/space` byte for byte (`createSpaceSigHeaders`,
- * `encapsulate`, `formatWantMacHeader`); the full test suite cross-checks
+ * `encapsulate`, `formatMacRequest`); the full test suite cross-checks
  * each against the reference library, so a drift fails CI rather than
  * every run against a real host.
  *
@@ -19,7 +20,6 @@
 import {
 	concatBytes,
 	fromBase58,
-	fromBase64,
 	toBase58,
 	toBase64,
 	utf8,
@@ -174,57 +174,160 @@ export async function createCredentialKey(): Promise<CredentialKey> {
 // --- HTTP message signature --------------------------------------------
 
 export const SPACE_CREDENTIAL_SCHEME = "Atproto-Space-Credential";
-const SIGNATURE_LABEL = "atproto-space-credential";
-const SIGNATURE_PARAMS = `("authorization" "atproto-space-audience");tag="atproto-space-credential"`;
+const CREDENTIAL_SIG_TAG = "atproto-space-credential";
+const CREDENTIAL_COMPONENTS = ["authorization", "atproto-space-audience"];
+
+/** Serialise RFC 9651 parameters: strings quoted, integers bare. */
+function serializeParams(params: Array<[string, string | number]>): string {
+	return params
+		.map(([k, v]) => `;${k}=${typeof v === "number" ? v : `"${v}"`}`)
+		.join("");
+}
+
+export interface CredentialSigOptions {
+	authorization: string;
+	audience: string;
+	/** The signature's label. Hosts find it by tag, so any label works; default `sig`. */
+	label?: string;
+	/** Parameters after `tag` (e.g. `keyid`, `alg`, `created`), in order. */
+	params?: Array<[string, string | number]>;
+	/** Covered components; defaults to exactly the two the protocol requires. */
+	components?: string[];
+	/** Replace the tag (probing hosts that must ignore other tags). */
+	tag?: string;
+}
+
+/** One signature's `Signature-Input` and `Signature` dictionary members. */
+export async function credentialSigMembers(
+	key: Pick<CredentialKey, "sign">,
+	opts: CredentialSigOptions,
+): Promise<{ input: string; signature: string }> {
+	const components = opts.components ?? CREDENTIAL_COMPONENTS;
+	const label = opts.label ?? "sig";
+	const signatureParams = `(${components.map((c) => `"${c}"`).join(" ")})${serializeParams(
+		[["tag", opts.tag ?? CREDENTIAL_SIG_TAG], ...(opts.params ?? [])],
+	)}`;
+	const values: Record<string, string> = {
+		authorization: opts.authorization,
+		"atproto-space-audience": opts.audience,
+	};
+	const base = [
+		...components.map((c) => `"${c}": ${(values[c] ?? "").trim()}`),
+		`"@signature-params": ${signatureParams}`,
+	].join("\n");
+	const signature = await key.sign(utf8(base));
+	return {
+		input: `${label}=${signatureParams}`,
+		// RFC 9651 byte sequences are padded base64.
+		signature: `${label}=:${toBase64(signature)}:`,
+	};
+}
 
 /**
  * The headers that present a space credential: the `Authorization` scheme,
  * the audience DID (the service being called — the repo DID at a repo
  * host, the authority DID at the space host) and an RFC 9421 signature by
- * the credential's key covering exactly those two fields.
+ * the credential's key covering exactly those two fields, tagged
+ * `atproto-space-credential`.
  */
 export async function spaceSigHeaders(
 	key: Pick<CredentialKey, "sign">,
-	opts: { authorization: string; audience: string },
+	opts: CredentialSigOptions,
 ): Promise<Record<string, string>> {
-	const base = [
-		`"authorization": ${opts.authorization.trim()}`,
-		`"atproto-space-audience": ${opts.audience.trim()}`,
-		`"@signature-params": ${SIGNATURE_PARAMS}`,
-	].join("\n");
-	const signature = await key.sign(utf8(base));
+	const { input, signature } = await credentialSigMembers(key, opts);
 	return {
 		authorization: opts.authorization,
 		"atproto-space-audience": opts.audience,
-		"signature-input": `${SIGNATURE_LABEL}=${SIGNATURE_PARAMS}`,
-		// RFC 9651 byte sequences are padded base64.
-		signature: `${SIGNATURE_LABEL}=:${toBase64(signature)}:`,
+		"signature-input": input,
+		signature,
 	};
 }
 
 // --- KEM / MAC request -------------------------------------------------
 
-export const COMMIT_MAC_TYPE = "atproto-space-repo";
-export const RECORD_MAC_TYPE = "atproto-space-record";
-export type MacType = typeof COMMIT_MAC_TYPE | typeof RECORD_MAC_TYPE;
-const WANT_MAC_HEADER = "atproto-space-want-mac";
-export const MAC_HEADER = "atproto-space-mac";
+export const COMMIT_MAC_PROFILE = "atproto-space-commit";
+export const RECORD_MAC_PROFILE = "atproto-space-record";
+export type MacProfile = typeof COMMIT_MAC_PROFILE | typeof RECORD_MAC_PROFILE;
 
-/** `type="…", ver=1, key_share="did:key:…"` — both MAC types are on v1. */
-export const formatWantMacHeader = (type: MacType, keyShare: string): string =>
-	`type="${type}", ver=1, key_share="${keyShare}"`;
-
-const uint16be = (n: number) => new Uint8Array([n >>> 8, n & 0xff]);
-const KEM_PREFIX = concatBytes([
-	utf8("HPKE-v1"),
-	utf8("KEM"),
-	uint16be(0x0010),
-]);
+/** The response header each profile's MAC covers. */
+export const MAC_COVERED_HEADER: Record<MacProfile, string> = {
+	[COMMIT_MAC_PROFILE]: "atproto-space-commit",
+	[RECORD_MAC_PROFILE]: "atproto-space-record",
+};
 
 /**
- * Syncer side of the space KEM: ECDH between a fresh ephemeral P-256 key
- * and the author's `#atproto_kem` key, with the secret derived as in
- * DHKEM(P-256, HKDF-SHA256) (RFC 9180 §4.1). Use once per request.
+ * One `Accept-Signature` member asking for a MAC under `profile`, keyed by
+ * the shared secret for `keyShare`:
+ * `mac=("atproto-space-commit";sf);keyid="did:key:…";tag="atproto-space-commit"`.
+ */
+export function formatMacRequest(
+	profile: MacProfile,
+	keyShare: string,
+	opts: { label?: string; params?: Array<[string, string | number]> } = {},
+): string {
+	return `${opts.label ?? "mac"}=("${MAC_COVERED_HEADER[profile]}";sf)${serializeParams(
+		[["keyid", keyShare], ["tag", profile], ...(opts.params ?? [])],
+	)}`;
+}
+
+const uint16be = (n: number) => new Uint8Array([n >>> 8, n & 0xff]);
+const HPKE_VERSION = utf8("HPKE-v1");
+const KEM_ID = concatBytes([utf8("KEM"), uint16be(0x0010)]);
+const SUITE_ID = concatBytes([
+	utf8("HPKE"),
+	uint16be(0x0010), // DHKEM(P-256, HKDF-SHA256)
+	uint16be(0x0001), // HKDF-SHA256
+	uint16be(0xffff), // Export-only AEAD
+]);
+const EMPTY = new Uint8Array(0);
+
+async function hmac(key: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
+	// An empty HMAC key is equivalent to a block of zeros (RFC 2104), and
+	// WebCrypto refuses zero-length keys.
+	const k = await crypto.subtle.importKey(
+		"raw",
+		(key.length ? key : new Uint8Array(32)) as BufferSource,
+		{ name: "HMAC", hash: "SHA-256" },
+		false,
+		["sign"],
+	);
+	return new Uint8Array(
+		await crypto.subtle.sign("HMAC", k, data as BufferSource),
+	);
+}
+
+const labeledExtract = (
+	id: Uint8Array,
+	salt: Uint8Array,
+	label: string,
+	ikm: Uint8Array,
+) => hmac(salt, concatBytes([HPKE_VERSION, id, utf8(label), ikm]));
+
+// HKDF-Expand for L = 32: a single block.
+const labeledExpand = (
+	id: Uint8Array,
+	prk: Uint8Array,
+	label: string,
+	info: Uint8Array,
+) =>
+	hmac(
+		prk,
+		concatBytes([
+			uint16be(32),
+			HPKE_VERSION,
+			id,
+			utf8(label),
+			info,
+			new Uint8Array([1]),
+		]),
+	);
+
+/**
+ * Syncer side of the space KEM: HPKE secret export (RFC 9180 §6.2) in base
+ * mode with DHKEM(P-256, HKDF-SHA256), HKDF-SHA256 and the Export-only
+ * AEAD, `info = "atproto-mac"`, an empty exporter context and L = 32 —
+ * spelled out as the ECDH and HKDF steps it performs. The returned
+ * `keyShare` is HPKE's `enc`, as a compressed did:key. Use once per request.
  */
 export async function encapsulate(
 	authorKemDidKey: string,
@@ -244,7 +347,7 @@ export async function encapsulate(
 		true,
 		["deriveBits"],
 	);
-	const ephemeralBytes = new Uint8Array(
+	const enc = new Uint8Array(
 		await crypto.subtle.exportKey("raw", ephemeral.publicKey),
 	);
 	const dh = new Uint8Array(
@@ -254,59 +357,28 @@ export async function encapsulate(
 			256,
 		),
 	);
-	const ikm = concatBytes([KEM_PREFIX, utf8("eae_prk"), dh]);
-	const info = concatBytes([
-		uint16be(32),
-		KEM_PREFIX,
-		utf8("shared_secret"),
-		ephemeralBytes,
-		authorBytes,
-	]);
-	const hkdfKey = await crypto.subtle.importKey(
-		"raw",
-		ikm as BufferSource,
-		"HKDF",
-		false,
-		["deriveBits"],
+	const eaePrk = await labeledExtract(KEM_ID, EMPTY, "eae_prk", dh);
+	const kemSecret = await labeledExpand(
+		KEM_ID,
+		eaePrk,
+		"shared_secret",
+		concatBytes([enc, authorBytes]),
 	);
-	const sharedSecret = new Uint8Array(
-		await crypto.subtle.deriveBits(
-			{
-				name: "HKDF",
-				hash: "SHA-256",
-				salt: new Uint8Array(0),
-				info: info as BufferSource,
-			},
-			hkdfKey,
-			256,
-		),
+	const pskIdHash = await labeledExtract(SUITE_ID, EMPTY, "psk_id_hash", EMPTY);
+	const infoHash = await labeledExtract(
+		SUITE_ID,
+		EMPTY,
+		"info_hash",
+		utf8("atproto-mac"),
 	);
-	return { keyShare: formatDidKey("ES256", ephemeralBytes), sharedSecret };
-}
-
-/**
- * Pull the `mac` byte sequence out of an `Atproto-Space-Mac` header,
- * checking its type and version. Undefined when absent or malformed.
- */
-export function parseMacHeader(
-	value: string | null,
-	type: MacType,
-): Uint8Array | undefined {
-	if (!value) return undefined;
-	const fields = new Map<string, string>();
-	for (const member of value.split(",")) {
-		const eq = member.indexOf("=");
-		if (eq < 0) continue;
-		fields.set(member.slice(0, eq).trim(), member.slice(eq + 1).trim());
-	}
-	if (fields.get("type") !== `"${type}"` || fields.get("ver") !== "1") {
-		return undefined;
-	}
-	const mac = fields.get("mac");
-	if (!mac || !mac.startsWith(":") || !mac.endsWith(":")) return undefined;
-	try {
-		return fromBase64(mac.slice(1, -1));
-	} catch {
-		return undefined;
-	}
+	const context = concatBytes([new Uint8Array([0]), pskIdHash, infoHash]);
+	const secret = await labeledExtract(SUITE_ID, kemSecret, "secret", EMPTY);
+	const exporterSecret = await labeledExpand(SUITE_ID, secret, "exp", context);
+	const sharedSecret = await labeledExpand(
+		SUITE_ID,
+		exporterSecret,
+		"sec",
+		EMPTY,
+	);
+	return { keyShare: formatDidKey("ES256", enc), sharedSecret };
 }

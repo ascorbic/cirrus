@@ -1,8 +1,10 @@
 /**
- * The space-host role: the writer set (listRepos, removeWriter) and
- * notification registration (registerNotify / unregisterNotify), plus —
- * when the harness runs a syncer inbox — the notifications the host sends.
- * Browser-safe; the inbox checks need a harness that can receive them.
+ * The space-host role: the writer set (listWriters, removeWriter) and,
+ * when the harness serves a syncer inbox, the notifications the host sends
+ * through `authorizeSpaceSync`'s `notify` registration —
+ * confirmRegistration, then notifySpaceUpdate for writes, removals and
+ * deletion. Browser-safe; the inbox checks need a harness the target can
+ * reach.
  */
 
 import { defineCheck } from "../registry.js";
@@ -13,38 +15,39 @@ import {
 	type Check,
 	type CheckContext,
 	type InboxDelivery,
+	type SyncerInbox,
 } from "../model.js";
-import { bytesEqual, isTid, lexBytes } from "../encoding.js";
+import { bytesEqual, decodeJwt, isTid, lexBytes } from "../encoding.js";
 import {
-	FOREIGN_DID,
 	createProbeSpace,
+	managedspace,
 	credentialCall,
 	deleteProbeSpace,
 	describe,
 	mustCreateRecord,
 	obtainPublicCredential,
 	publicRead,
+	requestCredential,
 	type Credential,
 } from "./probe.js";
 import { fakeDid } from "./space.js";
 
 const L = (ref: string) => ({ source: "lexicon" as const, ref });
+const P = (ref: string) => ({ source: "proposal" as const, ref });
 
-/**
- * A service identifier sure to resolve: the target's own `#atproto_pds`
- * entry, named explicitly by fragment (registerNotify: "a DID with an
- * optional service fragment naming the entry in its DID document").
- */
-const ownService = (ctx: CheckContext) => `${ctx.target.did}#atproto_pds`;
+const REPO_WRITE = "com.atproto.space.defs#repoWrite";
+const REPO_REMOVED = "com.atproto.space.defs#repoRemoved";
+const SPACE_DELETED = "com.atproto.space.notifySpaceUpdate#spaceDeleted";
 
 interface WriterEntry {
-	did: string;
-	repoRev: unknown;
-	data: unknown;
-	spaceRev: unknown;
+	$type?: string;
+	repo?: string;
+	repoRev?: unknown;
+	data?: unknown;
+	spaceRev?: unknown;
 }
 
-async function listRepos(
+export async function listWriters(
 	ctx: CheckContext,
 	credential: Credential,
 	params: Record<string, string> = {},
@@ -52,7 +55,7 @@ async function listRepos(
 	const res = await credentialCall(
 		ctx,
 		credential,
-		"com.atproto.space.listRepos",
+		"com.atproto.space.listWriters",
 		{
 			params: { space: credential.space, ...params },
 			audience: ctx.target.did,
@@ -64,62 +67,51 @@ async function listRepos(
 	return { res, repos: body?.repos ?? [], cursor: body?.cursor };
 }
 
+/** The latest entry for `repo` in the whole writer set. */
+async function writerEntry(
+	ctx: CheckContext,
+	credential: Credential,
+	repo: string,
+) {
+	const { repos } = await listWriters(ctx, credential, { limit: "1000" });
+	return repos.filter((r) => r.repo === repo).at(-1);
+}
+
 const hostRequiresCredential = defineCheck({
-	id: "host.listrepos-requires-credential",
-	title:
-		"listRepos, registerNotify and unregisterNotify refuse an unauthenticated caller",
+	id: "host.listwriters-requires-credential",
+	title: "listWriters refuses an unauthenticated caller",
 	tier: "must",
-	citations: [
-		L("com.atproto.space.listRepos"),
-		L("com.atproto.space.registerNotify"),
-		L("com.atproto.space.unregisterNotify"),
-	],
+	citations: [L("com.atproto.space.listWriters")],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
 		const space = await createProbeSpace(ctx, publicRead());
 		try {
-			const probes = [
-				[
-					"listRepos",
-					await xrpcGet(ctx, "com.atproto.space.listRepos", {
-						space: space.uri,
-					}),
-				],
-				[
-					"registerNotify",
-					await xrpcPost(ctx, "com.atproto.space.registerNotify", {
-						space: space.uri,
-						service: ownService(ctx),
-					}),
-				],
-				[
-					"unregisterNotify",
-					await xrpcPost(ctx, "com.atproto.space.unregisterNotify", {
-						space: space.uri,
-						service: ownService(ctx),
-					}),
-				],
-			] as const;
-			const served = probes.filter(
-				([, r]) => r.status !== 401 && r.status !== 403,
-			);
-			return served.length
-				? fail(
-						`not refused with 401/403: ${served.map(([n, r]) => `${n} → ${describe(r)}`).join("; ")}`,
-					)
-				: pass("all three refused an unauthenticated caller");
+			const res = await xrpcGet(ctx, "com.atproto.space.listWriters", {
+				space: space.uri,
+			});
+			return res.status === 401 || res.status === 403
+				? pass(`refused with ${res.status}`)
+				: fail(
+						`unauthenticated listWriters returned ${describe(res)}`,
+						res.json,
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
 	},
 });
 
-const listReposShape = defineCheck({
-	id: "sync.listrepos-shape",
-	title: "listRepos lists writers by ascending spaceRev with a spaceRev cursor",
+const listWritersShape = defineCheck({
+	id: "sync.listwriters-shape",
+	title:
+		"listWriters lists typed repoWrite entries by ascending spaceRev, resumable by cursor",
 	tier: "must",
-	citations: [L("com.atproto.space.listRepos")],
+	citations: [
+		L("com.atproto.space.listWriters"),
+		L("com.atproto.space.defs#repoWrite"),
+		P("0016#the-sync-boundary-writer-set"),
+	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
@@ -128,40 +120,46 @@ const listReposShape = defineCheck({
 			await mustCreateRecord(ctx, space.uri, "a");
 			await mustCreateRecord(ctx, space.uri, "b");
 			const credential = await obtainPublicCredential(ctx, space.uri);
-			const page = await listRepos(ctx, credential);
+			const page = await listWriters(ctx, credential);
 			if (page.res.status !== 200)
-				return fail(`listRepos ${describe(page.res)}`, page.res.json);
+				return fail(`listWriters ${describe(page.res)}`, page.res.json);
 			const problems: string[] = [];
-			for (const repo of page.repos) {
-				const data = lexBytes(repo.data);
-				if (!isTid(repo.repoRev))
-					problems.push(`${repo.did} repoRev ${String(repo.repoRev)}`);
-				if (!isTid(repo.spaceRev))
-					problems.push(`${repo.did} spaceRev ${String(repo.spaceRev)}`);
-				if (!data || data.length !== 32)
-					problems.push(`${repo.did} data is not 32 bytes`);
+			for (const entry of page.repos) {
+				if (entry.$type !== REPO_WRITE && entry.$type !== REPO_REMOVED)
+					problems.push(`entry $type ${String(entry.$type)}`);
+				if (!isTid(entry.spaceRev))
+					problems.push(`${entry.repo} spaceRev ${String(entry.spaceRev)}`);
+				if (entry.$type === REPO_WRITE) {
+					if (!isTid(entry.repoRev))
+						problems.push(`${entry.repo} repoRev ${String(entry.repoRev)}`);
+					if (lexBytes(entry.data)?.length !== 32)
+						problems.push(`${entry.repo} data is not 32 bytes`);
+				}
+				if ("prevSpaceRev" in entry)
+					problems.push("listWriters entries carry prevSpaceRev");
 			}
 			const revs = page.repos.map((r) => String(r.spaceRev));
 			if (revs.some((rev, i) => i > 0 && rev <= revs[i - 1]!))
 				problems.push(`not ascending: ${revs.join(",")}`);
-			if (!page.repos.some((r) => r.did === ctx.target.did))
-				problems.push("the authority's own repo is not listed");
-			if (page.repos.length && page.cursor !== revs.at(-1)) {
-				problems.push(
-					`cursor ${page.cursor} is not the last spaceRev ${revs.at(-1)}`,
-				);
+			if (
+				!page.repos.some(
+					(r) => r.repo === ctx.target.did && r.$type === REPO_WRITE,
+				)
+			) {
+				problems.push("the authority's own repo is not listed as a repoWrite");
 			}
+			if (!page.cursor) problems.push("a non-empty page carried no cursor");
 			if (problems.length) return fail(problems.join("; "), page.res.json);
-			// Resuming from the cursor reaches an empty page, which carries no cursor.
-			const next = await listRepos(ctx, credential, { cursor: page.cursor! });
+			// Resuming from the cursor reaches only later updates — here, none.
+			const next = await listWriters(ctx, credential, { cursor: page.cursor! });
 			if (next.res.status !== 200)
-				return fail(`listRepos(cursor) ${describe(next.res)}`, next.res.json);
-			return next.repos.length === 0 && next.cursor === undefined
+				return fail(`listWriters(cursor) ${describe(next.res)}`, next.res.json);
+			return next.repos.length === 0
 				? pass(
-						`${page.repos.length} writer(s), ascending, cursor resumes to an empty page`,
+						`${page.repos.length} writer(s), typed and ascending; the cursor resumes after them`,
 					)
 				: fail(
-						`after the last cursor: ${next.repos.length} repo(s), cursor ${next.cursor}`,
+						`after the last cursor: ${next.repos.length} repo(s) again`,
 						next.res.json,
 					);
 		} finally {
@@ -170,29 +168,27 @@ const listReposShape = defineCheck({
 	},
 });
 
-const listReposReflects = defineCheck({
-	id: "sync.listrepos-reflects-writes",
-	title: "The authority's listRepos entry matches its latest commit",
+const listWritersReflects = defineCheck({
+	id: "sync.listwriters-reflects-writes",
+	title: "The authority's listWriters entry matches its latest commit",
 	tier: "should",
 	citations: [
 		{
 			source: "reference",
 			ref: "authority repo notifies its own space host synchronously",
 		},
-		L("com.atproto.space.listRepos"),
+		L("com.atproto.space.listWriters"),
 	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
-		// The lexicon allows the entry to lag ("as last reported"), so this is
-		// calibrated against the reference, which notifies its own host on
-		// commit.
+		// The proposal lets the entry lag ("current as far as the authority's
+		// notifications have kept it"), so this is calibrated on the reference.
 		const space = await createProbeSpace(ctx, publicRead());
 		try {
 			await mustCreateRecord(ctx, space.uri, "a");
 			const credential = await obtainPublicCredential(ctx, space.uri);
-			const { repos } = await listRepos(ctx, credential);
-			const mine = repos.find((r) => r.did === ctx.target.did);
+			const mine = await writerEntry(ctx, credential, ctx.target.did);
 			const latest = await xrpcGet(
 				asOperator(ctx),
 				"com.atproto.space.getLatestCommit",
@@ -213,7 +209,7 @@ const listReposReflects = defineCheck({
 				b &&
 				bytesEqual(a, b)
 				? pass("repoRev and data match getLatestCommit")
-				: fail("listRepos entry differs from the latest commit", {
+				: fail("listWriters entry differs from the latest commit", {
 						listed: mine,
 						commit,
 					});
@@ -225,38 +221,40 @@ const listReposReflects = defineCheck({
 
 const removeWriter = defineCheck({
 	id: "host.removewriter",
-	title: "removeWriter drops a repo from listRepos until it writes again",
+	title: "removeWriter lists the repo as repoRemoved until it writes again",
 	tier: "must",
 	citations: [
 		L("com.atproto.space.removeWriter"),
-		L("com.atproto.space.listRepos"),
+		L("com.atproto.space.listWriters"),
+		L("com.atproto.space.defs#repoRemoved"),
+		P("0016#the-sync-boundary-writer-set"),
 	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
 		const space = await createProbeSpace(ctx, publicRead());
-		const remove = (did: string) =>
+		const remove = (repo: string) =>
 			xrpcPost(asOperator(ctx), "com.atproto.space.removeWriter", {
 				space: space.uri,
-				did,
+				repo,
 			});
 		try {
 			await mustCreateRecord(ctx, space.uri, "a");
 			const credential = await obtainPublicCredential(ctx, space.uri);
-			const listed = async () =>
-				(await listRepos(ctx, credential)).repos.some(
-					(r) => r.did === ctx.target.did,
-				);
-			if (!(await listed()))
+			const before = await writerEntry(ctx, credential, ctx.target.did);
+			if (before?.$type !== REPO_WRITE)
 				return fail(
 					"the authority's repo was not in the writer set to begin with",
 				);
 			const removed = await remove(ctx.target.did);
 			if (removed.status !== 200)
 				return fail(`removeWriter ${describe(removed)}`, removed.json);
-			if (await listed())
-				return fail("removeWriter left the repo in listRepos");
-			// Idempotent: removing an account that isn't a writer succeeds.
+			const gone = await writerEntry(ctx, credential, ctx.target.did);
+			if (gone?.$type !== REPO_REMOVED)
+				return fail(`after removeWriter the entry is ${JSON.stringify(gone)}`);
+			if (!(String(gone.spaceRev) > String(before.spaceRev)))
+				return fail("the removal was not sequenced after the write");
+			// "Does nothing if the account is not in the writer set."
 			const absent = await remove(fakeDid());
 			if (absent.status !== 200)
 				return fail(
@@ -264,88 +262,12 @@ const removeWriter = defineCheck({
 					absent.json,
 				);
 			await mustCreateRecord(ctx, space.uri, "b");
-			return (await listed())
+			const back = await writerEntry(ctx, credential, ctx.target.did);
+			return back?.$type === REPO_WRITE
 				? pass(
-						"removed, idempotent for a non-writer, and tracked again after a new write",
+						"listed as repoRemoved at a later spaceRev; no-op for a non-writer; a new write re-added it",
 					)
-				: fail(
-						"a new write by an authorised account did not return it to the writer set",
-					);
-		} finally {
-			await deleteProbeSpace(ctx, space.uri);
-		}
-	},
-});
-
-const registerRoundTrip = defineCheck({
-	id: "host.registernotify-round-trip",
-	title:
-		"registerNotify returns a future expiry; unregisterNotify is idempotent",
-	tier: "must",
-	citations: [
-		L("com.atproto.space.registerNotify"),
-		L("com.atproto.space.unregisterNotify"),
-	],
-	needs: ["operator"],
-	destructive: true,
-	async run(ctx) {
-		const space = await createProbeSpace(ctx, publicRead());
-		try {
-			const credential = await obtainPublicCredential(ctx, space.uri);
-			const call = (nsid: string) =>
-				credentialCall(ctx, credential, nsid, {
-					body: { space: space.uri, service: ownService(ctx) },
-					audience: ctx.target.did,
-				});
-			const reg = await call("com.atproto.space.registerNotify");
-			if (reg.status !== 200)
-				return fail(`registerNotify ${describe(reg)}`, reg.json);
-			const expiresAt = Date.parse(
-				String((reg.json as { expiresAt?: unknown }).expiresAt),
-			);
-			if (!(expiresAt > Date.now()))
-				return fail("expiresAt is not a future datetime", reg.json);
-			const un1 = await call("com.atproto.space.unregisterNotify");
-			const un2 = await call("com.atproto.space.unregisterNotify");
-			return un1.status === 200 && un2.status === 200
-				? pass("registered with a future expiry; unregistered twice")
-				: fail(
-						`unregisterNotify returned ${describe(un1)} then ${describe(un2)}`,
-						{ first: un1.json, second: un2.json },
-					);
-		} finally {
-			await deleteProbeSpace(ctx, space.uri);
-		}
-	},
-});
-
-const registerUnresolvable = defineCheck({
-	id: "host.registernotify-unresolvable",
-	title:
-		"registerNotify for a service that does not resolve answers ServiceNotResolvable",
-	tier: "must",
-	citations: [L("com.atproto.space.registerNotify@error:ServiceNotResolvable")],
-	needs: ["operator"],
-	destructive: true,
-	async run(ctx) {
-		const space = await createProbeSpace(ctx, publicRead());
-		try {
-			const credential = await obtainPublicCredential(ctx, space.uri);
-			const res = await credentialCall(
-				ctx,
-				credential,
-				"com.atproto.space.registerNotify",
-				{
-					body: { space: space.uri, service: `${FOREIGN_DID}#space_syncer` },
-					audience: ctx.target.did,
-				},
-			);
-			return res.error === "ServiceNotResolvable"
-				? pass("answered ServiceNotResolvable")
-				: fail(
-						`answered ${describe(res)}, expected ServiceNotResolvable`,
-						res.json,
-					);
+				: fail(`after a new write the entry is ${JSON.stringify(back)}`);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -354,63 +276,151 @@ const registerUnresolvable = defineCheck({
 
 const hostAfterDelete = defineCheck({
 	id: "host.deleted-space-not-found",
-	title: "Space-host methods on a deleted space answer SpaceNotFound",
+	title: "listWriters on a deleted space answers SpaceNotFound",
 	tier: "must",
-	citations: [
-		L("com.atproto.space.listRepos@error:SpaceNotFound"),
-		L("com.atproto.space.registerNotify@error:SpaceNotFound"),
-		L("com.atproto.space.unregisterNotify@error:SpaceNotFound"),
-	],
+	citations: [L("com.atproto.space.listWriters@error:SpaceNotFound")],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
-		// A credential issued before deletion is still a well-formed, unexpired
-		// credential; what has gone is the space.
+		// A credential issued before deletion is still well-formed and
+		// unexpired; what has gone is the space.
 		const space = await createProbeSpace(ctx, publicRead());
 		const credential = await obtainPublicCredential(ctx, space.uri);
 		await deleteProbeSpace(ctx, space.uri);
-		const body = { space: space.uri, service: ownService(ctx) };
-		const probes = [
-			["listRepos", await listRepos(ctx, credential).then((r) => r.res)],
-			[
-				"registerNotify",
-				await credentialCall(
-					ctx,
-					credential,
-					"com.atproto.space.registerNotify",
-					{ body, audience: ctx.target.did },
-				),
-			],
-			[
-				"unregisterNotify",
-				await credentialCall(
-					ctx,
-					credential,
-					"com.atproto.space.unregisterNotify",
-					{ body, audience: ctx.target.did },
-				),
-			],
-		] as const;
-		const misses = probes.filter(([, r]) => r.error !== "SpaceNotFound");
-		return misses.length
-			? fail(
-					`expected SpaceNotFound: ${misses.map(([n, r]) => `${n} → ${describe(r)}`).join("; ")}`,
-				)
-			: pass("all three answered SpaceNotFound");
+		const { res } = await listWriters(ctx, credential);
+		return res.error === "SpaceNotFound"
+			? pass("answered SpaceNotFound")
+			: fail(`answered ${describe(res)}, expected SpaceNotFound`, res.json);
 	},
 });
 
-// --- deliveries to a harness syncer --------------------------------------
+// --- notifications to a harness syncer ------------------------------------
 
 const NOTIFY_TIMEOUT_MS = 10_000;
 
-const forwardedNotifyWrite = defineCheck({
-	id: "notify.forwarded-notifywrite",
-	title: "A registered syncer receives sequenced notifyWrite calls",
+/** Authorise with a fresh notify registration at the inbox. */
+async function register(ctx: CheckContext, inbox: SyncerInbox, space: string) {
+	const token = inbox.issueToken(space);
+	const since = Date.now();
+	const res = await requestCredential(ctx, space, {
+		notify: { endpoint: inbox.endpoint, token },
+	});
+	return { token, since, ...res };
+}
+
+const updatesFor =
+	(space: string, token: string, type: string, since: number) =>
+	(d: InboxDelivery) => {
+		const body = d.body as
+			| { space?: string; token?: string; update?: { $type?: string } }
+			| undefined;
+		return (
+			d.lxm === "com.atproto.space.notifySpaceUpdate" &&
+			d.receivedAt >= since &&
+			body?.space === space &&
+			body.token === token &&
+			body.update?.$type === type
+		);
+	};
+
+const notifyConfirmed = defineCheck({
+	id: "notify.registration-confirmed",
+	title:
+		"A notify registration is confirmed with a challenge before the credential is issued",
 	tier: "must",
 	citations: [
-		L("com.atproto.space.notifyWrite"),
-		L("com.atproto.space.registerNotify"),
+		L("com.atproto.space.confirmRegistration"),
+		L("com.atproto.space.authorizeSpaceSync#notify"),
+		P("0016#registering-for-notifications"),
+	],
+	needs: ["operator", "syncer-inbox"],
+	destructive: true,
+	async run(ctx) {
+		const inbox = ctx.syncerInbox!;
+		const space = await createProbeSpace(ctx, publicRead());
+		try {
+			const reg = await register(ctx, inbox, space.uri);
+			if (!reg.credential)
+				return fail(
+					`authorizeSpaceSync with notify ${describe(reg.result)}`,
+					reg.result.json,
+				);
+			const confirm = await inbox.waitFor(
+				(d) =>
+					d.lxm === "com.atproto.space.confirmRegistration" &&
+					d.receivedAt >= reg.since &&
+					(d.body as { token?: string } | undefined)?.token === reg.token,
+				1_000,
+			);
+			if (!confirm)
+				return fail(
+					"the credential was issued without calling confirmRegistration",
+				);
+			const body = confirm.body as { space?: string; challenge?: unknown };
+			if (body.space !== space.uri)
+				return fail(`confirmRegistration named space ${body.space}`);
+			if (typeof body.challenge !== "string" || body.challenge.length < 8)
+				return fail("confirmRegistration carried no real challenge", body);
+			return pass(
+				"confirmRegistration (space, token, challenge) preceded the credential",
+			);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
+const notifyRenewal = defineCheck({
+	id: "notify.renewal-not-reconfirmed",
+	title:
+		"Reauthorizing with the same notify pair renews without confirming again",
+	tier: "should",
+	citations: [
+		{
+			source: "reference",
+			ref: "pds authorizeSpaceSync confirms only unregistered pairs",
+		},
+		P("0016#registering-for-notifications"),
+	],
+	needs: ["operator", "syncer-inbox"],
+	destructive: true,
+	async run(ctx) {
+		const inbox = ctx.syncerInbox!;
+		const space = await createProbeSpace(ctx, publicRead());
+		try {
+			const first = await register(ctx, inbox, space.uri);
+			if (!first.credential)
+				return fail(`authorizeSpaceSync ${describe(first.result)}`);
+			const since = Date.now();
+			const again = await requestCredential(ctx, space.uri, {
+				notify: { endpoint: inbox.endpoint, token: first.token },
+			});
+			if (!again.credential)
+				return fail(`reauthorizing ${describe(again.result)}`);
+			const reconfirmed = await inbox.waitFor(
+				(d) =>
+					d.lxm === "com.atproto.space.confirmRegistration" &&
+					d.receivedAt >= since &&
+					(d.body as { token?: string })?.token === first.token,
+				500,
+			);
+			return reconfirmed
+				? fail("the renewal was confirmed again")
+				: pass("renewed without a second confirmation");
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
+const notifyRepoWrite = defineCheck({
+	id: "notify.repo-write-delivered",
+	title: "A registered syncer receives sequenced repoWrite updates",
+	tier: "must",
+	citations: [
+		L("com.atproto.space.notifySpaceUpdate"),
+		L("com.atproto.space.defs#repoWrite"),
+		P("0016#write-notifications"),
 	],
 	needs: ["operator", "syncer-inbox"],
 	destructive: true,
@@ -419,79 +429,115 @@ const forwardedNotifyWrite = defineCheck({
 		const space = await createProbeSpace(ctx, publicRead());
 		try {
 			await mustCreateRecord(ctx, space.uri, "before");
-			const credential = await obtainPublicCredential(ctx, space.uri);
-			const reg = await credentialCall(
-				ctx,
-				credential,
-				"com.atproto.space.registerNotify",
-				{
-					body: { space: space.uri, service: inbox.service },
-					audience: ctx.target.did,
-				},
-			);
-			if (reg.status !== 200)
-				return fail(`registerNotify ${describe(reg)}`, reg.json);
-			const forThis = (d: InboxDelivery) =>
-				d.lxm === "com.atproto.space.notifyWrite" &&
-				(d.body as { space?: string } | undefined)?.space === space.uri;
+			const reg = await register(ctx, inbox, space.uri);
+			if (!reg.credential)
+				return fail(
+					`authorizeSpaceSync with notify ${describe(reg.result)}`,
+					reg.result.json,
+				);
 			const since = Date.now();
 			await mustCreateRecord(ctx, space.uri, "one");
 			const first = await inbox.waitFor(
-				(d) => forThis(d) && d.receivedAt >= since,
+				updatesFor(space.uri, reg.token, REPO_WRITE, since),
 				NOTIFY_TIMEOUT_MS,
 			);
-			if (!first)
-				return fail("no notifyWrite reached the syncer after a write");
-			const a = first.body as Record<string, unknown>;
+			if (!first) return fail("no repoWrite reached the syncer after a write");
+			const a = (first.body as { update: Record<string, unknown> }).update;
 			await mustCreateRecord(ctx, space.uri, "two");
 			const second = await inbox.waitFor(
 				(d) =>
-					forThis(d) &&
-					(d.body as { spaceRev?: string }).spaceRev !== a.spaceRev &&
-					d.receivedAt >= first.receivedAt,
+					updatesFor(space.uri, reg.token, REPO_WRITE, first.receivedAt)(d) &&
+					(d.body as { update: { spaceRev?: unknown } }).update.spaceRev !==
+						a.spaceRev,
 				NOTIFY_TIMEOUT_MS,
 			);
 			if (!second)
-				return fail("no notifyWrite reached the syncer after a second write");
-			const b = second.body as Record<string, unknown>;
+				return fail("no repoWrite reached the syncer after a second write");
+			const b = (second.body as { update: Record<string, unknown> }).update;
 			const problems: string[] = [];
-			for (const [label, body] of [
+			for (const [label, u] of [
 				["first", a],
 				["second", b],
 			] as const) {
-				if (body.repo !== ctx.target.did)
-					problems.push(`${label} repo ${String(body.repo)}`);
-				if (!isTid(body.repoRev))
-					problems.push(`${label} repoRev ${String(body.repoRev)}`);
-				if (!isTid(body.spaceRev)) problems.push(`${label} has no spaceRev`);
-				if (lexBytes(body.data)?.length !== 32)
+				if (u.repo !== ctx.target.did)
+					problems.push(`${label} repo ${String(u.repo)}`);
+				if (!isTid(u.repoRev))
+					problems.push(`${label} repoRev ${String(u.repoRev)}`);
+				if (!isTid(u.spaceRev)) problems.push(`${label} has no spaceRev`);
+				if (lexBytes(u.data)?.length !== 32)
 					problems.push(`${label} data is not 32 bytes`);
 			}
+			// The first write in the space preceded registration, so both carry one.
+			if (a.prevSpaceRev === undefined)
+				problems.push("first update has no prevSpaceRev");
 			if (b.prevSpaceRev !== a.spaceRev)
 				problems.push(
 					`second prevSpaceRev ${String(b.prevSpaceRev)} ≠ first spaceRev ${String(a.spaceRev)}`,
 				);
-			if (!second.authorization?.startsWith("Bearer "))
-				problems.push("delivered without service auth");
 			return problems.length
 				? fail(problems.join("; "), { first: a, second: b })
-				: pass(
-						"two sequenced deliveries; prevSpaceRev chains to the previous spaceRev",
-					);
+				: pass("two repoWrite updates carrying the token; prevSpaceRev chains");
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
 	},
 });
 
-const spaceDeletedDelivered = defineCheck({
-	id: "notify.space-deleted-delivered",
-	title:
-		"A registered syncer is sent notifySpaceDeleted when the space is deleted",
+const notifyRepoRemoved = defineCheck({
+	id: "notify.repo-removed-delivered",
+	title: "removeWriter is announced to registered syncers as repoRemoved",
 	tier: "must",
 	citations: [
-		L("com.atproto.space.notifySpaceDeleted"),
-		L("com.atproto.space.deleteSpace"),
+		L("com.atproto.space.removeWriter"),
+		L("com.atproto.space.defs#repoRemoved"),
+		L("com.atproto.space.notifySpaceUpdate"),
+		P("0016#the-sync-boundary-writer-set"),
+	],
+	needs: ["operator", "syncer-inbox"],
+	destructive: true,
+	async run(ctx) {
+		const inbox = ctx.syncerInbox!;
+		const space = await createProbeSpace(ctx, publicRead());
+		try {
+			await mustCreateRecord(ctx, space.uri, "a");
+			const reg = await register(ctx, inbox, space.uri);
+			if (!reg.credential)
+				return fail(
+					`authorizeSpaceSync with notify ${describe(reg.result)}`,
+					reg.result.json,
+				);
+			const since = Date.now();
+			const removed = await xrpcPost(
+				asOperator(ctx),
+				"com.atproto.space.removeWriter",
+				{ space: space.uri, repo: ctx.target.did },
+			);
+			if (removed.status !== 200)
+				return fail(`removeWriter ${describe(removed)}`, removed.json);
+			const got = await inbox.waitFor(
+				updatesFor(space.uri, reg.token, REPO_REMOVED, since),
+				NOTIFY_TIMEOUT_MS,
+			);
+			if (!got) return fail("no repoRemoved reached the syncer");
+			const u = (got.body as { update: Record<string, unknown> }).update;
+			return u.repo === ctx.target.did &&
+				isTid(u.spaceRev) &&
+				isTid(u.prevSpaceRev)
+				? pass("repoRemoved delivered with spaceRev and prevSpaceRev")
+				: fail("repoRemoved fields wrong", u);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
+const notifySpaceDeleted = defineCheck({
+	id: "notify.space-deleted-delivered",
+	title: "A registered syncer is sent spaceDeleted when the space is deleted",
+	tier: "must",
+	citations: [
+		L("com.atproto.space.notifySpaceUpdate#spaceDeleted"),
+		P("0016#space-deletion"),
 	],
 	needs: ["operator", "syncer-inbox"],
 	destructive: true,
@@ -500,43 +546,221 @@ const spaceDeletedDelivered = defineCheck({
 		const space = await createProbeSpace(ctx, publicRead());
 		let deleted = false;
 		try {
-			const credential = await obtainPublicCredential(ctx, space.uri);
-			const reg = await credentialCall(
-				ctx,
-				credential,
-				"com.atproto.space.registerNotify",
-				{
-					body: { space: space.uri, service: inbox.service },
-					audience: ctx.target.did,
-				},
-			);
-			if (reg.status !== 200)
-				return fail(`registerNotify ${describe(reg)}`, reg.json);
+			const reg = await register(ctx, inbox, space.uri);
+			if (!reg.credential)
+				return fail(
+					`authorizeSpaceSync with notify ${describe(reg.result)}`,
+					reg.result.json,
+				);
+			const since = Date.now();
 			await deleteProbeSpace(ctx, space.uri);
 			deleted = true;
 			const got = await inbox.waitFor(
-				(d) =>
-					d.lxm === "com.atproto.space.notifySpaceDeleted" &&
-					(d.body as { space?: string } | undefined)?.space === space.uri,
+				updatesFor(space.uri, reg.token, SPACE_DELETED, since),
 				NOTIFY_TIMEOUT_MS,
 			);
 			return got
-				? pass("notifySpaceDeleted delivered")
-				: fail(`no notifySpaceDeleted within ${NOTIFY_TIMEOUT_MS / 1000}s`);
+				? pass("spaceDeleted delivered")
+				: fail(`no spaceDeleted within ${NOTIFY_TIMEOUT_MS / 1000}s`);
 		} finally {
 			if (!deleted) await deleteProbeSpace(ctx, space.uri);
 		}
 	},
 });
 
+const notifyExpired = defineCheck({
+	id: "notify.registration-expired",
+	title:
+		"Once its credential expires, a registration is sent registrationExpired in place of the next update",
+	tier: "must",
+	citations: [
+		L("com.atproto.space.notifySpaceUpdate#registrationExpired"),
+		P("0016#registering-for-notifications"),
+	],
+	needs: ["operator", "syncer-inbox"],
+	destructive: true,
+	// Waits out a real credential lifetime (10 minutes by default).
+	slow: true,
+	timeoutMs: 65 * 60_000,
+	async run(ctx) {
+		const inbox = ctx.syncerInbox!;
+		const space = await createProbeSpace(ctx, publicRead());
+		try {
+			const reg = await register(ctx, inbox, space.uri);
+			if (!reg.credential)
+				return fail(
+					`authorizeSpaceSync with notify ${describe(reg.result)}`,
+					reg.result.json,
+				);
+			const exp =
+				Number(decodeJwt(reg.credential.credential).payload.exp) * 1000;
+			await new Promise((r) =>
+				setTimeout(r, Math.max(0, exp - Date.now()) + 5_000),
+			);
+			const since = Date.now();
+			await mustCreateRecord(ctx, space.uri, "late");
+			const got = await inbox.waitFor(
+				(d) =>
+					updatesFor(
+						space.uri,
+						reg.token,
+						"com.atproto.space.notifySpaceUpdate#registrationExpired",
+						since,
+					)(d),
+				NOTIFY_TIMEOUT_MS,
+			);
+			if (!got)
+				return fail("no registrationExpired after the credential lapsed");
+			const update = (got.body as { update: { spaceRev?: unknown } }).update;
+			const write = await inbox.waitFor(
+				updatesFor(space.uri, reg.token, REPO_WRITE, since),
+				2_000,
+			);
+			if (write)
+				return fail("a lapsed registration still received the repoWrite");
+			return isTid(update.spaceRev)
+				? pass("registrationExpired sent in place of the update")
+				: fail("registrationExpired has no spaceRev", update);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
+// --- managedspace ------------------------------------------------------
+
+const CHECK_ACCESS = "com.atproto.managedspace.checkAccess";
+
+const managedTokenless = defineCheck({
+	id: "managedspace.check-access-tokenless",
+	title:
+		"Without a delegation token a managedspace asks its managing app, with no repo",
+	tier: "must",
+	citations: [
+		L("com.atproto.managedspace.checkAccess"),
+		L("com.atproto.managedspace.policy"),
+		P("0016#managedspace"),
+	],
+	needs: ["operator", "syncer-inbox"],
+	destructive: true,
+	async run(ctx) {
+		const inbox = ctx.syncerInbox!;
+		let answer = { read: false, write: false };
+		inbox.respond(CHECK_ACCESS, () => answer);
+		const space = await createProbeSpace(ctx, managedspace(inbox.service));
+		try {
+			const since = Date.now();
+			const denied = await requestCredential(ctx, space.uri);
+			if (denied.credential)
+				return fail("issued a credential the managing app refused");
+			const asked = await inbox.waitFor(
+				(d) => d.lxm === CHECK_ACCESS && d.receivedAt >= since,
+				5_000,
+			);
+			if (!asked)
+				return fail(
+					`the managing app was never asked (${describe(denied.result)})`,
+				);
+			const p = asked.params ?? {};
+			if (p.space !== space.uri || "repo" in p || "access" in p)
+				return fail("checkAccess params wrong for a tokenless request", p);
+			const jwt = asked.authorization?.replace(/^Bearer /, "");
+			const claims = jwt ? decodeJwt(jwt).payload : undefined;
+			if (
+				claims?.lxm !== CHECK_ACCESS ||
+				claims.iss !== ctx.target.did ||
+				claims.aud !== inbox.service
+			) {
+				return fail(
+					"checkAccess service auth does not name the method, the authority and the managing app",
+					claims,
+				);
+			}
+			answer = { read: true, write: false };
+			const allowed = await requestCredential(ctx, space.uri);
+			return allowed.credential
+				? pass(
+						`asked with no repo under service auth; refused on read:false (${denied.result.error}), issued on read:true`,
+					)
+				: fail(
+						`the managing app allowed reading but the credential was refused: ${describe(allowed.result)}`,
+					);
+		} finally {
+			inbox.respond(CHECK_ACCESS, undefined);
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
+const managedFailsClosed = defineCheck({
+	id: "managedspace.unreachable-app-fails-closed",
+	title:
+		"A managedspace whose managing app cannot be reached issues no credential",
+	tier: "must",
+	citations: [
+		L("com.atproto.managedspace.policy"),
+		P("0016#managedspace"),
+		{ source: "changeset", ref: "patient-managers-answer" },
+	],
+	needs: ["operator"],
+	destructive: true,
+	async run(ctx) {
+		const space = await createProbeSpace(
+			ctx,
+			managedspace("did:web:app.space-conformance.invalid#managing_app"),
+		);
+		try {
+			const res = await requestCredential(ctx, space.uri);
+			if (res.credential)
+				return fail(
+					"issued a credential without an answer from the managing app",
+				);
+			return pass(`refused (${describe(res.result)})`);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
+const managedUpstreamFailure = defineCheck({
+	id: "managedspace.unreachable-app-upstream-failure",
+	title:
+		"An unreachable managing app is reported as UpstreamFailure, not a refusal",
+	tier: "should",
+	citations: [{ source: "changeset", ref: "patient-managers-answer" }],
+	needs: ["operator"],
+	destructive: true,
+	async run(ctx) {
+		// Distinct from a denial: a syncer keeps its registration and a repo
+		// host retries, rather than reading the failure as lost access.
+		const space = await createProbeSpace(
+			ctx,
+			managedspace("did:web:app.space-conformance.invalid#managing_app"),
+		);
+		try {
+			const res = await requestCredential(ctx, space.uri);
+			return res.result.error === "UpstreamFailure"
+				? pass("answered UpstreamFailure")
+				: fail(`answered ${describe(res.result)}`);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
 export const hostChecks: Check[] = [
 	hostRequiresCredential,
-	listReposShape,
-	listReposReflects,
+	listWritersShape,
+	listWritersReflects,
 	removeWriter,
-	registerRoundTrip,
-	registerUnresolvable,
 	hostAfterDelete,
-	forwardedNotifyWrite,
-	spaceDeletedDelivered,
+	notifyConfirmed,
+	notifyRenewal,
+	notifyRepoWrite,
+	notifyRepoRemoved,
+	notifySpaceDeleted,
+	notifyExpired,
+	managedTokenless,
+	managedFailsClosed,
+	managedUpstreamFailure,
 ];

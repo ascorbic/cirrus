@@ -3,9 +3,10 @@
  *
  * Signed in (the landing-page flow), the run carries the operator, blob
  * and delegation capabilities: space management and the baseline
- * policies, record writes, blob isolation, credential issuance, and
- * credential presentation — HTTP-signed reads with a KEM key share in
- * Atproto-Space-Want-Mac — all execute for real against the user's PDS.
+ * policies, record writes, blob isolation, credential issuance through
+ * authorizeSpaceSync, and credential presentation — HTTP-signed reads with
+ * an Accept-Signature MAC request keyed by an HPKE-exported secret — all
+ * execute for real against the user's PDS.
  * Operator calls go through the OAuth session; credential-presenting calls
  * carry their own WebCrypto P-256 signatures. Results stream into the
  * table as each check lands.

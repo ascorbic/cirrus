@@ -19,15 +19,16 @@ import {
 import type { CheckContext } from "../model.js";
 import { kemKeyFor } from "../did.js";
 import {
-	COMMIT_MAC_TYPE,
-	RECORD_MAC_TYPE,
+	COMMIT_MAC_PROFILE,
+	RECORD_MAC_PROFILE,
 	SPACE_CREDENTIAL_SCHEME,
 	createCredentialKey,
 	encapsulate,
-	formatWantMacHeader,
+	formatMacRequest,
 	spaceSigHeaders,
 	type CredentialKey,
-	type MacType,
+	type CredentialSigOptions,
+	type MacProfile,
 } from "../space-auth.js";
 
 // The probe collections and space type are published, resolvable
@@ -117,7 +118,12 @@ export async function createProbeSpace(
 			`createSpace failed: ${res.status} ${res.error ?? ""} ${JSON.stringify(res.json)}`,
 		);
 	}
-	const uri = (res.json as { uri: string }).uri;
+	const uri = (res.json as { space: string }).space;
+	if (typeof uri !== "string") {
+		throw new Error(
+			`createSpace returned no space: ${JSON.stringify(res.json)}`,
+		);
+	}
 	return { uri, type: PROBE_TYPE, skey };
 }
 
@@ -189,9 +195,10 @@ export interface Credential {
 }
 
 /**
- * Ask the space's authority for a credential. Nothing authenticates the
+ * Ask the space's authority to authorise sync. Nothing authenticates the
  * request itself: the body carries the key to bind, and optionally a
- * delegation token (who the user is) and a client attestation (which app).
+ * delegation token (who the user is), a client attestation (which app)
+ * and a `notify` registration.
  */
 export async function requestCredential(
 	ctx: CheckContext,
@@ -199,23 +206,35 @@ export async function requestCredential(
 	opts: {
 		delegationToken?: string;
 		clientAttestation?: string;
-		credentialKid?: string;
+		credentialKey?: string;
 		key?: CredentialKey;
+		notify?: { endpoint: string; token: string };
 	} = {},
-): Promise<{ result: XrpcResult; credential?: Credential }> {
+): Promise<{
+	result: XrpcResult;
+	credential?: Credential;
+	spaceRev?: string;
+}> {
 	const key = opts.key ?? (await createCredentialKey());
-	const result = await xrpcPost(ctx, "com.atproto.space.getSpaceCredential", {
+	const result = await xrpcPost(ctx, "com.atproto.space.authorizeSpaceSync", {
 		space,
-		credentialKid: opts.credentialKid ?? key.did,
+		credentialKey: opts.credentialKey ?? key.did,
 		...(opts.delegationToken ? { delegationToken: opts.delegationToken } : {}),
 		...(opts.clientAttestation
 			? { clientAttestation: opts.clientAttestation }
 			: {}),
+		...(opts.notify ? { notify: opts.notify } : {}),
 	});
 	if (result.status === 200) {
-		const credential = (result.json as { credential?: unknown }).credential;
-		if (typeof credential === "string") {
-			return { result, credential: { credential, key, space } };
+		const body = result.json as { credential?: unknown; spaceRev?: unknown };
+		if (typeof body.credential === "string") {
+			return {
+				result,
+				credential: { credential: body.credential, key, space },
+				...(typeof body.spaceRev === "string"
+					? { spaceRev: body.spaceRev }
+					: {}),
+			};
 		}
 	}
 	return { result };
@@ -229,7 +248,7 @@ export async function obtainPublicCredential(
 	const { result, credential } = await requestCredential(ctx, space);
 	if (!credential) {
 		throw new Error(
-			`tokenless getSpaceCredential for a public-read space failed: ${result.status} ${result.error ?? ""}`,
+			`tokenless authorizeSpaceSync for a public-read space failed: ${result.status} ${result.error ?? ""}`,
 		);
 	}
 	return credential;
@@ -238,7 +257,7 @@ export async function obtainPublicCredential(
 /**
  * Obtain a credential the way a real app does: ask the target's own
  * `getDelegationToken` (with the operator session) for a delegation token,
- * then exchange it at `getSpaceCredential`. It needs no harness-held
+ * then exchange it at `authorizeSpaceSync`. It needs no harness-held
  * reader key, so it runs against any real PDS and exercises the target's
  * own token minting.
  */
@@ -265,12 +284,12 @@ export async function obtainCredentialViaDelegation(
 	return { result, delegation, ...(credential ? { credential } : {}) };
 }
 
-/** Which MAC each repo-host read asks for. */
-const MAC_TYPES: Record<string, MacType> = {
-	"com.atproto.space.getLatestCommit": COMMIT_MAC_TYPE,
-	"com.atproto.space.getRepo": COMMIT_MAC_TYPE,
-	"com.atproto.space.listRepoOps": COMMIT_MAC_TYPE,
-	"com.atproto.space.getRecord": RECORD_MAC_TYPE,
+/** Which MAC profile each repo-host read asks for. */
+const MAC_PROFILES: Record<string, MacProfile> = {
+	"com.atproto.space.getLatestCommit": COMMIT_MAC_PROFILE,
+	"com.atproto.space.getRepo": COMMIT_MAC_PROFILE,
+	"com.atproto.space.listRepoOps": COMMIT_MAC_PROFILE,
+	"com.atproto.space.getRecord": RECORD_MAC_PROFILE,
 };
 
 export interface CredentialCallOptions {
@@ -284,23 +303,40 @@ export interface CredentialCallOptions {
 	 */
 	audience?: string;
 	/**
-	 * The MAC to ask for. Defaults to what the method returns (commit or
-	 * record) for the four MAC'd reads, nothing otherwise. `false` omits the
-	 * header; a string sends it verbatim (malformed-header probes).
+	 * The MAC to ask for. Defaults to the profile of what the method returns
+	 * (commit or record) for the four MAC'd reads, nothing otherwise. `false`
+	 * sends no `Accept-Signature`; an object requests the profile with a
+	 * custom label or extra parameters; a function builds the whole header
+	 * from a fresh key share (malformed-request probes).
 	 */
-	wantMac?: MacType | false | string;
+	mac?:
+		| MacProfile
+		| false
+		| {
+				profile: MacProfile;
+				label?: string;
+				params?: Array<[string, string | number]>;
+		  }
+		| { header: (keyShare: string) => string; profile: MacProfile };
 	/** Authorization scheme spelling; defaults to `Atproto-Space-Credential`. */
 	scheme?: string;
 	/** Sign with this key instead of the credential's own. */
 	signWith?: CredentialKey;
+	/** Signature label, parameters, components or tag overrides. */
+	signature?: Omit<CredentialSigOptions, "authorization" | "audience">;
+	/** Replace the signature headers wholesale (e.g. two signatures). */
+	signatureHeaders?: (
+		defaults: Record<string, string>,
+	) => Promise<Record<string, string>>;
 	/** Send no signature headers at all. */
 	unsigned?: boolean;
 }
 
 export interface CredentialResult extends XrpcResult {
-	/** The KEM shared secret, when a MAC was requested. */
+	/** The MAC request's encapsulation, when a MAC was requested. */
+	keyShare?: string;
 	sharedSecret?: Uint8Array;
-	macType?: MacType;
+	macProfile?: MacProfile;
 }
 
 /** Present a credential on one request: signature, audience, MAC request. */
@@ -313,32 +349,43 @@ export async function credentialCall(
 	const repo = opts.params?.repo;
 	const audience = opts.audience ?? repo ?? spaceAuthority(credential.space);
 	const authorization = `${opts.scheme ?? SPACE_CREDENTIAL_SCHEME} ${credential.credential}`;
-	const headers = new Headers(
-		opts.unsigned
-			? { authorization }
-			: await spaceSigHeaders(opts.signWith ?? credential.key, {
-					authorization,
-					audience,
-				}),
-	);
+	let sigHeaders: Record<string, string> = opts.unsigned
+		? { authorization }
+		: await spaceSigHeaders(opts.signWith ?? credential.key, {
+				authorization,
+				audience,
+				...opts.signature,
+			});
+	if (opts.signatureHeaders)
+		sigHeaders = await opts.signatureHeaders(sigHeaders);
+	const headers = new Headers(sigHeaders);
 
+	let keyShare: string | undefined;
 	let sharedSecret: Uint8Array | undefined;
-	let macType: MacType | undefined;
-	const want = opts.wantMac ?? MAC_TYPES[nsid];
-	if (
-		typeof want === "string" &&
-		want !== COMMIT_MAC_TYPE &&
-		want !== RECORD_MAC_TYPE
-	) {
-		headers.set("atproto-space-want-mac", want);
-	} else if (want) {
+	let macProfile: MacProfile | undefined;
+	const mac = opts.mac ?? MAC_PROFILES[nsid];
+	if (mac) {
 		if (!repo) throw new Error(`${nsid}: a MAC request needs the repo DID`);
-		const { keyShare, sharedSecret: secret } = await encapsulate(
-			await kemKeyFor(ctx, repo),
+		const profile = typeof mac === "string" ? mac : mac.profile;
+		// A repo nobody hosts has no KEM key to resolve; a fresh P-256 key
+		// stands in, giving a well-formed request the host must refuse anyway.
+		const kem = await kemKeyFor(ctx, repo).catch(
+			async () => (await createCredentialKey()).did,
 		);
-		headers.set("atproto-space-want-mac", formatWantMacHeader(want, keyShare));
-		sharedSecret = secret;
-		macType = want;
+		const enc = await encapsulate(kem);
+		headers.set(
+			"accept-signature",
+			typeof mac === "object" && "header" in mac
+				? mac.header(enc.keyShare)
+				: formatMacRequest(
+						profile,
+						enc.keyShare,
+						typeof mac === "object" ? mac : {},
+					),
+		);
+		keyShare = enc.keyShare;
+		sharedSecret = enc.sharedSecret;
+		macProfile = profile;
 	}
 
 	let response: Response;
@@ -358,8 +405,9 @@ export async function credentialCall(
 	const result = await toResult(response);
 	return {
 		...result,
+		...(keyShare ? { keyShare } : {}),
 		...(sharedSecret ? { sharedSecret } : {}),
-		...(macType ? { macType } : {}),
+		...(macProfile ? { macProfile } : {}),
 	};
 }
 
@@ -372,6 +420,27 @@ export function credentialGet(
 ): Promise<CredentialResult> {
 	return credentialCall(ctx, credential, nsid, { params });
 }
+
+/** Run named probes and fail with every one that missed, not just the first. */
+export async function expectEach(
+	probes: Array<
+		[string, () => Promise<XrpcResult>, (r: XrpcResult) => boolean]
+	>,
+): Promise<{ ok: boolean; detail: string; evidence: Record<string, string> }> {
+	const evidence: Record<string, string> = {};
+	const misses: string[] = [];
+	for (const [name, call, accept] of probes) {
+		const res = await call();
+		evidence[name] = describe(res);
+		if (!accept(res)) misses.push(`${name} → ${describe(res)}`);
+	}
+	return { ok: misses.length === 0, detail: misses.join("; "), evidence };
+}
+
+export const errorIs =
+	(...names: string[]) =>
+	(r: XrpcResult) =>
+		r.error !== undefined && names.includes(r.error);
 
 /** Summarise a response for a detail line. */
 export const describe = (res: XrpcResult): string =>

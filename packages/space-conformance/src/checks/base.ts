@@ -19,6 +19,7 @@ import { PROBE_TYPE, describe, unknownSpaceUri } from "./probe.js";
 
 const changeset = (ref: string) => ({ source: "changeset" as const, ref });
 const lexicon = (ref: string) => ({ source: "lexicon" as const, ref });
+const proposal = (ref: string) => ({ source: "proposal" as const, ref });
 
 /** The target's DID document, resolved once per run by its DID method. */
 async function targetDoc(ctx: CheckContext): Promise<DidDocument> {
@@ -41,7 +42,10 @@ const discoveryPdsService = defineCheck({
 	id: "discovery.pds-service",
 	title: "The authority's #atproto_pds service is the space host",
 	tier: "must",
-	citations: [changeset("plain-keys-resolve")],
+	citations: [
+		proposal("0016#space-authority"),
+		changeset("plain-keys-resolve"),
+	],
 	needs: [],
 	async run(ctx) {
 		// The alpha dropped #atproto_space_host: a space authority is resolved
@@ -63,7 +67,10 @@ const discoverySigningKey = defineCheck({
 	id: "discovery.signing-key",
 	title: "The DID document exposes the #atproto key that signs space tokens",
 	tier: "must",
-	citations: [changeset("plain-keys-resolve")],
+	citations: [
+		proposal("0016#space-authority"),
+		changeset("plain-keys-resolve"),
+	],
 	needs: [],
 	async run(ctx) {
 		const doc = await targetDoc(ctx);
@@ -79,7 +86,7 @@ const discoveryKemKey = defineCheck({
 	title: "The DID document publishes a P-256 #atproto_kem key",
 	tier: "must",
 	citations: [
-		changeset("quiet-spaces-mac"),
+		proposal("0016#kem-key"),
 		lexicon("com.atproto.space.getLatestCommit"),
 	],
 	needs: [],
@@ -94,9 +101,20 @@ const discoveryKemKey = defineCheck({
 				"no #atproto_kem verification method",
 				doc.verificationMethod,
 			);
-		return isP256DidKey(key)
-			? pass(`#atproto_kem is ${key}`)
-			: fail(`#atproto_kem is not a P-256 key: ${key}`);
+		if (!isP256DidKey(key))
+			return fail(`#atproto_kem is not a P-256 key: ${key}`);
+		// "The entry MUST have": id {did}#atproto_kem, controller the DID,
+		// type Multikey.
+		const entry = (doc.verificationMethod ?? []).find((m) =>
+			m.id.endsWith("#atproto_kem"),
+		)!;
+		const problems: string[] = [];
+		if (entry.type !== "Multikey") problems.push(`type ${entry.type}`);
+		if (entry.controller !== doc.id)
+			problems.push(`controller ${entry.controller}`);
+		return problems.length
+			? fail(`#atproto_kem entry: ${problems.join(", ")}`, entry)
+			: pass(`#atproto_kem is ${key}`);
 	},
 });
 
@@ -155,7 +173,7 @@ const credentialTokenlessUnknown = defineCheck({
 		"A tokenless credential request for an unknown space gets SpaceNotFound",
 	tier: "must",
 	citations: [
-		lexicon("com.atproto.space.getSpaceCredential@error:SpaceNotFound"),
+		lexicon("com.atproto.space.authorizeSpaceSync@error:SpaceNotFound"),
 	],
 	needs: [],
 	async run(ctx) {
@@ -163,9 +181,9 @@ const credentialTokenlessUnknown = defineCheck({
 		// to issue for, and the declared answer is SpaceNotFound — the same
 		// answer a non-public space gives, so existence is not disclosed.
 		const key = await createCredentialKey();
-		const res = await xrpcPost(ctx, "com.atproto.space.getSpaceCredential", {
+		const res = await xrpcPost(ctx, "com.atproto.space.authorizeSpaceSync", {
 			space: unknownSpaceUri(ctx.target.did),
-			credentialKid: key.did,
+			credentialKey: key.did,
 		});
 		if (res.status === 200)
 			return fail("issued a credential for an unknown space");

@@ -50,7 +50,7 @@ function fakeTarget(): typeof fetch {
 		if (url.pathname.startsWith("/xrpc/com.atproto.space.getLatestCommit")) {
 			return Response.json({ error: "InvalidRequest" }, { status: 400 });
 		}
-		if (url.pathname === "/xrpc/com.atproto.space.getSpaceCredential") {
+		if (url.pathname === "/xrpc/com.atproto.space.authorizeSpaceSync") {
 			return Response.json({ error: "SpaceNotFound" }, { status: 400 });
 		}
 		// Everything else (space reads) is unauthenticated.

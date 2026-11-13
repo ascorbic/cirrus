@@ -32,7 +32,7 @@ import { startReferencePds, type ReferencePds } from "../src/reference.js";
 import { startHarnessServices, type HarnessServices } from "../src/harness.js";
 
 /** The alpha build this partition was calibrated against. */
-const CALIBRATED_ALPHA = "0.0.0-spaces-alpha-20261105160032";
+const CALIBRATED_ALPHA = "0.0.0-spaces-alpha-20261112204144";
 
 /**
  * Checks the reference PDS is known to fail, with the reason it diverges from
@@ -46,28 +46,34 @@ const CALIBRATED_ALPHA = "0.0.0-spaces-alpha-20261105160032";
  * to be noticed in review of whatever moved the reference.
  */
 const EXPECTED_DIVERGENCES: Record<string, string> = {
-	// deleteRecord declares SpaceNotFound, and deleteSpace's description says
-	// "afterwards, reads and writes fail with SpaceNotFound". The reference's
-	// deleteRecord handler checks whether the record exists *before* anything
-	// touches the space (`hasRecord` → return null, for idempotency), so a delete
-	// in a missing or deleted space is a silent 200 and the space check in
-	// `ensureRepo` (changeset brave-spaces-exist) is never reached. Its create,
-	// put and applyWrites do answer SpaceNotFound (writes.space-not-found passes).
+	// deleteRecord declares SpaceNotFound, and proposal 0016 (Repo lifecycle)
+	// says that when the writer is the space authority "the space must already
+	// exist" (changeset brave-spaces-exist: such writes are rejected with
+	// SpaceNotFound). The reference's deleteRecord checks whether the record
+	// exists first (`hasRecord` → no-op, for idempotency), so a delete in a
+	// missing or deleted space is a silent 200 and the `ensureRepo` space check
+	// is never reached. Its create, put and applyWrites do answer SpaceNotFound
+	// (writes.space-not-found passes). Unchanged since 1105.
 	"writes.delete-in-missing-space":
 		"reference deleteRecord short-circuits on an absent record before checking the space, answering 200",
-	// Same deleteSpace sentence, read side. The reference's read handlers never
-	// consult the space row: after deletion the owner's repo is gone, so they
-	// answer RecordNotFound / RepoNotFound / BlobNotFound or an empty 200 listing,
-	// never the SpaceNotFound each of them declares.
-	"space.reads-after-delete-not-found":
-		"reference reads ignore the space tombstone and answer RecordNotFound/RepoNotFound/BlobNotFound or an empty 200",
-	// ClientAttestationVerifier.verify calls parseSpaceToken outside its
+	// ClientAttestationVerifier.verify still calls parseSpaceToken outside its
 	// invalid() wrapper, so a structurally malformed attestation escapes as an
-	// uncaught SpaceTokenError: 500 InternalServerError, where the lexicon
+	// uncaught SpaceTokenError: 500 InternalServerError, where authorizeSpaceSync
 	// declares InvalidClientAttestation. A well-formed but unverifiable one is
 	// refused correctly (credential.unverifiable-attestation-refused passes).
+	// Unchanged since 1105.
 	"credential.garbage-attestation-refused":
 		"reference answers 500 for a malformed client attestation (parseSpaceToken throws outside invalid())",
+};
+
+/**
+ * Checks the run leaves out, with why. Not divergences: the reference is not
+ * failing them, the matrix just does not run them on every CI pass.
+ */
+const NOT_RUN: Record<string, string> = {
+	// Waits out a real credential lifetime (10 minutes) before the next write.
+	// Calibrated by hand against this alpha (see README); too slow for CI.
+	"notify.registration-expired": "slow: waits out a 10-minute credential",
 };
 
 describe("conformance suite vs the atproto reference PDS", () => {
@@ -127,7 +133,7 @@ describe("conformance suite vs the atproto reference PDS", () => {
 	});
 
 	const expectedStatus = (id: string): string =>
-		id in EXPECTED_DIVERGENCES ? "fail" : "pass";
+		id in EXPECTED_DIVERGENCES ? "fail" : id in NOT_RUN ? "skipped" : "pass";
 
 	it("behaves exactly as pinned on every check", () => {
 		const wrong = report.results.filter(
@@ -146,10 +152,15 @@ describe("conformance suite vs the atproto reference PDS", () => {
 		).toEqual([]);
 	});
 
-	it("runs the whole catalog — nothing skipped", () => {
-		// Every capability is provided, so a skip means a check grew a need the
-		// harness doesn't meet; it must be wired here, not quietly dropped.
-		expect(report.results.filter((r) => r.status === "skipped")).toEqual([]);
+	it("runs the whole catalog — nothing skipped but the pinned slow checks", () => {
+		// Every capability is provided, so any other skip means a check grew a
+		// need the harness doesn't meet; it must be wired here, not dropped.
+		expect(
+			report.results
+				.filter((r) => r.status === "skipped")
+				.map((r) => r.id)
+				.sort(),
+		).toEqual(Object.keys(NOT_RUN).sort());
 		expect(report.results).toHaveLength(fullCatalog.length);
 	});
 
@@ -168,16 +179,20 @@ describe("conformance suite vs the atproto reference PDS", () => {
 			"credential.claims",
 			"credential.signature-required",
 			"credential.audience-bound",
-			"mac.want-mac-required",
+			"mac.mac-request-required",
 			"mac.commit-verifies",
 			"mac.record-verifies",
 			"sync.oplog-folds-to-commit",
 			"sync.getrepo-star",
-			"sync.listrepos-shape",
+			"sync.listwriters-shape",
+			"host.removewriter",
 			"credential.member-gate",
 			"revocation.revoked-credential-refused",
-			"notify.forwarded-notifywrite",
-			"managedspace.checkuseraccess",
+			"notify.registration-confirmed",
+			"notify.repo-write-delivered",
+			"notify.repo-removed-delivered",
+			"managedspace.check-access-tokenless",
+			"managedspace.check-access-account",
 			"migration.import-repo",
 		]) {
 			expect(byId[id], `${id} against the reference`).toBe("pass");
@@ -193,6 +208,9 @@ describe("conformance suite vs the atproto reference PDS", () => {
 		for (const id of Object.keys(EXPECTED_DIVERGENCES)) {
 			expect(byId.has(id), `${id} is not a known check`).toBe(true);
 			expect(byId.get(id)?.tier, `${id} must be a must check`).toBe("must");
+		}
+		for (const id of Object.keys(NOT_RUN)) {
+			expect(byId.get(id)?.slow, `${id} is not a slow check`).toBe(true);
 		}
 	});
 });

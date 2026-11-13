@@ -58,15 +58,23 @@ export type {
 
 export {
 	createCredentialKey,
+	credentialSigMembers,
 	encapsulate,
-	formatWantMacHeader,
+	formatMacRequest,
 	isP256DidKey,
 	spaceSigHeaders,
-	COMMIT_MAC_TYPE,
-	RECORD_MAC_TYPE,
+	COMMIT_MAC_PROFILE,
+	RECORD_MAC_PROFILE,
+	MAC_COVERED_HEADER,
 	SPACE_CREDENTIAL_SCHEME,
 } from "./space-auth.js";
-export type { CredentialKey, MacType } from "./space-auth.js";
+export type {
+	CredentialKey,
+	CredentialSigOptions,
+	MacProfile,
+} from "./space-auth.js";
+export { createSyncerInbox } from "./inbox.js";
+export type { SyncerInboxHandle } from "./inbox.js";
 export {
 	DEFAULT_PLC_DIRECTORY,
 	didDocumentUrl,
@@ -81,6 +89,7 @@ export type { CheckDescriptor } from "./descriptors.js";
 
 export { ALPHA_BUILD } from "./alpha.js";
 export { knownChangesets } from "./changesets.js";
+export { knownProposalAnchors, PROPOSAL_COMMIT } from "./proposal.js";
 
 import { baseChecks as base } from "./checks/base.js";
 import { operatorChecks as operator } from "./checks/operator.js";

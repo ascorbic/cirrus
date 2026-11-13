@@ -36,10 +36,29 @@ export interface CoverageExemption {
 const TAKEDOWN_REASON =
 	"Needs a moderation or account-status action on the target (a takedown, suspension or deactivation of the account being read), which only the host's administrator can take. No black-box harness can arrange it without admin authority, and deactivating the operator's own account would end the session the run depends on.";
 
+const READ_SPACE_NOT_FOUND_REASON =
+	"Declared on the repo-host reads, but neither the lexicons nor proposal 0016 name a condition under which a repo host answers it: reads are answered from the repo, and an empty or never-written repo is equivalent to a nonexistent one (proposal, Repo lifecycle). A must check would be the suite's own reading. The 1105 deleteSpace description said reads of a deleted space fail with SpaceNotFound; 1112 dropped that sentence, and the check that relied on it with it.";
+
+const INVALID_CURSOR_REASON =
+	"Cursors are opaque, host-issued strings. Neither the lexicons nor the proposal define a value every host must reject, so which cursors are invalid is the host's choice. The should check request.garbage-cursor-rejected calibrates what the reference does.";
+
 export const coverageExemptions: CoverageExemption[] = [
 	{ ref: "*@error:RepoTakendown", reason: TAKEDOWN_REASON },
 	{ ref: "*@error:RepoSuspended", reason: TAKEDOWN_REASON },
 	{ ref: "*@error:RepoDeactivated", reason: TAKEDOWN_REASON },
+	{ ref: "*@error:InvalidCursor", reason: INVALID_CURSOR_REASON },
+	...[
+		"getRecord",
+		"listRecords",
+		"getLatestCommit",
+		"listRepoOps",
+		"getRepo",
+		"listBlobs",
+		"getBlob",
+	].map((method) => ({
+		ref: `com.atproto.space.${method}@error:SpaceNotFound`,
+		reason: READ_SPACE_NOT_FOUND_REASON,
+	})),
 ];
 
 export interface CoverageReport {

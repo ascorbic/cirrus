@@ -5,9 +5,9 @@
  */
 
 import { defineCheck } from "../registry.js";
-import { asOperator, xrpcGet, xrpcPost, type XrpcResult } from "../http.js";
+import { asOperator, xrpcGet, xrpcPost } from "../http.js";
 import { fail, pass, type Check, type CheckContext } from "../model.js";
-import { isTid, toBase32 } from "../encoding.js";
+import { bytesEqual, isTid, lexBytes, toBase32 } from "../encoding.js";
 import {
 	FOREIGN_DID,
 	PROBE_TYPE,
@@ -15,7 +15,11 @@ import {
 	credentialCall,
 	deleteProbeSpace,
 	describe,
+	errorIs,
+	expectEach,
+	managedspace,
 	memberspace,
+	mustCreateRecord,
 	obtainPublicCredential,
 	operatorGetRecord,
 	personalspace,
@@ -27,6 +31,7 @@ import {
 
 const L = (ref: string) => ({ source: "lexicon" as const, ref });
 const C = (ref: string) => ({ source: "changeset" as const, ref });
+const P = (ref: string) => ({ source: "proposal" as const, ref });
 
 /** A syntactically valid did:plc nobody registered — a member to list. */
 export function fakeDid(): string {
@@ -35,27 +40,33 @@ export function fakeDid(): string {
 
 const op = asOperator;
 
-/** Run named probes and fail with every one that missed, not just the first. */
-async function expectEach(
-	probes: Array<
-		[string, () => Promise<XrpcResult>, (r: XrpcResult) => boolean]
-	>,
-): Promise<{ ok: boolean; detail: string; evidence: Record<string, string> }> {
-	const evidence: Record<string, string> = {};
-	const misses: string[] = [];
-	for (const [name, call, accept] of probes) {
-		const res = await call();
-		evidence[name] = describe(res);
-		if (!accept(res)) misses.push(`${name} → ${describe(res)}`);
-	}
-	return {
-		ok: misses.length === 0,
-		detail: misses.join("; "),
-		evidence,
-	};
-}
+type Member = { did: string; read: boolean; write: boolean };
 
-const errorIs = (name: string) => (r: XrpcResult) => r.error === name;
+export const putMembers = (
+	ctx: CheckContext,
+	space: string,
+	members: Member[],
+) =>
+	xrpcPost(op(ctx), "com.atproto.memberspace.putMembers", { space, members });
+
+const removeMembers = (
+	ctx: CheckContext,
+	space: string,
+	dids: string[],
+) =>
+	xrpcPost(op(ctx), "com.atproto.memberspace.removeMembers", { space, dids });
+
+async function listMembers(
+	ctx: CheckContext,
+	space: string,
+): Promise<Member[]> {
+	const res = await xrpcGet(op(ctx), "com.atproto.memberspace.listMembers", {
+		space,
+		limit: "100",
+	});
+	if (res.status !== 200) throw new Error(`listMembers ${describe(res)}`);
+	return (res.json as { members?: Member[] }).members ?? [];
+}
 
 // --- create / get -------------------------------------------------------
 
@@ -67,6 +78,7 @@ const spaceCreateAndGet = defineCheck({
 	citations: [
 		L("com.atproto.space.createSpace"),
 		L("com.atproto.space.getSpace"),
+		P("0016#addressing"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -79,19 +91,23 @@ const spaceCreateAndGet = defineCheck({
 		});
 		if (res.status !== 200)
 			return fail(`createSpace ${describe(res)}`, res.json);
-		const uri = (res.json as { uri?: string }).uri;
+		const uri = (res.json as { space?: string }).space;
 		try {
 			const expected = `at://${ctx.target.did}/space/${PROBE_TYPE}/${skey}`;
-			if (uri !== expected)
-				return fail(`createSpace returned ${uri}, expected ${expected}`);
+			if (uri !== expected) {
+				return fail(
+					`createSpace returned space ${uri}, expected ${expected}`,
+					res.json,
+				);
+			}
 			const got = await xrpcGet(op(ctx), "com.atproto.space.getSpace", {
 				space: uri,
 			});
 			if (got.status !== 200)
 				return fail(`getSpace ${describe(got)}`, got.json);
-			const body = got.json as { uri?: string; policy?: Policy };
-			if (body.uri !== uri)
-				return fail(`getSpace uri was ${body.uri}`, got.json);
+			const body = got.json as { space?: string; policy?: Policy };
+			if (body.space !== uri)
+				return fail(`getSpace space was ${body.space}`, got.json);
 			if (body.policy?.$type !== "com.atproto.memberspace.policy") {
 				return fail(`getSpace policy was ${body.policy?.$type}`, got.json);
 			}
@@ -101,7 +117,7 @@ const spaceCreateAndGet = defineCheck({
 						"a memberspace created without publicRead reports publicRead: true",
 					)
 				: pass(
-						"created at the expected uri; getSpace reports the memberspace policy",
+						"created at the expected ref; getSpace reports the memberspace policy",
 					);
 		} finally {
 			if (uri) await deleteProbeSpace(ctx, uri);
@@ -123,9 +139,9 @@ const spaceGeneratedSkey = defineCheck({
 		});
 		if (res.status !== 200)
 			return fail(`createSpace ${describe(res)}`, res.json);
-		const uri = (res.json as { uri: string }).uri;
+		const uri = (res.json as { space: string }).space;
 		await deleteProbeSpace(ctx, uri);
-		const skey = uri.split("/").at(-1);
+		const skey = uri?.split("/").at(-1);
 		return isTid(skey)
 			? pass(`generated skey ${skey}`)
 			: fail(`generated skey ${skey} is not a TID`);
@@ -165,12 +181,12 @@ const spaceRecreate = defineCheck({
 	id: "space.recreate-after-delete",
 	title: "A deleted space may be created again",
 	tier: "must",
-	citations: [L("com.atproto.space.createSpace@error:SpaceAlreadyExists")],
+	citations: [P("0016#space-deletion"), L("com.atproto.space.createSpace")],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
-		// The SpaceAlreadyExists declaration itself carves this out: "A space
-		// that was previously deleted may be created again."
+		// "An authority MAY recreate a deleted space with the same space type
+		// and skey" — so a host must let it.
 		const space = await createProbeSpace(ctx, personalspace());
 		await deleteProbeSpace(ctx, space.uri);
 		const again = await xrpcPost(op(ctx), "com.atproto.space.createSpace", {
@@ -196,6 +212,7 @@ const spaceUnsupportedPolicy = defineCheck({
 	citations: [
 		L("com.atproto.space.createSpace@error:UnsupportedPolicy"),
 		L("com.atproto.space.updateSpace@error:UnsupportedPolicy"),
+		P("0016#space-policy"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -217,7 +234,8 @@ const spaceUnsupportedPolicy = defineCheck({
 								policy: mystery,
 							},
 						);
-						if (res.status === 200) created = (res.json as { uri: string }).uri;
+						if (res.status === 200)
+							created = (res.json as { space: string }).space;
 						return res;
 					},
 					errorIs("UnsupportedPolicy"),
@@ -251,6 +269,7 @@ const spaceUpdateReplaces = defineCheck({
 		L("com.atproto.space.updateSpace"),
 		L("com.atproto.space.getSpace"),
 		L("com.atproto.memberspace.listMembers"),
+		P("0016#space-policy"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -265,37 +284,24 @@ const spaceUpdateReplaces = defineCheck({
 					})
 				).json as { policy?: Policy } | undefined
 			)?.policy;
-		const members = async () =>
-			xrpcGet(op(ctx), "com.atproto.memberspace.listMembers", {
-				space: space.uri,
-			});
 		const update = (policy: Policy) =>
 			xrpcPost(op(ctx), "com.atproto.space.updateSpace", {
 				space: space.uri,
 				policy,
 			});
 		try {
-			await xrpcPost(op(ctx), "com.atproto.memberspace.putMember", {
-				space: space.uri,
-				did: member,
-				read: true,
-				write: false,
-			});
-
+			await putMembers(ctx, space.uri, [
+				{ did: member, read: true, write: false },
+			]);
 			// Same type: a configuration change. The member list survives.
 			const same = await update(memberspace({ publicRead: true }));
 			if (same.status !== 200)
 				return fail(`updateSpace (config) ${describe(same)}`, same.json);
-			const p1 = await policyOf();
-			if (p1?.publicRead !== true)
-				return fail("getSpace does not reflect publicRead: true", p1);
-			const kept = (await members()).json as {
-				members?: Array<{ did: string }>;
-			};
-			if (!kept.members?.some((m) => m.did === member)) {
-				return fail("a same-type update dropped the member list", kept);
+			if ((await policyOf())?.publicRead !== true)
+				return fail("getSpace does not reflect publicRead: true");
+			if (!(await listMembers(ctx, space.uri)).some((m) => m.did === member)) {
+				return fail("a same-type update dropped the member list");
 			}
-
 			// A different type migrates the space.
 			const migrate = await update(personalspace());
 			if (migrate.status !== 200)
@@ -304,16 +310,12 @@ const spaceUpdateReplaces = defineCheck({
 			if (p2?.$type !== "com.atproto.personalspace.policy") {
 				return fail(`after migration getSpace reports ${p2?.$type}`, p2);
 			}
-
 			// Migrating back does not restore the discarded member list.
 			const back = await update(memberspace());
 			if (back.status !== 200)
 				return fail(`updateSpace (back) ${describe(back)}`, back.json);
-			const after = (await members()).json as {
-				members?: Array<{ did: string }>;
-			};
-			return after.members?.some((m) => m.did === member)
-				? fail("migrating away and back restored the old member list", after)
+			return (await listMembers(ctx, space.uri)).some((m) => m.did === member)
+				? fail("migrating away and back restored the old member list")
 				: pass(
 						"config update kept members; a type change replaced the policy and discarded them",
 					);
@@ -323,28 +325,31 @@ const spaceUpdateReplaces = defineCheck({
 	},
 });
 
-const spaceNotOwner = defineCheck({
-	id: "space.not-owner-refused",
+const spaceNotAuthority = defineCheck({
+	id: "space.not-authority-refused",
 	title:
-		"Managing a space anchored on another DID is refused with NotSpaceOwner",
+		"Managing a space anchored on another DID is refused with NotAuthorized",
 	tier: "must",
 	citations: [
-		L("com.atproto.space.deleteSpace@error:NotSpaceOwner"),
-		L("com.atproto.space.updateSpace@error:NotSpaceOwner"),
-		L("com.atproto.space.removeWriter@error:NotSpaceOwner"),
-		L("com.atproto.space.exportSpaceMeta@error:NotSpaceOwner"),
-		L("com.atproto.memberspace.putMember@error:NotSpaceOwner"),
-		L("com.atproto.memberspace.removeMember@error:NotSpaceOwner"),
+		L("com.atproto.space.deleteSpace@error:NotAuthorized"),
+		L("com.atproto.space.updateSpace@error:NotAuthorized"),
+		L("com.atproto.space.getSpace@error:NotAuthorized"),
+		L("com.atproto.space.removeWriter@error:NotAuthorized"),
+		L("com.atproto.space.exportSpaceMeta@error:NotAuthorized"),
+		L("com.atproto.memberspace.putMembers@error:NotAuthorized"),
+		L("com.atproto.memberspace.removeMembers@error:NotAuthorized"),
+		L("com.atproto.memberspace.listMembers@error:NotAuthorized"),
 	],
 	needs: ["operator"],
 	async run(ctx) {
 		const space = unknownSpaceUri(FOREIGN_DID);
 		const did = fakeDid();
+		const na = errorIs("NotAuthorized");
 		const result = await expectEach([
 			[
 				"deleteSpace",
 				() => xrpcPost(op(ctx), "com.atproto.space.deleteSpace", { space }),
-				errorIs("NotSpaceOwner"),
+				na,
 			],
 			[
 				"updateSpace",
@@ -353,43 +358,43 @@ const spaceNotOwner = defineCheck({
 						space,
 						policy: personalspace(),
 					}),
-				errorIs("NotSpaceOwner"),
+				na,
+			],
+			[
+				"getSpace",
+				() => xrpcGet(op(ctx), "com.atproto.space.getSpace", { space }),
+				na,
 			],
 			[
 				"removeWriter",
 				() =>
-					xrpcPost(op(ctx), "com.atproto.space.removeWriter", { space, did }),
-				errorIs("NotSpaceOwner"),
+					xrpcPost(op(ctx), "com.atproto.space.removeWriter", {
+						space,
+						repo: did,
+					}),
+				na,
 			],
 			[
 				"exportSpaceMeta",
 				() => xrpcGet(op(ctx), "com.atproto.space.exportSpaceMeta", { space }),
-				errorIs("NotSpaceOwner"),
+				na,
 			],
 			[
-				"putMember",
-				() =>
-					xrpcPost(op(ctx), "com.atproto.memberspace.putMember", {
-						space,
-						did,
-						read: true,
-						write: true,
-					}),
-				errorIs("NotSpaceOwner"),
+				"putMembers",
+				() => putMembers(ctx, space, [{ did, read: true, write: true }]),
+				na,
 			],
+			["removeMembers", () => removeMembers(ctx, space, [did]), na],
 			[
-				"removeMember",
+				"listMembers",
 				() =>
-					xrpcPost(op(ctx), "com.atproto.memberspace.removeMember", {
-						space,
-						did,
-					}),
-				errorIs("NotSpaceOwner"),
+					xrpcGet(op(ctx), "com.atproto.memberspace.listMembers", { space }),
+				na,
 			],
 		]);
 		return result.ok
-			? pass("every management method answered NotSpaceOwner")
-			: fail(`expected NotSpaceOwner: ${result.detail}`, result.evidence);
+			? pass("every authority-only method answered NotAuthorized")
+			: fail(`expected NotAuthorized: ${result.detail}`, result.evidence);
 	},
 });
 
@@ -403,8 +408,8 @@ const spaceUnknown = defineCheck({
 		L("com.atproto.space.deleteSpace@error:SpaceNotFound"),
 		L("com.atproto.space.exportSpaceMeta@error:SpaceNotFound"),
 		L("com.atproto.space.removeWriter@error:SpaceNotFound"),
-		L("com.atproto.memberspace.putMember@error:SpaceNotFound"),
-		L("com.atproto.memberspace.removeMember@error:SpaceNotFound"),
+		L("com.atproto.memberspace.putMembers@error:SpaceNotFound"),
+		L("com.atproto.memberspace.removeMembers@error:SpaceNotFound"),
 		L("com.atproto.memberspace.listMembers@error:SpaceNotFound"),
 	],
 	needs: ["operator"],
@@ -440,29 +445,18 @@ const spaceUnknown = defineCheck({
 			[
 				"removeWriter",
 				() =>
-					xrpcPost(op(ctx), "com.atproto.space.removeWriter", { space, did }),
-				nf,
-			],
-			[
-				"putMember",
-				() =>
-					xrpcPost(op(ctx), "com.atproto.memberspace.putMember", {
+					xrpcPost(op(ctx), "com.atproto.space.removeWriter", {
 						space,
-						did,
-						read: true,
-						write: false,
+						repo: did,
 					}),
 				nf,
 			],
 			[
-				"removeMember",
-				() =>
-					xrpcPost(op(ctx), "com.atproto.memberspace.removeMember", {
-						space,
-						did,
-					}),
+				"putMembers",
+				() => putMembers(ctx, space, [{ did, read: true, write: false }]),
 				nf,
 			],
+			["removeMembers", () => removeMembers(ctx, space, [did]), nf],
 			[
 				"listMembers",
 				() =>
@@ -478,12 +472,20 @@ const spaceUnknown = defineCheck({
 
 const spaceDeleteIdempotent = defineCheck({
 	id: "space.delete-idempotent",
-	title: "deleteSpace is idempotent",
-	tier: "must",
-	citations: [L("com.atproto.space.deleteSpace")],
+	title: "Deleting an already-deleted space succeeds",
+	tier: "should",
+	citations: [
+		{
+			source: "reference",
+			ref: "pds deleteSpace returns early for a tombstoned space",
+		},
+		L("com.atproto.space.deleteSpace"),
+	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
+		// The 1105 lexicon called deleteSpace idempotent; 1112 dropped the
+		// sentence, so this is now calibrated against the reference.
 		const space = await createProbeSpace(ctx, personalspace());
 		const first = await xrpcPost(op(ctx), "com.atproto.space.deleteSpace", {
 			space: space.uri,
@@ -493,56 +495,82 @@ const spaceDeleteIdempotent = defineCheck({
 		});
 		return first.status === 200 && second.status === 200
 			? pass("both deletes returned 200")
-			: fail(`deletes returned ${describe(first)} then ${describe(second)}`, {
-					first: first.json,
-					second: second.json,
-				});
+			: fail(`deletes returned ${describe(first)} then ${describe(second)}`);
 	},
 });
 
 const spaceListSpaces = defineCheck({
 	id: "space.listspaces-filters",
-	title: "listSpaces lists the operator's spaces and honours spaceType and did",
+	title:
+		"listSpaces lists the operator's spaces with its repo state, honouring spaceType and spaceDid",
 	tier: "must",
-	citations: [L("com.atproto.space.listSpaces")],
+	citations: [
+		L("com.atproto.space.listSpaces"),
+		L("com.atproto.space.listSpaces#spaceView"),
+	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
 		const space = await createProbeSpace(ctx, personalspace());
 		try {
+			await mustCreateRecord(ctx, space.uri, "a");
 			// Filter on both: an OAuth grant scoped to the probe type under the
 			// operator's authority covers exactly this listing.
-			const seen: string[] = [];
+			const seen: Array<{
+				space: string;
+				repoRev?: string;
+				data?: unknown;
+				spaceRev?: string;
+			}> = [];
 			let cursor: string | undefined;
 			for (let page = 0; page < 20; page++) {
 				const res = await xrpcGet(op(ctx), "com.atproto.space.listSpaces", {
 					spaceType: PROBE_TYPE,
-					did: ctx.target.did,
+					spaceDid: ctx.target.did,
 					limit: "100",
 					cursor,
 				});
 				if (res.status !== 200)
 					return fail(`listSpaces ${describe(res)}`, res.json);
-				const body = res.json as {
-					spaces?: Array<{ uri: string }>;
-					cursor?: string;
-				};
-				seen.push(...(body.spaces ?? []).map((s) => s.uri));
+				const body = res.json as { spaces?: typeof seen; cursor?: string };
+				seen.push(...(body.spaces ?? []));
 				cursor = body.cursor;
-				if (!cursor || seen.includes(space.uri)) break;
+				if (!cursor || seen.some((s) => s.space === space.uri)) break;
 			}
-			if (!seen.includes(space.uri))
-				return fail("listSpaces did not list the new space");
+			const entry = seen.find((s) => s.space === space.uri);
+			if (!entry) return fail("listSpaces did not list the new space");
 			const stray = seen.filter(
-				(uri) => !uri.startsWith(`at://${ctx.target.did}/space/${PROBE_TYPE}/`),
+				(s) =>
+					!s.space.startsWith(`at://${ctx.target.did}/space/${PROBE_TYPE}/`),
 			);
-			return stray.length
-				? fail(
-						`filtered listing included spaces outside the filter: ${stray.join(", ")}`,
-					)
-				: pass(
-						`listed the space; ${seen.length} result(s), all within the filter`,
-					);
+			if (stray.length)
+				return fail(
+					`listing included spaces outside the filter: ${stray.map((s) => s.space).join(", ")}`,
+				);
+			// The entry carries the operator's repo state, and — as authority — the spaceRev.
+			const latest = await xrpcGet(
+				op(ctx),
+				"com.atproto.space.getLatestCommit",
+				{
+					space: space.uri,
+					repo: ctx.target.did,
+				},
+			);
+			const commit = (
+				latest.json as { commit?: { rev?: string; data?: unknown } } | undefined
+			)?.commit;
+			const a = lexBytes(entry.data);
+			const b = lexBytes(commit?.data);
+			const problems: string[] = [];
+			if (entry.repoRev !== commit?.rev)
+				problems.push(`repoRev ${entry.repoRev} ≠ commit rev ${commit?.rev}`);
+			if (!a || !b || !bytesEqual(a, b))
+				problems.push("data does not match the commit");
+			if (!isTid(entry.spaceRev))
+				problems.push(`no spaceRev for a space the caller is authority of`);
+			return problems.length
+				? fail(problems.join("; "), entry)
+				: pass("listed with the operator's repoRev, data and the spaceRev");
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -562,9 +590,9 @@ const spaceOwnerStateNotByCredential = defineCheck({
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
-		// Each requires OAuth as the space owner: the policy and member list are
-		// the authority's own state, and a credential — which any reader of a
-		// public space can hold — must not expose them.
+		// Each requires auth as the space authority: the policy and member list
+		// are its own state, and a credential — which any reader of a public
+		// space can hold — must not expose them.
 		const space = await createProbeSpace(ctx, publicRead());
 		try {
 			const credential = await obtainPublicCredential(ctx, space.uri);
@@ -599,76 +627,85 @@ const spaceOwnerStateNotByCredential = defineCheck({
 	},
 });
 
+const managedBareDid = defineCheck({
+	id: "managedspace.bare-did-rejected",
+	title:
+		"A managedspace whose managingApp is not a did#serviceId reference is refused",
+	tier: "must",
+	citations: [L("com.atproto.managedspace.policy"), C("tidy-spaces-settle")],
+	needs: ["operator"],
+	destructive: true,
+	async run(ctx) {
+		const res = await xrpcPost(op(ctx), "com.atproto.space.createSpace", {
+			spaceType: PROBE_TYPE,
+			skey: probeSkey(),
+			policy: managedspace(FOREIGN_DID),
+		});
+		if (res.status === 200) {
+			await deleteProbeSpace(ctx, (res.json as { space: string }).space);
+			return fail("created a managedspace whose managingApp is a bare DID");
+		}
+		return res.status >= 400 && res.status < 500
+			? pass(`refused (${describe(res)})`)
+			: fail(`answered ${describe(res)}`, res.json);
+	},
+});
+
 // --- memberspace ------------------------------------------------------
 
 const memberRoundTrip = defineCheck({
 	id: "memberspace.member-round-trip",
-	title:
-		"putMember sets per-member read/write; listMembers and removeMember follow",
+	title: "putMembers and removeMembers apply batches; listMembers follows",
 	tier: "must",
 	citations: [
-		L("com.atproto.memberspace.putMember"),
+		L("com.atproto.memberspace.putMembers"),
 		L("com.atproto.memberspace.listMembers"),
-		L("com.atproto.memberspace.removeMember"),
+		L("com.atproto.memberspace.removeMembers"),
+		L("com.atproto.memberspace.defs#member"),
+		C("tidy-spaces-settle"),
 	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
 		const space = await createProbeSpace(ctx, memberspace());
-		const member = fakeDid();
-		const list = async () => {
-			const res = await xrpcGet(
-				op(ctx),
-				"com.atproto.memberspace.listMembers",
-				{ space: space.uri },
-			);
-			if (res.status !== 200) throw new Error(`listMembers ${describe(res)}`);
-			return (
-				(
-					res.json as {
-						members?: Array<{ did: string; read: boolean; write: boolean }>;
-					}
-				).members ?? []
-			).find((m) => m.did === member);
-		};
-		const put = (read: boolean, write: boolean) =>
-			xrpcPost(op(ctx), "com.atproto.memberspace.putMember", {
-				space: space.uri,
-				did: member,
-				read,
-				write,
-			});
+		const [a, b] = [fakeDid(), fakeDid()];
+		const find = (members: Member[], did: string) =>
+			members.find((m) => m.did === did);
 		try {
-			const first = await put(true, false);
-			if (first.status !== 200)
-				return fail(`putMember ${describe(first)}`, first.json);
-			const a = await list();
-			if (!a || a.read !== true || a.write !== false) {
+			// One batch; `a` appears twice and its last entry wins.
+			const put = await putMembers(ctx, space.uri, [
+				{ did: a, read: false, write: false },
+				{ did: b, read: true, write: true },
+				{ did: a, read: true, write: false },
+			]);
+			if (put.status !== 200)
+				return fail(`putMembers ${describe(put)}`, put.json);
+			const listed = await listMembers(ctx, space.uri);
+			const ma = find(listed, a);
+			const mb = find(listed, b);
+			if (!ma || ma.read !== true || ma.write !== false)
 				return fail(
-					`after putMember(read, !write) listMembers shows ${JSON.stringify(a)}`,
+					`a duplicated DID did not take its last entry: ${JSON.stringify(ma)}`,
 				);
-			}
-			const second = await put(false, true);
-			if (second.status !== 200)
-				return fail(`putMember (replace) ${describe(second)}`, second.json);
-			const b = await list();
-			if (!b || b.read !== false || b.write !== true) {
-				return fail(`putMember did not replace access: ${JSON.stringify(b)}`);
-			}
-			const removed = await xrpcPost(
-				op(ctx),
-				"com.atproto.memberspace.removeMember",
-				{
-					space: space.uri,
-					did: member,
-				},
-			);
+			if (!mb || mb.read !== true || mb.write !== true)
+				return fail(`second member: ${JSON.stringify(mb)}`);
+			// Replace one member's access.
+			await putMembers(ctx, space.uri, [{ did: b, read: false, write: true }]);
+			const mb2 = find(await listMembers(ctx, space.uri), b);
+			if (!mb2 || mb2.read !== false || mb2.write !== true)
+				return fail(
+					`putMembers did not replace access: ${JSON.stringify(mb2)}`,
+				);
+			// removeMembers ignores DIDs that are not members.
+			const removed = await removeMembers(ctx, space.uri, [a, b, fakeDid()]);
 			if (removed.status !== 200)
-				return fail(`removeMember ${describe(removed)}`, removed.json);
-			const c = await list();
-			return c
-				? fail(`removeMember left ${JSON.stringify(c)}`)
-				: pass("put, replaced and removed a member, as listMembers shows");
+				return fail(`removeMembers ${describe(removed)}`, removed.json);
+			const left = await listMembers(ctx, space.uri);
+			return find(left, a) || find(left, b)
+				? fail(`removeMembers left ${JSON.stringify(left)}`)
+				: pass(
+						"batched put (last entry wins), replace, and remove (ignoring a non-member)",
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -680,8 +717,8 @@ const memberPolicyMismatch = defineCheck({
 	title: "Member methods on a non-memberspace answer PolicyMismatch",
 	tier: "must",
 	citations: [
-		L("com.atproto.memberspace.putMember@error:PolicyMismatch"),
-		L("com.atproto.memberspace.removeMember@error:PolicyMismatch"),
+		L("com.atproto.memberspace.putMembers@error:PolicyMismatch"),
+		L("com.atproto.memberspace.removeMembers@error:PolicyMismatch"),
 		L("com.atproto.memberspace.listMembers@error:PolicyMismatch"),
 	],
 	needs: ["operator"],
@@ -693,25 +730,11 @@ const memberPolicyMismatch = defineCheck({
 		try {
 			const result = await expectEach([
 				[
-					"putMember",
-					() =>
-						xrpcPost(op(ctx), "com.atproto.memberspace.putMember", {
-							space: space.uri,
-							did,
-							read: true,
-							write: true,
-						}),
+					"putMembers",
+					() => putMembers(ctx, space.uri, [{ did, read: true, write: true }]),
 					mm,
 				],
-				[
-					"removeMember",
-					() =>
-						xrpcPost(op(ctx), "com.atproto.memberspace.removeMember", {
-							space: space.uri,
-							did,
-						}),
-					mm,
-				],
+				["removeMembers", () => removeMembers(ctx, space.uri, [did]), mm],
 				[
 					"listMembers",
 					() =>
@@ -739,11 +762,11 @@ const memberPublish = defineCheck({
 		L("com.atproto.memberspace.policy"),
 		L("com.atproto.space.policy"),
 		L("com.atproto.memberspace.member"),
-		C("baseline-space-policies"),
+		P("0016#publishing-to-readers"),
 	],
 	needs: ["operator"],
 	destructive: true,
-	async run(ctx: CheckContext) {
+	async run(ctx) {
 		const space = await createProbeSpace(
 			ctx,
 			memberspace({ publishPolicy: true, publishMembers: true }),
@@ -756,12 +779,11 @@ const memberPublish = defineCheck({
 				"self",
 				"com.atproto.space.policy",
 			);
-			if (policy.status !== 200) {
+			if (policy.status !== 200)
 				return fail(
 					`no com.atproto.space.policy/self record: ${describe(policy)}`,
 					policy.json,
 				);
-			}
 			const published = (policy.json as { value?: { policy?: Policy } }).value
 				?.policy;
 			if (
@@ -773,13 +795,9 @@ const memberPublish = defineCheck({
 					policy.json,
 				);
 			}
-
-			await xrpcPost(op(ctx), "com.atproto.memberspace.putMember", {
-				space: space.uri,
-				did: member,
-				read: true,
-				write: false,
-			});
+			await putMembers(ctx, space.uri, [
+				{ did: member, read: true, write: false },
+			]);
 			const rec = await operatorGetRecord(
 				ctx,
 				space.uri,
@@ -791,15 +809,11 @@ const memberPublish = defineCheck({
 			)?.value;
 			if (rec.status !== 200 || value?.read !== true || value.write !== false) {
 				return fail(
-					`member record after putMember: ${describe(rec)}`,
+					`member record after putMembers: ${describe(rec)}`,
 					rec.json,
 				);
 			}
-
-			await xrpcPost(op(ctx), "com.atproto.memberspace.removeMember", {
-				space: space.uri,
-				did: member,
-			});
+			await removeMembers(ctx, space.uri, [member]);
 			const gone = await operatorGetRecord(
 				ctx,
 				space.uri,
@@ -807,9 +821,9 @@ const memberPublish = defineCheck({
 				"com.atproto.memberspace.member",
 			);
 			return gone.status === 200
-				? fail("the member record outlived removeMember", gone.json)
+				? fail("the member record outlived removeMembers", gone.json)
 				: pass(
-						"policy record published; member record tracked putMember and removeMember",
+						"policy record published; member record tracked putMembers and removeMembers",
 					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
@@ -824,11 +838,12 @@ export const spaceChecks: Check[] = [
 	spaceRecreate,
 	spaceUnsupportedPolicy,
 	spaceUpdateReplaces,
-	spaceNotOwner,
+	spaceNotAuthority,
 	spaceUnknown,
 	spaceDeleteIdempotent,
 	spaceListSpaces,
 	spaceOwnerStateNotByCredential,
+	managedBareDid,
 	memberRoundTrip,
 	memberPolicyMismatch,
 	memberPublish,

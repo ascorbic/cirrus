@@ -31,7 +31,7 @@ export const toBase64Url = (bytes: Uint8Array): string =>
 	toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
 /** Decode base64 or base64url, padded or not. */
-export function fromBase64(input: string): Uint8Array {
+function fromBase64(input: string): Uint8Array {
 	let s = input.replace(/-/g, "+").replace(/_/g, "/").replace(/=+$/, "");
 	s = s.padEnd(Math.ceil(s.length / 4) * 4, "=");
 	const bin = atob(s);

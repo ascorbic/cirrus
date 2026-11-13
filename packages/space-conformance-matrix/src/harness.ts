@@ -3,20 +3,27 @@
  *
  * The identity-gated checks need parties the reference can resolve: a
  * reader whose delegation tokens it verifies, a writer whose service auth
- * it verifies, a foreign space authority whose credentials and revocations
- * it honours, and a syncer / managing app it calls. Each identity gets its
- * own tiny HTTP server and a `did:web:localhost%3A<port>` DID, which the
- * reference resolves over plain http (its did:web resolver does that for
- * `localhost`, and dev-env disables SSRF protection). The server publishes
- * the identity's DID document — `#atproto` plus an `#atproto_pds` service
- * pointing back at itself — and records every XRPC call it receives, so
- * the "syncer" identity doubles as the inbox.
+ * it verifies, and a foreign space authority whose credentials and
+ * revocations it honours. Each identity gets its own tiny HTTP server and a
+ * `did:web:localhost%3A<port>` DID, which the reference resolves over plain
+ * http (its did:web resolver does that for `localhost`, and dev-env runs it
+ * in dev mode, so SSRF protection is off). The server publishes the
+ * identity's DID document: `#atproto` plus an `#atproto_pds` service
+ * pointing back at itself.
+ *
+ * The "syncer" identity's server also serves the suite's ready-made
+ * syncer inbox (`createSyncerInbox`) for every other path: its base URL is
+ * the `notify` endpoint, and `<did>#atproto_pds` names it as a managing app.
  */
 
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { InboxDelivery, SyncerInbox } from "@getcirrus/space-conformance";
-import { KeypairIdentityProvider } from "@getcirrus/space-conformance/full";
+import type { SyncerInbox } from "@getcirrus/space-conformance";
+import {
+	KeypairIdentityProvider,
+	createSyncerInbox,
+	type SyncerInboxHandle,
+} from "@getcirrus/space-conformance/full";
 
 export interface HarnessServices {
 	identities: KeypairIdentityProvider;
@@ -24,104 +31,83 @@ export interface HarnessServices {
 	close(): Promise<void>;
 }
 
+async function toRequest(
+	req: IncomingMessage,
+	origin: string,
+): Promise<Request> {
+	const chunks: Buffer[] = [];
+	for await (const chunk of req) chunks.push(chunk as Buffer);
+	const headers = new Headers();
+	for (const [k, v] of Object.entries(req.headers)) {
+		if (typeof v === "string") headers.set(k, v);
+	}
+	return new Request(new URL(req.url ?? "/", origin), {
+		method: req.method,
+		headers,
+		...(req.method === "GET" || req.method === "HEAD"
+			? {}
+			: { body: Buffer.concat(chunks) }),
+	});
+}
+
 export async function startHarnessServices(): Promise<HarnessServices> {
 	const servers: Server[] = [];
-	const deliveries: InboxDelivery[] = [];
-	const waiters = new Set<() => void>();
-	const responders = new Map<string, (delivery: InboxDelivery) => unknown>();
+	let inboxHandle: SyncerInboxHandle | undefined;
 
 	const identities: KeypairIdentityProvider = new KeypairIdentityProvider(
 		async (role) => {
-			let did = "";
+			let port = 0;
 			const server = createServer((req, res) => {
-				const url = new URL(req.url ?? "/", "http://localhost");
-				if (url.pathname === "/.well-known/did.json") {
-					void identities.identity(role).then((identity) => {
+				const origin = `http://localhost:${port}`;
+				void (async () => {
+					const url = new URL(req.url ?? "/", origin);
+					if (url.pathname === "/.well-known/did.json") {
+						const identity = await identities.identity(role);
 						res.setHeader("Content-Type", "application/json");
 						res.end(
 							JSON.stringify(
 								KeypairIdentityProvider.didDocument(identity, {
-									serviceEndpoint: `http://localhost:${port}`,
+									serviceEndpoint: origin,
 								}),
 							),
 						);
-					});
-					return;
-				}
-				const lxm = url.pathname.startsWith("/xrpc/")
-					? url.pathname.slice("/xrpc/".length)
-					: url.pathname;
-				let raw = "";
-				req.on("data", (chunk) => (raw += chunk));
-				req.on("end", () => {
-					let body: unknown;
-					try {
-						body = raw ? JSON.parse(raw) : undefined;
-					} catch {
-						body = raw;
+						return;
 					}
-					const delivery: InboxDelivery = {
-						lxm,
-						body,
-						params: Object.fromEntries(url.searchParams),
-						...(req.headers.authorization
-							? { authorization: req.headers.authorization }
-							: {}),
-						receivedAt: Date.now(),
-					};
-					// Only the inbox identity records; the others just publish a doc.
-					if (did === inboxDid) {
-						deliveries.push(delivery);
-						for (const wake of waiters) wake();
+					if (role !== "syncer" || !inboxHandle) {
+						res.statusCode = 404;
+						res.end();
+						return;
 					}
-					const responder = did === inboxDid ? responders.get(lxm) : undefined;
-					res.setHeader("Content-Type", "application/json");
-					res.end(JSON.stringify(responder ? responder(delivery) : {}));
+					const response = await inboxHandle.handle(
+						await toRequest(req, origin),
+					);
+					res.statusCode = response.status;
+					response.headers.forEach((v, k) => res.setHeader(k, v));
+					res.end(Buffer.from(await response.arrayBuffer()));
+				})().catch((err) => {
+					res.statusCode = 500;
+					res.end(String(err));
 				});
 			});
 			await new Promise<void>((resolve) =>
 				server.listen(0, "127.0.0.1", resolve),
 			);
 			servers.push(server);
-			const port = (server.address() as AddressInfo).port;
-			did = `did:web:localhost%3A${port}`;
-			return did;
+			port = (server.address() as AddressInfo).port;
+			return `did:web:localhost%3A${port}`;
 		},
 	);
 
 	const syncer = await identities.identity("syncer");
-	const inboxDid = syncer.did;
-
-	const inbox: SyncerInbox = {
-		// Named by fragment, the form registerNotify's lexicon describes.
-		service: `${inboxDid}#atproto_pds`,
-		async waitFor(predicate, timeoutMs) {
-			const deadline = Date.now() + timeoutMs;
-			for (;;) {
-				const found = deliveries.find(predicate);
-				if (found) return found;
-				const remaining = deadline - Date.now();
-				if (remaining <= 0) return null;
-				await new Promise<void>((resolve) => {
-					const timer = setTimeout(done, remaining);
-					function done() {
-						clearTimeout(timer);
-						waiters.delete(done);
-						resolve();
-					}
-					waiters.add(done);
-				});
-			}
-		},
-		respond(lxm, handler) {
-			if (handler) responders.set(lxm, handler);
-			else responders.delete(lxm);
-		},
-	};
+	const port = decodeURIComponent(syncer.did).split(":").at(-1);
+	inboxHandle = createSyncerInbox({
+		endpoint: `http://localhost:${port}`,
+		service: `${syncer.did}#atproto_pds`,
+	});
 
 	return {
 		identities,
-		inbox,
+		inbox: inboxHandle.inbox,
 		close: async () => {
 			await Promise.all(
 				servers.map(

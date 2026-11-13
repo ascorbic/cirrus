@@ -30,6 +30,7 @@ import {
 
 const L = (ref: string) => ({ source: "lexicon" as const, ref });
 const C = (ref: string) => ({ source: "changeset" as const, ref });
+const P = (ref: string) => ({ source: "proposal" as const, ref });
 const op = asOperator;
 
 const writesCreateRead = defineCheck({
@@ -401,8 +402,8 @@ const writesSpaceNotFound = defineCheck({
 		L("com.atproto.space.createRecord@error:SpaceNotFound"),
 		L("com.atproto.space.putRecord@error:SpaceNotFound"),
 		L("com.atproto.space.applyWrites@error:SpaceNotFound"),
-		L("com.atproto.space.deleteSpace"),
-		{ source: "changeset", ref: "brave-spaces-exist" },
+		P("0016#repo-lifecycle"),
+		C("brave-spaces-exist"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -435,16 +436,17 @@ const writesDeleteSpaceNotFound = defineCheck({
 	tier: "must",
 	citations: [
 		L("com.atproto.space.deleteRecord@error:SpaceNotFound"),
-		L("com.atproto.space.deleteSpace"),
+		P("0016#repo-lifecycle"),
+		C("brave-spaces-exist"),
 	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
 		// Separate from writes.space-not-found because deleteRecord is also
-		// idempotent ("succeeds whether or not the record was present"). That
-		// speaks to the record, not the space: deleteRecord declares
-		// SpaceNotFound, and deleteSpace says writes to a deleted space fail
-		// with it.
+		// idempotent ("or ensure it doesn't exist"). That speaks to the record,
+		// not the space: deleteRecord declares SpaceNotFound, and when the
+		// writer is the authority "the space must already exist" (proposal,
+		// Repo lifecycle).
 		const deleted = await createProbeSpace(ctx, personalspace());
 		await mustCreateRecord(ctx, deleted.uri, "w");
 		await deleteProbeSpace(ctx, deleted.uri);
@@ -468,55 +470,12 @@ const writesDeleteSpaceNotFound = defineCheck({
 	},
 });
 
-const readsAfterDelete = defineCheck({
-	id: "space.reads-after-delete-not-found",
-	title: "After deleteSpace, the owner's reads answer SpaceNotFound",
-	tier: "must",
-	citations: [
-		L("com.atproto.space.deleteSpace"),
-		L("com.atproto.space.getRecord@error:SpaceNotFound"),
-		L("com.atproto.space.listRecords@error:SpaceNotFound"),
-		L("com.atproto.space.getLatestCommit@error:SpaceNotFound"),
-		L("com.atproto.space.listRepoOps@error:SpaceNotFound"),
-		L("com.atproto.space.getRepo@error:SpaceNotFound"),
-		L("com.atproto.space.listBlobs@error:SpaceNotFound"),
-		L("com.atproto.space.getBlob@error:SpaceNotFound"),
-	],
-	needs: ["operator"],
-	destructive: true,
-	async run(ctx) {
-		// deleteSpace: "Afterwards, reads and writes fail with SpaceNotFound".
-		const space = await createProbeSpace(ctx, personalspace());
-		await mustCreateRecord(ctx, space.uri, "before");
-		await deleteProbeSpace(ctx, space.uri);
-		const base = { space: space.uri, repo: ctx.target.did };
-		const cid = await rawCid(crypto.getRandomValues(new Uint8Array(8)));
-		const reads: Array<[string, Record<string, string>]> = [
-			["getRecord", { ...base, collection: POST, rkey: "before" }],
-			["listRecords", base],
-			["getLatestCommit", base],
-			["listRepoOps", base],
-			["getRepo", base],
-			["listBlobs", base],
-			["getBlob", { ...base, cid }],
-		];
-		const misses: string[] = [];
-		for (const [name, params] of reads) {
-			const res = await xrpcGet(op(ctx), `com.atproto.space.${name}`, params);
-			if (res.error !== "SpaceNotFound")
-				misses.push(`${name} → ${describe(res)}`);
-		}
-		return misses.length
-			? fail(`expected SpaceNotFound: ${misses.join("; ")}`)
-			: pass("every read of the deleted space answered SpaceNotFound");
-	},
-});
-
 const writesPublishedRefused = defineCheck({
 	id: "writes.published-collections-refused",
 	title: "Direct writes to the policy and member collections are refused",
-	tier: "must",
+	tier: "should",
 	citations: [
+		P("0016#publishing-to-readers"),
 		C("baseline-space-policies"),
 		L("com.atproto.space.policy"),
 		L("com.atproto.memberspace.member"),
@@ -605,6 +564,8 @@ const writesClearRecords = defineCheck({
 	citations: [
 		L("com.atproto.space.clearRecords"),
 		L("com.atproto.space.listRecords"),
+		P("0016#repo-lifecycle"),
+		C("clear-spaces-sweep"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -641,7 +602,7 @@ const writesClearRecords = defineCheck({
 					after.res.json,
 				);
 			}
-			// "Succeeds whether or not the repo held any records to delete."
+			// "Clearing a repo with nothing to delete is a no-op." (clear-spaces-sweep)
 			const again = await clear();
 			return again.status === 200
 				? pass(
@@ -662,7 +623,10 @@ const writesClearKeepsPublished = defineCheck({
 	title:
 		"clearRecords in the authority's repo keeps the published policy record",
 	tier: "must",
-	citations: [L("com.atproto.space.clearRecords")],
+	citations: [
+		L("com.atproto.space.clearRecords"),
+		P("0016#publishing-to-readers"),
+	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
@@ -707,7 +671,7 @@ const syncListRecords = defineCheck({
 	id: "sync.listrecords-lists",
 	title: "listRecords lists records with values, and excludeValues omits them",
 	tier: "must",
-	citations: [L("com.atproto.space.listRecords")],
+	citations: [L("com.atproto.space.listRecords"), P("0016#xrpc-api")],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
@@ -771,6 +735,42 @@ const syncListRecordsDescending = defineCheck({
 			return rkeys.join(",") === "ccc,bbb,aaa"
 				? pass("records returned descending by default")
 				: fail(`order was ${rkeys.join(",")}, reference is descending`);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
+const garbageCursor = defineCheck({
+	id: "request.garbage-cursor-rejected",
+	title: "A cursor the host never issued answers InvalidCursor",
+	tier: "should",
+	citations: [
+		{ source: "reference", ref: "pds space readers validate cursor syntax" },
+		L("com.atproto.space.listRecords@error:InvalidCursor"),
+	],
+	needs: ["operator"],
+	destructive: true,
+	async run(ctx) {
+		const space = await createProbeSpace(ctx, memberspace());
+		try {
+			await mustCreateRecord(ctx, space.uri, "a");
+			const cursor = "!!not-a-cursor!!";
+			const base = { space: space.uri, repo: ctx.target.did, cursor };
+			const misses: string[] = [];
+			for (const [name, params] of [
+				["com.atproto.space.listRecords", base],
+				["com.atproto.space.listRepoOps", base],
+				["com.atproto.space.listSpaces", { cursor }],
+				["com.atproto.memberspace.listMembers", { space: space.uri, cursor }],
+			] as const) {
+				const res = await xrpcGet(op(ctx), name, params);
+				if (res.error !== "InvalidCursor")
+					misses.push(`${name.split(".").at(-1)} → ${describe(res)}`);
+			}
+			return misses.length
+				? fail(misses.join("; "))
+				: pass("all four answered InvalidCursor");
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -930,12 +930,12 @@ export const recordChecks: Check[] = [
 	writesApplyWritesMissing,
 	writesSpaceNotFound,
 	writesDeleteSpaceNotFound,
-	readsAfterDelete,
 	writesPublishedRefused,
 	writesClearRecords,
 	writesClearKeepsPublished,
 	syncListRecords,
 	syncListRecordsDescending,
+	garbageCursor,
 	blobsSpaceNotPublic,
 	blobsListAndGet,
 	blobsNotFound,

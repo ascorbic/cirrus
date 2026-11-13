@@ -229,19 +229,19 @@ describe("coverage", () => {
 		// Methods
 		expect(refs).toContain("com.atproto.space.getRecord");
 		expect(refs).toContain("com.atproto.space.createSpace");
-		expect(refs).toContain("com.atproto.memberspace.putMember");
-		expect(refs).toContain("com.atproto.managedspace.checkUserAccess");
+		expect(refs).toContain("com.atproto.memberspace.putMembers");
+		expect(refs).toContain("com.atproto.managedspace.checkAccess");
 		// Declared errors, exactly as named
 		expect(refs).toContain(
-			"com.atproto.space.getSpaceCredential@error:UserNotAuthorized",
+			"com.atproto.space.authorizeSpaceSync@error:AccountNotAuthorized",
 		);
 		expect(refs).toContain(
-			"com.atproto.space.getSpaceCredential@error:SpaceDeleted",
+			"com.atproto.space.authorizeSpaceSync@error:RegistrationNotConfirmed",
 		);
 		expect(refs).toContain(
 			"com.atproto.space.createSpace@error:UnsupportedPolicy",
 		);
-		expect(refs).toContain("com.atproto.space.getRecord@error:BadSpaceMac");
+		expect(refs).toContain("com.atproto.space.getRecord@error:InvalidSpaceMac");
 		// defs, records and policy objects are not methods and contribute nothing
 		for (const notMethod of [
 			"com.atproto.space.defs",
@@ -321,7 +321,7 @@ describe("coverage", () => {
 		]);
 		// Everything not cited is a gap — e.g. listRepos is uncovered here.
 		expect(report.gaps.map((g) => g.ref)).toContain(
-			"com.atproto.space.listRepos",
+			"com.atproto.space.listWriters",
 		);
 	});
 
@@ -333,8 +333,18 @@ describe("coverage", () => {
 				/^com\.atproto\.(space|memberspace|personalspace|managedspace)\./,
 			);
 		}
-		// simplespace is gone in this alpha.
-		expect(lexicons.some((d) => d.id.includes("simplespace"))).toBe(false);
+		// Renamed or removed in this alpha.
+		for (const gone of [
+			"simplespace",
+			"getSpaceCredential",
+			"registerNotify",
+			"notifyWrite",
+			"listRepos",
+		]) {
+			expect(
+				lexicons.some((d) => d.id.endsWith(gone) || d.id.includes(`.${gone}.`)),
+			).toBe(false);
+		}
 	});
 
 	it("excuses exempted requirements and reports stale exemptions", () => {

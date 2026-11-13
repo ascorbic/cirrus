@@ -1,26 +1,26 @@
 /**
- * Space credentials, operator-side: issuance (tokenless for public-read
- * spaces, via the target's own delegation tokens otherwise), the refusals
- * getSpaceCredential declares, and presentation — the HTTP message
- * signature, the audience binding and the MAC request every credentialed
- * read of a commit or record must carry.
+ * Space credentials, operator-side: issuance through authorizeSpaceSync
+ * (tokenless for public-read spaces, via the target's own delegation
+ * tokens otherwise), the refusals it declares, and presentation — the
+ * HTTP message signature, the audience binding and the MAC request every
+ * credentialed read of a commit or record must carry.
  *
- * All browser-safe: credential keys, signatures and KEM key shares are
+ * All browser-safe: credential keys, signatures and HPKE key shares are
  * WebCrypto (see ../space-auth.ts). Verifying the MACs that come back
  * needs the reference library and lives in ../full/checks.ts.
  */
 
 import { defineCheck } from "../registry.js";
-import { asOperator, xrpcGet } from "../http.js";
+import { asOperator, xrpcGet, xrpcPost } from "../http.js";
 import { fail, pass, type Check, type CheckContext } from "../model.js";
-import { decodeJwt, rawCid, toBase64Url, utf8 } from "../encoding.js";
+import { decodeJwt, isTid, rawCid, toBase64Url, utf8 } from "../encoding.js";
 import {
-	COMMIT_MAC_TYPE,
-	MAC_HEADER,
-	RECORD_MAC_TYPE,
+	COMMIT_MAC_PROFILE,
+	RECORD_MAC_PROFILE,
 	createCredentialKey,
-	formatWantMacHeader,
+	credentialSigMembers,
 	formatDidKey,
+	formatMacRequest,
 } from "../space-auth.js";
 import {
 	FOREIGN_DID,
@@ -30,6 +30,7 @@ import {
 	credentialGet,
 	deleteProbeSpace,
 	describe,
+	errorIs,
 	memberspace,
 	mustCreateRecord,
 	obtainCredentialViaDelegation,
@@ -44,7 +45,14 @@ import {
 import { fakeDid } from "./space.js";
 
 const L = (ref: string) => ({ source: "lexicon" as const, ref });
-const C = (ref: string) => ({ source: "changeset" as const, ref });
+const P = (ref: string) => ({ source: "proposal" as const, ref });
+
+/** Refusals the lexicon allows for an account the policy does not authorise. */
+export const ACCOUNT_REFUSALS = [
+	"SpaceNotFound",
+	"AccountNotAuthorized",
+	"NotAuthorized",
+];
 
 /** A public-read probe space holding one record, plus a tokenless credential for it. */
 async function withPublicSpace<T>(
@@ -80,18 +88,21 @@ const readShared = (
 		params: recordParams(ctx, space),
 	});
 
+const refused = (status: number) => status >= 400 && status < 500;
+
 // --- issuance ----------------------------------------------------------
 
 const credentialTokenlessPolicies = defineCheck({
 	id: "credential.tokenless-by-policy",
 	title:
-		"Without a delegation token only a public-read space issues; others answer SpaceNotFound",
+		"Without a delegation token only a public-read space issues a credential",
 	tier: "must",
 	citations: [
-		L("com.atproto.space.getSpaceCredential"),
-		L("com.atproto.space.getSpaceCredential@error:SpaceNotFound"),
+		L("com.atproto.space.authorizeSpaceSync"),
+		L("com.atproto.space.authorizeSpaceSync@error:SpaceNotFound"),
 		L("com.atproto.memberspace.policy"),
 		L("com.atproto.personalspace.policy"),
+		P("0016#memberspace"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -112,13 +123,13 @@ const credentialTokenlessPolicies = defineCheck({
 				["personalspace", personal],
 			] as const) {
 				const res = await requestCredential(ctx, space.uri);
-				if (res.result.error !== "SpaceNotFound")
+				if (res.credential || !errorIs(...ACCOUNT_REFUSALS)(res.result))
 					misses.push(`${label} → ${describe(res.result)}`);
 			}
 			return misses.length
-				? fail(`expected SpaceNotFound: ${misses.join("; ")}`)
+				? fail(`expected ${ACCOUNT_REFUSALS.join(" / ")}: ${misses.join("; ")}`)
 				: pass(
-						"public-read issued; closed memberspace and personalspace answered SpaceNotFound",
+						"public-read issued; a closed memberspace and a personalspace refused",
 					);
 		} finally {
 			for (const s of [open, closed, personal])
@@ -133,9 +144,8 @@ const credentialClaims = defineCheck({
 		"A credential is signed by the authority for the space, bound to the requested key",
 	tier: "must",
 	citations: [
-		L("com.atproto.space.getSpaceCredential"),
-		C("funky-dryers-draw"),
-		C("plain-keys-resolve"),
+		L("com.atproto.space.authorizeSpaceSync"),
+		P("0016#space-credential"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -155,8 +165,7 @@ const credentialClaims = defineCheck({
 				problems.push(`sub ${String(payload.sub)}`);
 			if (cnf?.kid !== credential.key.did)
 				problems.push(`cnf.kid ${String(cnf?.kid)}`);
-			// Credentials carry no audience: each use is bound to one by its
-			// HTTP signature instead.
+			// Credentials carry no audience: each use is bound to one by its signature.
 			if ("aud" in payload) problems.push(`has aud ${String(payload.aud)}`);
 			if (typeof payload.jti !== "string" || !payload.jti)
 				problems.push("no jti");
@@ -175,14 +184,9 @@ const credentialClaims = defineCheck({
 
 const credentialDefaultLifetime = defineCheck({
 	id: "credential.default-lifetime",
-	title: "Credentials live 600 seconds, the reference default",
+	title: "Credentials live 600 seconds, the default",
 	tier: "should",
-	citations: [
-		{
-			source: "reference",
-			ref: "@atproto/space SPACE_TOKEN_TYPES.credential.expiresInSec",
-		},
-	],
+	citations: [P("0016#space-credential")],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
@@ -199,37 +203,97 @@ const credentialDefaultLifetime = defineCheck({
 	},
 });
 
-const credentialKidP256 = defineCheck({
-	id: "credential.kid-must-be-p256",
+const credentialSpaceRev = defineCheck({
+	id: "credential.space-rev",
 	title:
-		"getSpaceCredential refuses a credentialKid that is not a P-256 did:key",
+		"authorizeSpaceSync reports the space's current revision, omitted before its first update",
 	tier: "must",
-	citations: [L("com.atproto.space.getSpaceCredential")],
+	citations: [
+		L("com.atproto.space.authorizeSpaceSync"),
+		P("0016#authorizing-space-sync"),
+	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
 		const space = await createProbeSpace(ctx, publicRead());
 		try {
-			// A well-formed secp256k1 did:key: valid syntax, wrong curve. The
-			// credential could never be presented — HTTP signatures are P-256.
+			const fresh = await requestCredential(ctx, space.uri);
+			if (!fresh.credential)
+				return fail(
+					`authorizeSpaceSync ${describe(fresh.result)}`,
+					fresh.result.json,
+				);
+			if (fresh.spaceRev !== undefined)
+				return fail(
+					`a space with no updates reported spaceRev ${fresh.spaceRev}`,
+				);
+			await mustCreateRecord(ctx, space.uri, "a");
+			const after = await requestCredential(ctx, space.uri);
+			if (!isTid(after.spaceRev))
+				return fail(
+					`after a write, spaceRev is ${String(after.spaceRev)}`,
+					after.result.json,
+				);
+			// The space's current revision is the latest one listWriters sequenced.
+			const list = await credentialCall(
+				ctx,
+				after.credential!,
+				"com.atproto.space.listWriters",
+				{
+					params: { space: space.uri },
+					audience: ctx.target.did,
+				},
+			);
+			const revs = (
+				(list.json as { repos?: Array<{ spaceRev?: string }> } | undefined)
+					?.repos ?? []
+			).map((r) => r.spaceRev);
+			return revs.at(-1) === after.spaceRev
+				? pass(
+						`omitted before the first update; then ${after.spaceRev}, the latest sequenced revision`,
+					)
+				: fail(
+						`spaceRev ${after.spaceRev} is not the latest listWriters revision ${revs.at(-1)}`,
+					);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
+const credentialKeyP256 = defineCheck({
+	id: "credential.key-must-be-p256",
+	title:
+		"authorizeSpaceSync refuses a credentialKey that is not a P-256 did:key",
+	tier: "must",
+	citations: [
+		L("com.atproto.space.authorizeSpaceSync"),
+		P("0016#credential-key-binding"),
+	],
+	needs: ["operator"],
+	destructive: true,
+	async run(ctx) {
+		const space = await createProbeSpace(ctx, publicRead());
+		try {
+			// A well-formed secp256k1 did:key: valid syntax, wrong curve.
 			const k256 = formatDidKey(
 				"ES256K",
 				new Uint8Array([0x02, ...crypto.getRandomValues(new Uint8Array(32))]),
 			);
 			const bad = await requestCredential(ctx, space.uri, {
-				credentialKid: k256,
+				credentialKey: k256,
 			});
 			if (bad.credential)
 				return fail("issued a credential bound to a secp256k1 key");
 			const notKey = await requestCredential(ctx, space.uri, {
-				credentialKid: ctx.target.did,
+				credentialKey: ctx.target.did,
 			});
 			if (notKey.credential)
 				return fail("issued a credential bound to a non-key DID");
 			const good = await requestCredential(ctx, space.uri);
 			return good.credential
 				? pass(
-						`refused secp256k1 (${describe(bad.result)}) and non-key (${describe(notKey.result)}) kids; P-256 issued`,
+						`refused secp256k1 (${describe(bad.result)}) and non-key (${describe(notKey.result)}); P-256 issued`,
 					)
 				: fail(
 						`positive control failed: ${describe(good.result)}`,
@@ -246,7 +310,7 @@ const credentialGarbageDelegation = defineCheck({
 	title: "A malformed delegation token is refused with InvalidDelegationToken",
 	tier: "must",
 	citations: [
-		L("com.atproto.space.getSpaceCredential@error:InvalidDelegationToken"),
+		L("com.atproto.space.authorizeSpaceSync@error:InvalidDelegationToken"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -280,7 +344,7 @@ async function unverifiableAttestation(authority: string): Promise<string> {
 	const key = await createCredentialKey();
 	const iat = Math.floor(Date.now() / 1000);
 	const part = (obj: unknown) => toBase64Url(utf8(JSON.stringify(obj)));
-	const input = `${part({ alg: "ES256", typ: "atproto-client-attestation+jwt" })}.${part(
+	const input = `${part({ alg: "ES256", typ: "atproto-client-attestation+jwt", kid: "key-1" })}.${part(
 		{
 			iss: clientId,
 			sub: clientId,
@@ -294,7 +358,8 @@ async function unverifiableAttestation(authority: string): Promise<string> {
 }
 
 const attestationCitations = [
-	L("com.atproto.space.getSpaceCredential@error:InvalidClientAttestation"),
+	L("com.atproto.space.authorizeSpaceSync@error:InvalidClientAttestation"),
+	P("0016#client-attestation"),
 ];
 
 const credentialUnverifiableAttestation = defineCheck({
@@ -359,18 +424,18 @@ const credentialGarbageAttestation = defineCheck({
 
 const credentialAllowedApps = defineCheck({
 	id: "credential.allowed-apps-gate",
-	title:
-		"A memberspace with allowedApps refuses an unattested app with AppNotAuthorized",
+	title: "A memberspace with allowedApps refuses an unattested app",
 	tier: "must",
 	citations: [
-		L("com.atproto.space.getSpaceCredential@error:AppNotAuthorized"),
+		L("com.atproto.space.authorizeSpaceSync@error:AppNotAuthorized"),
 		L("com.atproto.memberspace.policy"),
+		P("0016#memberspace"),
 	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
-		// publicRead clears the user perimeter (checked first), so only the
-		// app perimeter is left to refuse.
+		// publicRead clears the account perimeter, so only the app perimeter is
+		// left to refuse; NotAuthorized may stand in for AppNotAuthorized.
 		const space = await createProbeSpace(
 			ctx,
 			memberspace({
@@ -384,8 +449,8 @@ const credentialAllowedApps = defineCheck({
 			const res = await requestCredential(ctx, space.uri);
 			if (res.credential)
 				return fail("issued a credential to an app outside allowedApps");
-			return res.result.error === "AppNotAuthorized"
-				? pass("refused with AppNotAuthorized")
+			return errorIs("AppNotAuthorized", "NotAuthorized")(res.result)
+				? pass(`refused with ${res.result.error}`)
 				: fail(
 						`refused with ${describe(res.result)}, expected AppNotAuthorized`,
 						res.result.json,
@@ -398,17 +463,19 @@ const credentialAllowedApps = defineCheck({
 
 const credentialDeletedSpace = defineCheck({
 	id: "credential.deleted-space",
-	title: "After deleteSpace, getSpaceCredential answers SpaceDeleted",
+	title:
+		"deleteSpace removes the authority's repo, and authorizeSpaceSync then answers SpaceDeleted",
 	tier: "must",
 	citations: [
 		L("com.atproto.space.deleteSpace"),
-		L("com.atproto.space.getSpaceCredential@error:SpaceDeleted"),
+		L("com.atproto.space.authorizeSpaceSync@error:SpaceDeleted"),
+		P("0016#space-deletion"),
 	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
 		const space = await createProbeSpace(ctx, publicRead());
-		// Positive control, so a target that never issues cannot pass.
+		await mustCreateRecord(ctx, space.uri, "mine");
 		const before = await requestCredential(ctx, space.uri);
 		if (!before.credential) {
 			await deleteProbeSpace(ctx, space.uri);
@@ -416,18 +483,73 @@ const credentialDeletedSpace = defineCheck({
 				`could not obtain a credential before deletion (${describe(before.result)})`,
 			);
 		}
-		await deleteProbeSpace(ctx, space.uri);
-		const after = await requestCredential(ctx, space.uri);
-		if (after.credential)
+		const del = await xrpcPost(
+			asOperator(ctx),
+			"com.atproto.space.deleteSpace",
+			{ space: space.uri },
+		);
+		if (del.status !== 200)
+			return fail(`deleteSpace ${describe(del)}`, del.json);
+		// "Delete a space, along with the authority's space repo."
+		const own = await xrpcGet(asOperator(ctx), "com.atproto.space.getRecord", {
+			space: space.uri,
+			repo: ctx.target.did,
+			collection: POST,
+			rkey: "mine",
+		});
+		if (own.status === 200)
+			return fail("the authority's own record survived deleteSpace", own.json);
+		// "regardless of the request's authorization": tokenless, and with a
+		// garbage delegation token.
+		const tokenless = await requestCredential(ctx, space.uri);
+		const garbage = await requestCredential(ctx, space.uri, {
+			delegationToken: "not.a.token",
+		});
+		if (tokenless.credential)
 			return fail("a deleted space still issued a credential");
-		// The durable tombstone: a syncer that missed notifySpaceDeleted learns
-		// it here on renewal — tokenless, as a public space's syncer would ask.
-		return after.result.error === "SpaceDeleted"
-			? pass("answered SpaceDeleted")
+		return tokenless.result.error === "SpaceDeleted" &&
+			garbage.result.error === "SpaceDeleted"
+			? pass(
+					"own records gone; answered SpaceDeleted, tokenless and with a bad token",
+				)
 			: fail(
-					`answered ${describe(after.result)}, expected SpaceDeleted`,
-					after.result.json,
+					`answered ${describe(tokenless.result)} tokenless, ${describe(garbage.result)} with a bad token; expected SpaceDeleted`,
 				);
+	},
+});
+
+const credentialUnconfirmedRegistration = defineCheck({
+	id: "credential.unconfirmed-registration-refused",
+	title:
+		"A notify endpoint that does not confirm the registration gets RegistrationNotConfirmed",
+	tier: "must",
+	citations: [
+		L("com.atproto.space.authorizeSpaceSync@error:RegistrationNotConfirmed"),
+		P("0016#registering-for-notifications"),
+	],
+	needs: ["operator"],
+	destructive: true,
+	async run(ctx) {
+		// An endpoint nobody serves can't echo the challenge.
+		const space = await createProbeSpace(ctx, publicRead());
+		try {
+			const res = await requestCredential(ctx, space.uri, {
+				notify: {
+					endpoint: "https://syncer.space-conformance.invalid",
+					token: toBase64Url(crypto.getRandomValues(new Uint8Array(32))),
+				},
+			});
+			if (res.credential)
+				return fail("issued a credential with an unconfirmed registration");
+			return res.result.error === "RegistrationNotConfirmed"
+				? pass("refused with RegistrationNotConfirmed")
+				: fail(
+						`refused with ${describe(res.result)}, expected RegistrationNotConfirmed`,
+						res.result.json,
+					);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
 	},
 });
 
@@ -440,8 +562,9 @@ const credentialSelfRoundTrip = defineCheck({
 	tier: "must",
 	citations: [
 		L("com.atproto.space.getDelegationToken"),
-		L("com.atproto.space.getSpaceCredential"),
+		L("com.atproto.space.authorizeSpaceSync"),
 		L("com.atproto.space.getRecord"),
+		P("0016#credential-flow"),
 	],
 	needs: ["operator", "pds-delegation"],
 	destructive: true,
@@ -458,13 +581,14 @@ const credentialSelfRoundTrip = defineCheck({
 					delegation.json,
 				);
 			if (!credential)
-				return fail(`getSpaceCredential ${describe(result)}`, result.json);
+				return fail(`authorizeSpaceSync ${describe(result)}`, result.json);
 			const read = await readShared(ctx, credential, space.uri);
 			if (read.status !== 200)
 				return fail(`credential read failed: ${describe(read)}`, read.json);
-			return read.headers.get(MAC_HEADER)
+			return read.headers.get("atproto-space-record") &&
+				read.headers.get("signature")
 				? pass("delegation → credential → MAC'd read works")
-				: fail("the credentialed read carried no Atproto-Space-Mac header");
+				: fail("the credentialed read carried no Atproto-Space-Record MAC");
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -478,7 +602,7 @@ const delegationClaims = defineCheck({
 	tier: "must",
 	citations: [
 		L("com.atproto.space.getDelegationToken"),
-		C("plain-keys-resolve"),
+		P("0016#delegation-token"),
 	],
 	needs: ["operator", "pds-delegation"],
 	destructive: true,
@@ -505,13 +629,14 @@ const delegationClaims = defineCheck({
 				problems.push(`sub ${String(payload.sub)}`);
 			if (payload.aud !== `${ctx.target.did}#atproto_pds`)
 				problems.push(`aud ${String(payload.aud)}`);
+			if ("lxm" in payload) problems.push("has an lxm claim");
 			if (typeof payload.jti !== "string" || !payload.jti)
 				problems.push("no jti");
 			if (!(Number(payload.exp) > Math.floor(Date.now() / 1000) - 5))
 				problems.push("already expired");
 			return problems.length
 				? fail(`delegation token: ${problems.join(", ")}`, { header, payload })
-				: pass("typ/kid/iss/sub/aud as specified");
+				: pass("typ/kid/iss/sub/aud as specified, no lxm");
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -523,7 +648,8 @@ const delegationReplay = defineCheck({
 	title: "A delegation token cannot be used twice",
 	tier: "must",
 	citations: [
-		L("com.atproto.space.getSpaceCredential@error:InvalidDelegationToken"),
+		L("com.atproto.space.authorizeSpaceSync@error:InvalidDelegationToken"),
+		P("0016#delegation-token"),
 	],
 	needs: ["operator", "pds-delegation"],
 	destructive: true,
@@ -566,7 +692,8 @@ const delegationWrongSpace = defineCheck({
 	title: "A delegation token for one space is refused for another",
 	tier: "must",
 	citations: [
-		L("com.atproto.space.getSpaceCredential@error:InvalidDelegationToken"),
+		L("com.atproto.space.authorizeSpaceSync@error:InvalidDelegationToken"),
+		P("0016#delegation-token"),
 	],
 	needs: ["operator", "pds-delegation"],
 	destructive: true,
@@ -602,9 +729,8 @@ const delegationWrongSpace = defineCheck({
 
 const presentationCitations = [
 	L("com.atproto.space.getRecord"),
-	L("com.atproto.space.listRepos"),
-	C("funky-dryers-draw"),
-	C("open-spaces-greet"),
+	L("com.atproto.space.listWriters"),
+	P("0016#presenting-a-space-credential"),
 ];
 
 const credentialSignatureRequired = defineCheck({
@@ -622,12 +748,147 @@ const credentialSignatureRequired = defineCheck({
 			const bare = await readShared(ctx, credential, space.uri, {
 				unsigned: true,
 			});
-			return bare.status >= 400 && bare.status < 500
+			return refused(bare.status)
 				? pass(`signed read 200; unsigned read refused (${describe(bare)})`)
 				: fail(
 						`an unsigned credential read returned ${describe(bare)}`,
 						bare.json,
 					);
+		});
+	},
+});
+
+const credentialSignatureByTag = defineCheck({
+	id: "credential.signature-found-by-tag",
+	title:
+		"The credential signature is found by its tag under any label; other parameters are ignored",
+	tier: "must",
+	citations: presentationCitations,
+	needs: ["operator"],
+	destructive: true,
+	async run(ctx) {
+		return withPublicSpace(ctx, async (space, credential) => {
+			const now = Math.floor(Date.now() / 1000);
+			const variants: Array<[string, CredentialCallOptions["signature"]]> = [
+				["label 'x7'", { label: "x7" }],
+				[
+					"created and nonce parameters",
+					{
+						params: [
+							["created", now],
+							["nonce", "abc"],
+						],
+					},
+				],
+				[
+					"keyid = cnf.kid and alg = ecdsa-p256-sha256",
+					{
+						params: [
+							["keyid", credential.key.did],
+							["alg", "ecdsa-p256-sha256"],
+						],
+					},
+				],
+			];
+			const misses: string[] = [];
+			for (const [label, signature] of variants) {
+				const res = await readShared(ctx, credential, space.uri, { signature });
+				if (res.status !== 200) misses.push(`${label} → ${describe(res)}`);
+			}
+			// A second, unrelated signature with another tag alongside is ignored.
+			const extra = await readShared(ctx, credential, space.uri, {
+				signatureHeaders: async (h) => {
+					const other = await credentialSigMembers(credential.key, {
+						authorization: h.authorization!,
+						audience: h["atproto-space-audience"]!,
+						label: "other",
+						tag: "some-other-app",
+					});
+					return {
+						...h,
+						"signature-input": `${h["signature-input"]}, ${other.input}`,
+						signature: `${h.signature}, ${other.signature}`,
+					};
+				},
+			});
+			if (extra.status !== 200)
+				misses.push(
+					`with an extra differently-tagged signature → ${describe(extra)}`,
+				);
+			return misses.length
+				? fail(`refused a valid signature: ${misses.join("; ")}`)
+				: pass(
+						"accepted under another label, with extra parameters, and beside another tag's signature",
+					);
+		});
+	},
+});
+
+const credentialSignatureRequirements = defineCheck({
+	id: "credential.signature-requirements",
+	title:
+		"A credential signature with the wrong components, keyid, alg or count is refused",
+	tier: "must",
+	citations: presentationCitations,
+	needs: ["operator"],
+	destructive: true,
+	async run(ctx) {
+		return withPublicSpace(ctx, async (space, credential) => {
+			const ok = await readShared(ctx, credential, space.uri);
+			if (ok.status !== 200)
+				return fail(`positive control failed: ${describe(ok)}`, ok.json);
+			const other = await createCredentialKey();
+			const variants: Array<[string, Omit<CredentialCallOptions, "params">]> = [
+				[
+					"covers only authorization",
+					{ signature: { components: ["authorization"] } },
+				],
+				[
+					"components out of order",
+					{
+						signature: {
+							components: ["atproto-space-audience", "authorization"],
+						},
+					},
+				],
+				[
+					"keyid of another key",
+					{ signature: { params: [["keyid", other.did]] } },
+				],
+				[
+					"alg hmac-sha256",
+					{ signature: { params: [["alg", "hmac-sha256"]] } },
+				],
+				[
+					"no atproto-space-credential tag",
+					{ signature: { tag: "something-else" } },
+				],
+				[
+					"two tagged signatures",
+					{
+						signatureHeaders: async (h) => {
+							const dup = await credentialSigMembers(credential.key, {
+								authorization: h.authorization!,
+								audience: h["atproto-space-audience"]!,
+								label: "dup",
+							});
+							return {
+								...h,
+								"signature-input": `${h["signature-input"]}, ${dup.input}`,
+								signature: `${h.signature}, ${dup.signature}`,
+							};
+						},
+					},
+				],
+			];
+			const misses: string[] = [];
+			for (const [label, opts] of variants) {
+				const res = await readShared(ctx, credential, space.uri, opts);
+				if (!refused(res.status)) misses.push(`${label} → ${describe(res)}`);
+			}
+			return misses.length
+				? fail(`accepted: ${misses.join("; ")}`)
+				: pass("every malformed signature was refused");
 		});
 	},
 });
@@ -640,8 +901,6 @@ const credentialAudienceBound = defineCheck({
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
-		// The audience is the service being called; a signature over some
-		// other DID is a request meant for someone else, replayed here.
 		return withPublicSpace(ctx, async (space, credential) => {
 			const ok = await readShared(ctx, credential, space.uri);
 			if (ok.status !== 200)
@@ -649,31 +908,30 @@ const credentialAudienceBound = defineCheck({
 			const misaddressed = await readShared(ctx, credential, space.uri, {
 				audience: FOREIGN_DID,
 			});
-			if (misaddressed.status < 400 || misaddressed.status >= 500) {
+			if (!refused(misaddressed.status))
 				return fail(
 					`a misaddressed repo-host read returned ${describe(misaddressed)}`,
 					misaddressed.json,
 				);
-			}
 			// The same at the space host, whose audience is the authority.
-			const listRepos = (audience: string) =>
-				credentialCall(ctx, credential, "com.atproto.space.listRepos", {
+			const listWriters = (audience: string) =>
+				credentialCall(ctx, credential, "com.atproto.space.listWriters", {
 					params: { space: space.uri },
 					audience,
 				});
-			const hostOk = await listRepos(ctx.target.did);
+			const hostOk = await listWriters(ctx.target.did);
 			if (hostOk.status !== 200)
 				return fail(
-					`listRepos positive control failed: ${describe(hostOk)}`,
+					`listWriters positive control failed: ${describe(hostOk)}`,
 					hostOk.json,
 				);
-			const hostWrong = await listRepos(FOREIGN_DID);
-			return hostWrong.status >= 400 && hostWrong.status < 500
+			const hostWrong = await listWriters(FOREIGN_DID);
+			return refused(hostWrong.status)
 				? pass(
-						`refused signatures over another audience at the repo host (${describe(misaddressed)}) and space host (${describe(hostWrong)})`,
+						`refused other audiences at the repo host (${describe(misaddressed)}) and space host (${describe(hostWrong)})`,
 					)
 				: fail(
-						`a misaddressed listRepos returned ${describe(hostWrong)}`,
+						`a misaddressed listWriters returned ${describe(hostWrong)}`,
 						hostWrong.json,
 					);
 		});
@@ -695,7 +953,7 @@ const credentialWrongKey = defineCheck({
 			const thief = await readShared(ctx, credential, space.uri, {
 				signWith: await createCredentialKey(),
 			});
-			return thief.status >= 400 && thief.status < 500
+			return refused(thief.status)
 				? pass(`refused a signature by the wrong key (${describe(thief)})`)
 				: fail(
 						`a credential signed by a stranger's key returned ${describe(thief)}`,
@@ -709,7 +967,10 @@ const credentialSchemeCase = defineCheck({
 	id: "credential.scheme-case-insensitive",
 	title: "The Atproto-Space-Credential scheme is recognised regardless of case",
 	tier: "must",
-	citations: [C("open-spaces-greet"), L("com.atproto.space.getRecord")],
+	citations: [
+		P("0016#presenting-a-space-credential"),
+		L("com.atproto.space.getRecord"),
+	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
@@ -728,7 +989,10 @@ const credentialCrossSpace = defineCheck({
 	id: "credential.cross-space-refused",
 	title: "A credential for one space cannot read another",
 	tier: "must",
-	citations: [L("com.atproto.space.getRecord")],
+	citations: [
+		L("com.atproto.space.getRecord"),
+		P("0016#presenting-a-space-credential"),
+	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
@@ -772,32 +1036,23 @@ const credentialUnhostedRepo = defineCheck({
 			// request carries a well-formed but unanswerable key share — the
 			// host must find no repo before it could use one.
 			const repo = fakeDid();
-			const share = (await createCredentialKey()).did;
 			const base = { space: space.uri, repo };
-			const reads: Array<[string, Record<string, string>, string | false]> = [
-				[
-					"getRecord",
-					{ ...base, collection: POST, rkey: "shared" },
-					formatWantMacHeader(RECORD_MAC_TYPE, share),
-				],
-				["getLatestCommit", base, formatWantMacHeader(COMMIT_MAC_TYPE, share)],
-				["getRepo", base, formatWantMacHeader(COMMIT_MAC_TYPE, share)],
-				["listRepoOps", base, formatWantMacHeader(COMMIT_MAC_TYPE, share)],
-				["listRecords", base, false],
-				["listBlobs", base, false],
-				[
-					"getBlob",
-					{ ...base, cid: await rawCid(utf8("no such blob")) },
-					false,
-				],
+			const reads: Array<[string, Record<string, string>]> = [
+				["getRecord", { ...base, collection: POST, rkey: "shared" }],
+				["getLatestCommit", base],
+				["getRepo", base],
+				["listRepoOps", base],
+				["listRecords", base],
+				["listBlobs", base],
+				["getBlob", { ...base, cid: await rawCid(utf8("no such blob")) }],
 			];
 			const misses: string[] = [];
-			for (const [name, params, wantMac] of reads) {
+			for (const [name, params] of reads) {
 				const res = await credentialCall(
 					ctx,
 					credential,
 					`com.atproto.space.${name}`,
-					{ params, wantMac },
+					{ params },
 				);
 				if (res.error !== "RepoNotFound")
 					misses.push(`${name} → ${describe(res)}`);
@@ -809,16 +1064,17 @@ const credentialUnhostedRepo = defineCheck({
 	},
 });
 
-const macWantRequired = defineCheck({
-	id: "mac.want-mac-required",
+const macRequired = defineCheck({
+	id: "mac.mac-request-required",
 	title:
-		"Credentialed reads of a commit or record without Atproto-Space-Want-Mac answer BadSpaceMac",
+		"Credentialed reads of a commit or record without a MAC request answer InvalidSpaceMac",
 	tier: "must",
 	citations: [
-		L("com.atproto.space.getLatestCommit@error:BadSpaceMac"),
-		L("com.atproto.space.getRecord@error:BadSpaceMac"),
-		L("com.atproto.space.getRepo@error:BadSpaceMac"),
-		L("com.atproto.space.listRepoOps@error:BadSpaceMac"),
+		L("com.atproto.space.getLatestCommit@error:InvalidSpaceMac"),
+		L("com.atproto.space.getRecord@error:InvalidSpaceMac"),
+		L("com.atproto.space.getRepo@error:InvalidSpaceMac"),
+		L("com.atproto.space.listRepoOps@error:InvalidSpaceMac"),
+		P("0016#requesting-a-mac"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -834,82 +1090,132 @@ const macWantRequired = defineCheck({
 			const misses: string[] = [];
 			for (const [name, params] of reads) {
 				const nsid = `com.atproto.space.${name}`;
-				// Positive control per method: with the header it is served.
 				const ok = await credentialGet(ctx, credential, nsid, params);
 				if (ok.status !== 200) {
 					misses.push(`${name} with a MAC request → ${describe(ok)}`);
 					continue;
 				}
-				const res = await credentialCall(ctx, credential, nsid, {
+				const none = await credentialCall(ctx, credential, nsid, {
 					params,
-					wantMac: false,
+					mac: false,
 				});
-				if (res.error !== "BadSpaceMac")
-					misses.push(`${name} without → ${describe(res)}`);
+				if (none.error !== "InvalidSpaceMac")
+					misses.push(`${name} without → ${describe(none)}`);
+				// A request only for another tag is ignored, leaving none.
+				const profile =
+					name === "getRecord" ? RECORD_MAC_PROFILE : COMMIT_MAC_PROFILE;
+				const otherTag = await credentialCall(ctx, credential, nsid, {
+					params,
+					mac: {
+						profile,
+						header: (k) =>
+							formatMacRequest(profile, k).replace(
+								`tag="${profile}"`,
+								'tag="some-other-profile"',
+							),
+					},
+				});
+				if (otherTag.error !== "InvalidSpaceMac")
+					misses.push(`${name} with only another tag → ${describe(otherTag)}`);
 			}
 			return misses.length
 				? fail(misses.join("; "))
 				: pass(
-						"each served with a MAC request and answered BadSpaceMac without one",
+						"each served with a MAC request and answered InvalidSpaceMac without one",
 					);
 		});
 	},
 });
 
 const macMalformed = defineCheck({
-	id: "mac.malformed-want-mac-rejected",
-	title: "A malformed or mistyped Atproto-Space-Want-Mac answers BadSpaceMac",
+	id: "mac.malformed-request-rejected",
+	title: "A malformed MAC request answers InvalidSpaceMac",
 	tier: "must",
 	citations: [
-		L("com.atproto.space.getLatestCommit@error:BadSpaceMac"),
-		L("com.atproto.space.getRecord@error:BadSpaceMac"),
+		L("com.atproto.space.getLatestCommit@error:InvalidSpaceMac"),
+		L("com.atproto.space.getRecord@error:InvalidSpaceMac"),
+		P("0016#requesting-a-mac"),
 	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
 		return withPublicSpace(ctx, async (space, credential) => {
-			const share = (await createCredentialKey()).did;
 			const commit = { space: space.uri, repo: ctx.target.did };
-			const probes: Array<[string, string, Record<string, string>, string]> = [
+			const c = COMMIT_MAC_PROFILE;
+			const probes: Array<
+				[string, Record<string, string>, (k: string) => string]
+			> = [
 				[
-					"bad key share",
-					"getLatestCommit",
+					"invalid keyid",
 					commit,
-					`type="${COMMIT_MAC_TYPE}", ver=1, key_share="did:key:zNotAKey"`,
+					() => formatMacRequest(c, "did:key:zNotAKey"),
 				],
 				[
-					"unsupported version",
-					"getLatestCommit",
+					"keyid not a P-256 key",
 					commit,
-					`type="${COMMIT_MAC_TYPE}", ver=99, key_share="${share}"`,
+					() =>
+						formatMacRequest(
+							c,
+							formatDidKey(
+								"ES256K",
+								new Uint8Array([
+									2,
+									...crypto.getRandomValues(new Uint8Array(32)),
+								]),
+							),
+						),
 				],
 				[
-					"record read asking for a commit MAC",
-					"getRecord",
-					recordParams(ctx, space.uri),
-					formatWantMacHeader(COMMIT_MAC_TYPE, share),
+					"two requests with the tag",
+					commit,
+					(k) =>
+						`${formatMacRequest(c, k)}, ${formatMacRequest(c, k, { label: "mac2" })}`,
 				],
 				[
-					"not a structured header",
-					"getRecord",
+					"an extra parameter",
+					commit,
+					(k) =>
+						formatMacRequest(c, k, {
+							params: [["created", Math.floor(Date.now() / 1000)]],
+						}),
+				],
+				[
+					"alg other than hmac-sha256",
+					commit,
+					(k) =>
+						formatMacRequest(c, k, { params: [["alg", "ecdsa-p256-sha256"]] }),
+				],
+				[
+					"wrong covered header",
+					commit,
+					(k) =>
+						formatMacRequest(c, k).replace(
+							'("atproto-space-commit";sf)',
+							'("atproto-space-record";sf)',
+						),
+				],
+				[
+					"not a structured field",
 					recordParams(ctx, space.uri),
-					"please",
+					() => "please",
 				],
 			];
 			const misses: string[] = [];
-			for (const [label, name, params, header] of probes) {
-				const res = await credentialCall(
-					ctx,
-					credential,
-					`com.atproto.space.${name}`,
-					{ params, wantMac: header },
-				);
-				if (res.error !== "BadSpaceMac")
+			for (const [label, params, header] of probes) {
+				const nsid = params.rkey
+					? "com.atproto.space.getRecord"
+					: "com.atproto.space.getLatestCommit";
+				const profile = params.rkey ? RECORD_MAC_PROFILE : COMMIT_MAC_PROFILE;
+				const res = await credentialCall(ctx, credential, nsid, {
+					params,
+					mac: { profile, header },
+				});
+				if (res.error !== "InvalidSpaceMac")
 					misses.push(`${label} → ${describe(res)}`);
 			}
 			return misses.length
-				? fail(`expected BadSpaceMac: ${misses.join("; ")}`)
-				: pass("every malformed MAC request answered BadSpaceMac");
+				? fail(`expected InvalidSpaceMac: ${misses.join("; ")}`)
+				: pass("every malformed MAC request answered InvalidSpaceMac");
 		});
 	},
 });
@@ -918,22 +1224,26 @@ export const credentialChecks: Check[] = [
 	credentialTokenlessPolicies,
 	credentialClaims,
 	credentialDefaultLifetime,
-	credentialKidP256,
+	credentialSpaceRev,
+	credentialKeyP256,
 	credentialGarbageDelegation,
 	credentialUnverifiableAttestation,
 	credentialGarbageAttestation,
 	credentialAllowedApps,
 	credentialDeletedSpace,
+	credentialUnconfirmedRegistration,
 	credentialSelfRoundTrip,
 	delegationClaims,
 	delegationReplay,
 	delegationWrongSpace,
 	credentialSignatureRequired,
+	credentialSignatureByTag,
+	credentialSignatureRequirements,
 	credentialAudienceBound,
 	credentialWrongKey,
 	credentialSchemeCase,
 	credentialCrossSpace,
 	credentialUnhostedRepo,
-	macWantRequired,
+	macRequired,
 	macMalformed,
 ];

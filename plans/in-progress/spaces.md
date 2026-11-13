@@ -191,7 +191,26 @@ private address space, so that covers the same ground.
 
 ### Conformance at 1112
 
-_Pending the suite port._
+106 checks (95 must, 10 should, 1 info); coverage 91 of 127 lexicon
+requirements, zero gaps, 36 exempt. Results on 2026-11-13:
+
+- **Reference (matrix):** 103 pass, 2 pinned divergences
+  (`writes.delete-in-missing-space`, `credential.garbage-attestation-refused`,
+  both unchanged since 1105), and the slow `notify.registration-expired`
+  skipped in CI. Run by hand, the reference passes it too.
+  `space.reads-after-delete-not-found` is gone: 1112 dropped its citation.
+- **Cirrus space routes (in-process):** every runnable must and should
+  check passes. Skips: the `pds-blobs` / `pds-delegation` checks (the PDS
+  run covers them) and the slow check.
+- **Cirrus PDS (integrated worker):** passes, self-flow credential
+  round-trip included.
+- Found one Cirrus bug, fixed: `listMembers` accepted a cursor that isn't
+  a DID instead of answering `InvalidCursor`.
+- The syncer inbox is now `createSyncerInbox()` from the suite: it answers
+  `confirmRegistration` only for tokens it issued for that space, so
+  Cirrus's runner no longer hand-rolls one.
+- The probe space declaration (`earth.cirrus.check.space`) uses `title`
+  and needs republishing (loop in `probe-lexicons/README.md`).
 
 ## Alpha sync process
 

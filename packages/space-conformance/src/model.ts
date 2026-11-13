@@ -56,9 +56,9 @@ export interface Citation {
  *   scopes — only harnesses that can drive the target's consent flow.
  * - `identities`: harness-controlled DIDs with resolvable documents and
  *   held keys, for playing reader/writer roles.
- * - `syncer-inbox`: a service the harness controls, named by a DID the
- *   target can resolve, that the target can deliver notifications to (as a
- *   syncer) and query (as a `managedspace` managing app).
+ * - `syncer-inbox`: an endpoint the harness serves that the target can
+ *   reach — registered as a syncer's `notify` endpoint, and named (through
+ *   a resolvable `did#serviceId`) as a `managedspace` managing app.
  * - `pds-blobs`: the target is a full PDS implementing
  *   `com.atproto.repo.uploadBlob` and `com.atproto.sync.getBlob` — needed
  *   to prove a space blob is not served publicly. A standalone space host,
@@ -120,19 +120,38 @@ export interface IdentityProvider {
 	identity(role: string): Promise<HarnessIdentity>;
 }
 
+/**
+ * A syncer endpoint the harness serves: the `notify` target of
+ * `authorizeSpaceSync`, which the space host calls back with
+ * `com.atproto.space.confirmRegistration` and `notifySpaceUpdate`. The
+ * same endpoint doubles as a `managedspace` managing app answering
+ * `com.atproto.managedspace.checkAccess`.
+ *
+ * `createSyncerInbox()` implements all of this over a fetch-style handler;
+ * a harness only has to route requests for `endpoint` to it.
+ */
 export interface SyncerInbox {
+	/** The base URL registered as `notify.endpoint` (`{endpoint}/xrpc/...`). */
+	endpoint: string;
 	/**
-	 * The service identifier to register or name as a managing app: a DID
-	 * (optionally with a `#fragment`) whose document routes to this inbox.
+	 * A `did#serviceId` reference whose DID document routes that service to
+	 * `endpoint`, for naming the inbox as a managing app. The target sends
+	 * service auth addressed to it.
 	 */
 	service: string;
+	/**
+	 * Issue a fresh notify token for `space`. The inbox confirms a
+	 * registration (echoes the challenge) and accepts notifications only for
+	 * tokens it issued for that space; anything else is refused with 400.
+	 */
+	issueToken(space: string): string;
 	/** Wait for a delivery matching the predicate, or time out (null). */
 	waitFor(
 		predicate: (delivery: InboxDelivery) => boolean,
 		timeoutMs: number,
 	): Promise<InboxDelivery | null>;
 	/**
-	 * Answer queries for `lxm` (e.g. `com.atproto.managedspace.checkUserAccess`)
+	 * Answer queries for `lxm` (e.g. `com.atproto.managedspace.checkAccess`)
 	 * with the handler's JSON body; pass undefined to stop answering. Queries
 	 * are recorded as deliveries either way.
 	 */
@@ -149,6 +168,8 @@ export interface InboxDelivery {
 	/** Query parameters of a query. */
 	params?: Record<string, string>;
 	authorization?: string;
+	/** The HTTP status the inbox answered with. */
+	status: number;
 	receivedAt: number;
 }
 
@@ -215,6 +236,8 @@ export interface Check {
 	destructive?: boolean;
 	/** Depends on real time passing (expiry windows); excluded by default. */
 	slow?: boolean;
+	/** Overrides the runner's per-check timeout (for slow checks). */
+	timeoutMs?: number;
 	run(ctx: CheckContext): Promise<CheckOutcome>;
 }
 

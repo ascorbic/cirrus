@@ -128,9 +128,10 @@ export async function xrpcPostBytes(
 	nsid: string,
 	bytes: Uint8Array,
 	headers?: HeadersInit,
+	contentType = "application/vnd.dasl.star",
 ): Promise<XrpcResult> {
 	const merged = new Headers(headers);
-	merged.set("Content-Type", "application/octet-stream");
+	merged.set("Content-Type", contentType);
 	const response = await ctx.fetch(xrpcUrl(ctx.target.origin, nsid), {
 		method: "POST",
 		headers: merged,

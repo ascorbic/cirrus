@@ -36,6 +36,9 @@ export {
 } from "./full/helpers.js";
 export type { Credential, ProbeSpace } from "./full/helpers.js";
 
+export { createSyncerInbox } from "./inbox.js";
+export type { SyncerInboxHandle } from "./inbox.js";
+
 export { cryptoChecks } from "./full/checks.js";
 export { operatorChecks } from "./checks/operator.js";
 export { baseChecks } from "./checks/base.js";

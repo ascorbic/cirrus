@@ -11,16 +11,13 @@
  */
 
 import {
-	COMMIT_MAC_TYPE,
-	RECORD_MAC_TYPE,
-	createSpaceToken,
-	parseMacHeader,
+	createDelegationToken,
+	createSpaceCredential,
 	spaceHostAud,
-	type Commit,
+	type SpaceCommit,
 } from "@atproto/space";
 import type { CheckContext, HarnessIdentity } from "../model.js";
-import { toBase64Url, utf8, lexBytes } from "../encoding.js";
-import { MAC_HEADER } from "../space-auth.js";
+import { lexBytes, toBase64Url, utf8 } from "../encoding.js";
 import {
 	requestCredential,
 	spaceAuthority,
@@ -41,7 +38,9 @@ export {
 } from "../checks/probe.js";
 export type { Credential, ProbeSpace } from "../checks/probe.js";
 
-/** Adapt a harness identity to the `Keypair` surface token minting uses. */
+type Did = `did:${string}:${string}`;
+
+/** Adapt a harness identity to the `Signer` surface token minting uses. */
 function keypairFor(identity: HarnessIdentity) {
 	return {
 		jwtAlg: identity.jwtAlg,
@@ -59,15 +58,12 @@ export function mintDelegation(
 	space: string,
 	audOverride?: string,
 ): Promise<string> {
-	return createSpaceToken(
-		"delegation",
-		{
-			iss: identity.did,
-			sub: space,
-			aud: audOverride ?? spaceHostAud(spaceAuthority(space)),
-		},
-		keypairFor(identity),
-	);
+	return createDelegationToken({
+		iss: identity.did as Did,
+		sub: space as never,
+		aud: audOverride ?? spaceHostAud(spaceAuthority(space) as Did),
+		keypair: keypairFor(identity),
+	});
 }
 
 /**
@@ -94,20 +90,17 @@ export async function obtainCredential(
  * playing a foreign space authority whose credentials a repo host must
  * honour for reads of its repos in that space.
  */
-export async function mintCredential(
+export function mintCredential(
 	authority: HarnessIdentity,
 	space: string,
 	keyDid: string,
 ): Promise<string> {
-	return createSpaceToken(
-		"credential",
-		{
-			iss: authority.did,
-			sub: space,
-			keyId: keyDid as `did:${string}:${string}`,
-		},
-		keypairFor(authority),
-	);
+	return createSpaceCredential({
+		iss: authority.did as Did,
+		sub: space as never,
+		keyId: keyDid as Did,
+		keypair: keypairFor(authority),
+	});
 }
 
 /** An inter-service auth JWT (`lxm`-scoped), signed as `identity`. */
@@ -131,26 +124,24 @@ export async function serviceJwt(
 }
 
 /** A commit as the wire JSON carries it, with `data` decoded. */
-export function commitFromJson(value: unknown): Commit | undefined {
+export function commitFromJson(value: unknown): SpaceCommit | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const raw = value as Record<string, unknown>;
 	const data = lexBytes(raw.data);
 	if (!data) return undefined;
-	return { ...(raw as Omit<Commit, "data">), data } as Commit;
+	return { ...(raw as Omit<SpaceCommit, "data">), data } as SpaceCommit;
 }
 
-/** The MAC a credentialed response carried, or undefined. */
-export function responseMac(res: CredentialResult): Uint8Array | undefined {
-	const header = res.headers.get(MAC_HEADER);
-	if (!header) return undefined;
-	try {
-		return parseMacHeader(
-			header,
-			res.macType === RECORD_MAC_TYPE ? RECORD_MAC_TYPE : COMMIT_MAC_TYPE,
-		);
-	} catch {
-		return undefined;
+/** What `verifyCommit` / `verifyRecord` / `verifyRepoStar` need from a MAC'd response. */
+export function macParams(res: CredentialResult) {
+	if (!res.keyShare || !res.sharedSecret) {
+		throw new Error("the response was not requested with a MAC");
 	}
+	return {
+		keyShare: res.keyShare as Did,
+		sharedSecret: res.sharedSecret,
+		headers: res.headers,
+	};
 }
 
 /** Drain an async byte stream (an archive serializer) into one buffer. */
