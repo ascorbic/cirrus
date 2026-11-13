@@ -103,6 +103,16 @@ The dashboard at `/status` gains a **Spaces** panel showing each space's role, p
 
 Apps request access with OAuth `space:` scopes, e.g. `space:my.app.bookmarks` for the app's own space type under your authority. The consent screen shows the space type's human name and warns loudly about wildcard grants. App passwords cannot access spaces.
 
+## Upgrading from the 2026-11-05 alpha
+
+The 2026-11-12 alpha renames most of the sync methods (`getSpaceCredential` is now `authorizeSpaceSync`, `listRepos` is `listWriters`, `notifyWrite` is `notifyRepoUpdate`), batches member changes (`putMembers` / `removeMembers`), replaces `registerNotify` with a webhook the syncer names in its credential request, and moves MACs onto standard HTTP message signature headers. The space schema moves to version 3, so after upgrading:
+
+1. Deploy. Space endpoints answer 503 until you reset.
+2. Run `pds spaces reset`, then recreate your spaces. The KEM key carries over.
+3. A managed space's `--managing-app` must now name a service, as `did#service`.
+
+Apps and syncers built against the 2026-11-05 alpha need updating too.
+
 ## Upgrading from the August alpha
 
 The November 2026 alpha replaced simplespace with the baseline policies, credential DPoP with HTTP message signatures, and commit signatures with MACs. Space data from the earlier build can't be read by the new one. After upgrading:

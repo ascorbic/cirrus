@@ -30,6 +30,7 @@ import {
 } from "@atproto/lex-data";
 import type { LexValue } from "@atproto/lex-data";
 import { now as tidNow } from "@atcute/tid";
+import { isDid } from "@atcute/lexicons/syntax";
 import {
 	isSpaceCredentialAuth,
 	verifyDelegationToken,
@@ -2058,9 +2059,14 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			if (scopeError) return scopeError;
 			assertOwner(ref, session);
 			const limit = clampLimit(c.req.query("limit"), 100, 1000);
+			// The cursor is the last member DID of the previous page.
+			const cursor = c.req.query("cursor");
+			if (cursor !== undefined && !isDid(cursor)) {
+				throw new SpaceError("InvalidCursor", `Malformed cursor: ${cursor}`);
+			}
 			const page = await host.getSpaceDO(ref.uri).rpcListMembers({
 				limit,
-				afterDid: c.req.query("cursor"),
+				afterDid: cursor,
 			});
 			const last = page.members[page.members.length - 1];
 			return c.json({

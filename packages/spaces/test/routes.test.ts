@@ -302,7 +302,7 @@ async function credentialRequest(
 	let encapsulation: { keyShare: Did; sharedSecret: Uint8Array } | undefined;
 	const requestHeaders: Record<string, string> = { ...headers };
 	if (opts.mac) {
-		encapsulation = (await encapsulate(kemDid)) as never;
+		encapsulation = (await encapsulate(kemDid)) as typeof encapsulation;
 		requestHeaders["accept-signature"] = formatMacRequest(
 			opts.mac,
 			encapsulation!.keyShare,

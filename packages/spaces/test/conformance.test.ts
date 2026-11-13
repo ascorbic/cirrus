@@ -23,10 +23,9 @@ import {
 } from "@atproto/crypto";
 import {
 	ALPHA_BUILD,
+	createSyncerInbox,
 	filterCatalog,
 	runChecks,
-	type InboxDelivery,
-	type SyncerInbox,
 } from "@getcirrus/space-conformance";
 import {
 	KeypairIdentityProvider,
@@ -51,64 +50,18 @@ const AUTHORITY_ORIGIN = "https://authority.test";
 const operatorKeypair = await Secp256k1Keypair.import(TEST_SIGNING_KEY);
 const kemKeypair = await P256Keypair.import(TEST_KEM_KEY);
 
-/** An in-process syncer inbox, also answering managing-app queries. */
-function createInbox(): SyncerInbox & {
-	handle(req: Request): Promise<Response>;
-} {
-	const deliveries: InboxDelivery[] = [];
-	const waiters = new Set<() => void>();
-	const responders = new Map<string, (d: InboxDelivery) => unknown>();
-	return {
-		service: `${INBOX_DID}#atproto_space_syncer`,
-		async handle(req) {
-			const url = new URL(req.url);
-			const lxm = url.pathname.replace(/^\/xrpc\//, "");
-			const body =
-				req.method === "POST" ? await req.json().catch(() => null) : undefined;
-			const delivery: InboxDelivery = {
-				lxm,
-				body,
-				params: Object.fromEntries(url.searchParams),
-				authorization: req.headers.get("Authorization") ?? undefined,
-				receivedAt: Date.now(),
-			};
-			deliveries.push(delivery);
-			for (const wake of waiters) wake();
-			const responder = responders.get(lxm);
-			return Response.json(responder ? responder(delivery) : {});
-		},
-		async waitFor(predicate, timeoutMs) {
-			const deadline = Date.now() + timeoutMs;
-			for (;;) {
-				const found = deliveries.find(predicate);
-				if (found) return found;
-				const remaining = deadline - Date.now();
-				if (remaining <= 0) return null;
-				await new Promise<void>((resolve) => {
-					const wake = () => {
-						waiters.delete(wake);
-						resolve();
-					};
-					waiters.add(wake);
-					setTimeout(wake, Math.min(remaining, 250));
-				});
-			}
-		},
-		respond(lxm, handler) {
-			if (handler) responders.set(lxm, handler);
-			else responders.delete(lxm);
-		},
-	};
-}
-
-const inbox = createInbox();
+/** The suite's syncer inbox, also answering managing-app queries. */
+const { inbox, handle: inboxHandle } = createSyncerInbox({
+	endpoint: INBOX_ORIGIN,
+	service: `${INBOX_DID}#atproto_space_syncer`,
+});
 
 /** Outbound fetch: harness services are answered in-process. */
 const routedFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 	const req = new Request(input as RequestInfo, init);
 	const { origin } = new URL(req.url);
 	if (origin === INBOX_ORIGIN || origin === AUTHORITY_ORIGIN) {
-		return inbox.handle(req);
+		return inboxHandle(req);
 	}
 	return new Response("unroutable in the conformance fixture", { status: 502 });
 }) as typeof fetch;
@@ -284,6 +237,8 @@ describe("conformance suite vs Cirrus space routes", () => {
 					"delegation.signed-by-user",
 					"delegation.token-claims",
 					"delegation.wrong-space-refused",
+					// Slow: waits out the real credential lifetime.
+					"notify.registration-expired",
 				].sort(),
 			);
 			for (const id of [
@@ -292,9 +247,12 @@ describe("conformance suite vs Cirrus space routes", () => {
 				"sync.getrepo-star",
 				"credential.deleted-space",
 				"revocation.revoked-credential-refused",
-				"notify.forwarded-notifywrite",
+				"notify.registration-confirmed",
+				"notify.repo-write-delivered",
+				"notify.repo-removed-delivered",
 				"notify.space-deleted-delivered",
-				"managedspace.checkuseraccess",
+				"managedspace.check-access-account",
+				"managedspace.unreachable-app-upstream-failure",
 			]) {
 				expect(byId[id], id).toBe("pass");
 			}

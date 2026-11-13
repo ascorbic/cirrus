@@ -123,6 +123,76 @@ at runtime. Public types are structural (`SpaceSigningKeypair`,
 `SpaceCommit`) so no `.d.ts` references an `@atproto` package. Check after
 each bump: `grep -o 'from "[^"]*"' packages/spaces/dist/*.js packages/spaces/dist/*.d.ts`.
 
+## Alpha 20261112204144 (2026-11-13)
+
+Moved to `0.0.0-spaces-alpha-20261112204144`, cut from
+`permissioned-data-alpha@b27a037c7`, a week after 1105. Smaller in scope but
+it renames most of the sync surface:
+
+- **Renames**: `getSpaceCredential` → `authorizeSpaceSync` (body takes
+  `credentialKey` and optional `notify`, output `{credential, spaceRev?}`),
+  `listRepos` → `listWriters` (typed `defs#repoWrite` / `defs#repoRemoved`
+  entries), `notifyWrite` → `notifyRepoUpdate`, `notifyCredentialRevoked`
+  → `notifyCredentialsRevoked`, `checkUserAccess` → `checkAccess`
+  (`{read, write}`, no `access` param; called with no `repo` for anonymous
+  requests), `putMember` / `removeMember` → `putMembers` / `removeMembers`
+  (≤100, one commit, last entry wins, non-members ignored).
+- **Registration**: `registerNotify` / `unregisterNotify` /
+  `notifySpaceDeleted` are gone. A syncer passes `notify: {endpoint,
+  token}` to `authorizeSpaceSync`; a new registration is confirmed by
+  calling the syncer's `confirmRegistration` (token + challenge in the body,
+  no service auth, no redirects, 10s timeout) before the credential is
+  issued, else `RegistrationNotConfirmed`. The registration is keyed
+  `(endpoint, token)` and its expiry renewed to the credential's `exp`.
+  Refusal withdraws it, except on `UpstreamFailure`. Updates go to the
+  syncer's `notifySpaceUpdate` with the token in the body. The first update
+  after a lapse becomes a one-off `registrationExpired` notice instead;
+  `spaceDeleted` goes to every registration, lapsed or not. Those two
+  notices retry at 1m/10m/1h/6h/12h (jittered) for 72h, and a rejected
+  expiry notice unregisters the syncer.
+- **Writer set**: `removeWriter` (now `repo`) sequences a removal and
+  announces it; removed writers stay in `listWriters` and are excluded from
+  `exportSpaceMeta`. Sequencing and fan-out queueing happen in one DO
+  transaction.
+- **MACs** are RFC 9421 signatures: `Accept-Signature` with profile tags
+  `atproto-space-commit` / `atproto-space-record`, answered by
+  `Atproto-Space-Commit` / `Atproto-Space-Record` plus `Signature-Input` /
+  `Signature`, keyed by HPKE secret export. Routes set
+  `Vary: Accept-Signature` and expose the headers; the PDS CORS list
+  matches.
+- **Errors**: `NotSpaceOwner` → `NotAuthorized` (400),
+  `UserNotAuthorized` → `AccountNotAuthorized`, `BadSpaceMac` →
+  `InvalidSpaceMac`, `MalformedCursor` → `InvalidCursor`. New
+  `InvalidRepoFile`, `RepoMismatch`, `InvalidSpaceMeta`,
+  `RegistrationNotConfirmed`, `UpstreamFailure` (502, managing app failed:
+  never treated as a denial).
+- **Smaller**: STAR is `application/vnd.dasl.star` both ways; space meta
+  writer entries use `repoRev`; `managingApp` must be `did#serviceId`;
+  `allowedApps` entries must be URIs; `publicWrite` no longer admits a
+  member with `write: false`; `createSpace` / `getSpace` output `space`;
+  `listSpaces` takes `spaceDid` and returns `{space, repoRev?, data?,
+  spaceRev?}`; `listRepoOps` returns the commit on every page, a cursor only
+  on a full page, `RepoNotFound` for a never-written repo; `listRecords`
+  drops `reverse`, `listBlobs` drops `since`.
+- **oauth-scopes**: `SpacePermission#type` → `spaceType`, `allowsSpace`
+  takes `(target, op)`, the named scope param is `spaceType`, declarations
+  use `title`. oauth-provider exports its own `allowsSpace(permissions,
+  check)` so the PDS keeps the flat match shape.
+- **Schema version 3** (writer `removed_at`, re-keyed registrations,
+  queue `policy` / `auth`): `pds spaces reset` again.
+
+Four more upstream packages gained releases outranking the alpha range
+(`lex-rpc`, `oauth-resolver`, `lex-password-session`, `bsync`); all are
+overridden in `pnpm-workspace.yaml`.
+
+SSRF: the reference wraps outbound webhook calls in `safeFetch`. Cirrus
+requires `https` endpoints and refuses redirects; Workers can't reach
+private address space, so that covers the same ground.
+
+### Conformance at 1112
+
+_Pending the suite port._
+
 ## Alpha sync process
 
 Upstream cuts a build from `permissioned-data-alpha` most Thursdays. To
@@ -159,13 +229,14 @@ move to a new one (the update loop from the space-conformance spec, #228):
   covered in-process by the conformance matrix (above).
   bulletin.my's S1 flow is verified live against pds.mk.gg (2026-08-29):
   OAuth with space: scopes, board space creation, delegation →
-  credential exchange, reads, registerNotify and listRepos all work.
+  credential exchange, reads, registerNotify and listRepos all work
+  (on the 0818 alpha; not re-verified since).
   Cross-PDS (S2–S4) remains unexercised against a real foreign PDS.
 - **R2 lifecycle rule** must be applied per-install
   (`wrangler r2 bucket lifecycle add pds-blobs --prefix "<did>/staged/" --expire-days 7`);
   `pds init` doesn't automate it yet.
 - Blob cache tagging, per-credential rate limits — "Later" per the spec.
-- Sending revocations: Cirrus receives `notifyCredentialRevoked` but, like
+- Sending revocations: Cirrus receives `notifyCredentialsRevoked` but, like
   the reference, never revokes credentials it issued (member removal waits
   out the credential's 10-minute lifetime).
 - Takedowns: `RepoTakendown` is declared but Cirrus has no takedown
@@ -173,7 +244,7 @@ move to a new one (the update loop from the space-conformance spec, #228):
 - Standalone host package (S9): the engine boundary is in place; no
   package yet.
 - Alpha deps (`@atproto/space`, `@atproto/oauth-scopes` at
-  `0.0.0-spaces-alpha-20261105160032`) follow the sync process above;
+  `0.0.0-spaces-alpha-20261112204144`) follow the sync process above;
   Renovate is configured to leave them alone.
 
 ## Implementation notes (non-obvious)
@@ -204,5 +275,5 @@ move to a new one (the update loop from the space-conformance spec, #228):
   full proof verification, tolerant parse. Remove once upstream
   lexicon-doc learns the `space` def type.
 - Deleted spaces read as `SpaceNotFound`, never-written spaces as
-  `RepoNotFound`; `getSpaceCredential` alone answers `SpaceDeleted`
+  `RepoNotFound`; `authorizeSpaceSync` alone answers `SpaceDeleted`
   (tombstone retained in the space DO).

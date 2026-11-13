@@ -24,7 +24,7 @@ Every participant stores *their own* records for a space in their own PDS — th
 Because Cirrus is single-user, one account wears three hats:
 
 - **Repo host** — serving your own permissioned repos, one per space you have written into, whether you own the space or not.
-- **Space host** — for spaces you own: issuing credentials to readers, tracking who has written, notifying syncers after writes, and managing membership.
+- **Space host** — for spaces you own: issuing credentials to readers, tracking who has written (and who has been removed), notifying syncers of those changes, and managing membership.
 - **Your PDS** — minting short-lived delegation tokens so apps you've signed into can read spaces hosted elsewhere.
 
 ## How access control works
@@ -39,15 +39,17 @@ Whether the authority grants a credential is up to the space's **policy**. Cirru
 
 - **personalspace**: only you. For bookmarks, drafts, mutes.
 - **memberspace**: a member list you manage, where each member can be allowed to read, to write, or both. It can be opened to everyone for reading (`publicRead`) or writing (`publicWrite`), and restricted to named apps (`allowedApps`, checked against client attestations).
-- **managedspace**: a nominated app service is asked to decide, per user, per request.
+- **managedspace**: a nominated app service (named as `did#service`) is asked to decide, per user, per request. If it can't be reached the request fails with `UpstreamFailure`, rather than being treated as a refusal.
 
 Someone the policy refuses is told the space doesn't exist, so a refusal reveals nothing about it. A memberspace or managedspace can also publish its policy, and a memberspace its member list, as records in your own repo in the space, so readers can see who else is in it.
+
+A syncer that wants to hear about changes passes a webhook endpoint and a token of its own with its credential request. The first time, your PDS calls the syncer back (`confirmRegistration`) to check it really asked; after that, every writer update goes to the endpoint, with the token, until the registration lapses with the credential. A registration that lapses gets one final notice saying so, and if the space is deleted every syncer that ever registered is told, with retries for up to three days.
 
 Writes never use credentials: they're ordinary authenticated requests to your own PDS, covered by OAuth `space:` grants or your own full-access session. App passwords are deliberately excluded.
 
 ## Proving data came from you
 
-Space data isn't signed. Instead, your PDS has a second key, published in your DID document as `#atproto_kem`. A syncer reading your repo sends an ephemeral key with each request, both sides derive a one-off shared secret, and your PDS returns a MAC over the commit or record in an `Atproto-Space-Mac` header. The syncer knows the data is yours; but because the syncer could have computed the same MAC itself, a leaked response proves nothing to anyone else. That's the point: private data shouldn't come with a signature that lets it be passed around as authentic.
+Space data isn't signed. Instead, your PDS has a second key, published in your DID document as `#atproto_kem`. A syncer reading your repo sends an ephemeral key with each request, both sides derive a one-off shared secret, and your PDS returns a MAC: an HTTP message signature keyed by that secret, over an `Atproto-Space-Commit` or `Atproto-Space-Record` header describing the data. The syncer knows the data is yours; but because the syncer could have computed the same MAC itself, a leaked response proves nothing to anyone else. That's the point: private data shouldn't come with a signature that lets it be passed around as authentic.
 
 Cirrus can't serve space data to syncers without this key. `pds spaces kem` creates it; see [Enable spaces](/guides/enable-spaces/).
 
