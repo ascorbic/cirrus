@@ -58,8 +58,8 @@ export type { CheckReplay, CheckRevoked, GetSigningKey } from "./auth.js";
 export { verifyClientAttestation } from "./attestation.js";
 
 export {
-	MAC_HEADER,
-	WANT_MAC_HEADER,
+	MAC_REQUEST_HEADER,
+	macExposedHeaders,
 	buildCommit,
 	bytesToJson,
 	commitToJson,
@@ -82,7 +82,6 @@ export {
 	SPACE_SCHEMA_VERSION,
 	OPLOG_RETENTION_DAYS,
 	OPLOG_RETENTION_OPS,
-	NOTIFY_REGISTRATION_DAYS,
 } from "./schema.js";
 
 export { createServiceJwt } from "./service-jwt.js";

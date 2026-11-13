@@ -2,39 +2,51 @@
  * Commits and MACs.
  *
  * A space repo commit carries no signature. A syncer authenticates what a
- * repo host serves with a MAC instead: it sends an ephemeral P-256 key share
- * in `Atproto-Space-Want-Mac`, both sides derive a shared secret by ECDH
- * against the account's `#atproto_kem` key, and the host returns an HMAC in
- * `Atproto-Space-Mac`. A leaked response therefore proves nothing to a third
- * party. The KEM key is the only secret here, and it lives with the Worker.
+ * repo host serves with a MAC instead: an HTTP message signature (RFC 9421)
+ * using `hmac-sha256`, keyed by a per-request secret both sides derive with
+ * HPKE secret export against the account's `#atproto_kem` key. The syncer
+ * asks with `Accept-Signature`, naming its ephemeral key and a profile tag;
+ * the host answers with a header describing the commit or record
+ * (`Atproto-Space-Commit` / `Atproto-Space-Record`) and a MAC covering it.
+ * A leaked response proves nothing to a third party. The KEM key is the only
+ * secret here, and it lives with the Worker.
  */
 
 import {
-	COMMIT_MAC_TYPE,
-	MAC_HEADER as UPSTREAM_MAC_HEADER,
-	RECORD_MAC_TYPE,
+	COMMIT_MAC_PROFILE,
+	MAC_COVERED_HEADER,
+	RECORD_MAC_PROFILE,
 	RepoCommit,
+	SpaceKemError,
 	SpaceMacError,
-	WANT_MAC_HEADER as UPSTREAM_WANT_MAC_HEADER,
-	computeCommitMac,
-	computeRecordMac,
+	createCommitMacHeaders,
+	createRecordMacHeaders,
 	decapsulate,
-	formatMacHeader,
-	parseWantMacHeader,
+	parseMacRequest,
 } from "@atproto/space";
-import type { Commit, MacType } from "@atproto/space";
+import type { CreateMacParams, MacProfile } from "@atproto/space";
 import { P256Keypair } from "@atproto/crypto";
 import { parseCid, toBase64 } from "@atproto/lex-data";
 import { SpaceError } from "./errors.js";
 import type { RepoState } from "./types.js";
 
-export { COMMIT_MAC_TYPE, RECORD_MAC_TYPE };
-export type { MacType };
+export { COMMIT_MAC_PROFILE, RECORD_MAC_PROFILE };
+export type { MacProfile };
+
+/** The MAC profiles, as plain strings for the public API. */
+export type SpaceMacProfile = "atproto-space-commit" | "atproto-space-record";
 
 /** The request header a syncer asks for a MAC with. */
-export const WANT_MAC_HEADER: string = UPSTREAM_WANT_MAC_HEADER;
-/** The response header carrying the MAC. */
-export const MAC_HEADER: string = UPSTREAM_MAC_HEADER;
+export const MAC_REQUEST_HEADER = "accept-signature";
+
+/** The response headers a browser syncer must read to check a MAC. */
+export function macExposedHeaders(profile: SpaceMacProfile): string[] {
+	return [
+		MAC_COVERED_HEADER[profile as MacProfile],
+		"signature-input",
+		"signature",
+	];
+}
 
 /** A space repo commit (`com.atproto.space.defs#commit`). */
 export interface SpaceCommit {
@@ -56,7 +68,7 @@ export function buildCommit(params: {
 	return RepoCommit.fromState(params.state.setHash).toCommit({
 		space: params.spaceUri as never,
 		repo: params.repo as never,
-		rev: params.state.rev,
+		rev: params.state.rev as never,
 	});
 }
 
@@ -111,29 +123,39 @@ export async function kemDidKey(privateKeyHex: string): Promise<string> {
 	return (await importKemKeypair(privateKeyHex)).did();
 }
 
-export interface MacRequest {
-	/** The `Atproto-Space-Want-Mac` request header, if any. */
-	wantMac: string | undefined;
+export interface MacRequestInput {
+	/** The `Accept-Signature` request header, if any. */
+	acceptSignature: string | undefined;
 	/** Whether the request was authorised by a space credential. */
 	credential: boolean;
-	type: MacType;
+	profile: MacProfile;
 	getKemKeypair: () => Promise<P256Keypair | null>;
 }
 
+/** What a MAC is computed with, once requested and decapsulated. */
+export type MacParams = CreateMacParams;
+
 /**
- * The shared secret for a response's MAC. A space credential must ask for
- * one; an account reading its own data gets one only if it asks. Returns
- * undefined when no MAC is owed.
+ * The MAC owed by a read that returns a commit or record. A space
+ * credential must ask for one with the profile's tag; an account reading its
+ * own data gets one only if it asks. Requests with other tags are ignored.
+ * Returns undefined when no MAC is owed.
  */
-export async function macSecret(
-	req: MacRequest,
-): Promise<Uint8Array | undefined> {
-	if (req.wantMac === undefined && !req.credential) return undefined;
-	let keyShare: string;
+export async function macRequest(
+	req: MacRequestInput,
+): Promise<MacParams | undefined> {
+	let request;
 	try {
-		keyShare = parseWantMacHeader(req.wantMac, req.type);
+		request = parseMacRequest(req.acceptSignature, req.profile);
 	} catch (err) {
-		throw badMac(err);
+		throw invalidMac(err);
+	}
+	if (!request) {
+		if (!req.credential) return undefined;
+		throw new SpaceError(
+			"InvalidSpaceMac",
+			`A MAC must be requested with tag "${req.profile}"`,
+		);
 	}
 	const keypair = await req.getKemKeypair();
 	if (!keypair) {
@@ -143,44 +165,37 @@ export async function macSecret(
 		);
 	}
 	try {
-		return decapsulate(keypair, keyShare);
+		return { ...request, sharedSecret: decapsulate(keypair, request.keyShare) };
 	} catch (err) {
-		throw badMac(err);
+		throw invalidMac(err);
 	}
 }
 
-function badMac(err: unknown): SpaceError {
-	if (err instanceof SpaceMacError) {
-		return new SpaceError("BadSpaceMac", err.message);
+function invalidMac(err: unknown): SpaceError {
+	if (err instanceof SpaceMacError || err instanceof SpaceKemError) {
+		return new SpaceError("InvalidSpaceMac", err.message);
 	}
-	return new SpaceError("BadSpaceMac", "Invalid Atproto-Space-Want-Mac header");
+	return new SpaceError("InvalidSpaceMac", "Invalid Accept-Signature header");
 }
 
-/** The `Atproto-Space-Mac` header for a commit, when a MAC is owed. */
+/** The MAC response headers for a commit, when one is owed. */
 export function commitMacHeaders(
-	secret: Uint8Array | undefined,
+	mac: MacParams | undefined,
 	commit: SpaceCommit,
 ): Record<string, string> {
-	if (!secret) return {};
-	return {
-		[MAC_HEADER]: formatMacHeader(
-			COMMIT_MAC_TYPE,
-			computeCommitMac(secret, commit as Commit),
-		),
-	};
+	if (!mac) return {};
+	return createCommitMacHeaders(
+		commit as Parameters<typeof createCommitMacHeaders>[0],
+		mac,
+	).headers;
 }
 
-/** The `Atproto-Space-Mac` header for a record, when a MAC is owed. */
+/** The MAC response headers for a record, when one is owed. */
 export function recordMacHeaders(
-	secret: Uint8Array | undefined,
+	mac: MacParams | undefined,
 	uri: string,
 	cid: string,
 ): Record<string, string> {
-	if (!secret) return {};
-	return {
-		[MAC_HEADER]: formatMacHeader(
-			RECORD_MAC_TYPE,
-			computeRecordMac(secret, uri, parseCid(cid)),
-		),
-	};
+	if (!mac) return {};
+	return createRecordMacHeaders(uri as never, parseCid(cid), mac).headers;
 }

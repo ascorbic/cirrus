@@ -93,6 +93,14 @@ export interface SpaceWriter {
 	repoRev: string;
 	data: Uint8Array;
 	spaceRev: string;
+	/** Removed from the writer set at `spaceRev`, until it writes again. */
+	removed: boolean;
+}
+
+/** A syncer's webhook registration (`authorizeSpaceSync`'s `notify`). */
+export interface NotifyRegistration {
+	endpoint: string;
+	token: string;
 }
 
 /** The space sequence position assigned to an accepted repo update. */
@@ -140,11 +148,21 @@ export interface NotifyItem {
 	body: Record<string, unknown>;
 	/**
 	 * Pending items sharing a key are coalesced: a newer one replaces the
-	 * older, resetting its backoff and deadline.
+	 * older, resetting its backoff and deadline — unless `keepPending`, when
+	 * a pending item wins.
 	 */
 	coalesceKey?: string;
+	keepPending?: boolean;
 	/** Give up retrying after this time (ms since epoch). */
 	deadline?: number;
+	/**
+	 * Retry schedule: `fanout` (best effort, a few attempts), `repo` (a repo
+	 * host's notifyRepoUpdate, exponential up to the deadline) or `syncer`
+	 * (a syncer's deletion or expiry notice, 1 minute to 12 hours).
+	 */
+	policy?: "fanout" | "repo" | "syncer";
+	/** `service` signs a service JWT; `none` sends a token-bearing webhook. */
+	auth?: "service" | "none";
 }
 
 /**

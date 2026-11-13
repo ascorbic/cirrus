@@ -30,6 +30,16 @@ export const PUBLISHED_COLLECTIONS: readonly string[] = [
 
 const isBool = (value: unknown): value is boolean => typeof value === "boolean";
 
+function isUri(value: unknown): value is string {
+	if (typeof value !== "string") return false;
+	try {
+		new URL(value);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function optionalBool(input: Record<string, unknown>, key: string): boolean {
 	const value = input[key];
 	if (value === undefined) return false;
@@ -52,12 +62,11 @@ export function normalizePolicy(input: unknown): SpacePolicy {
 			const allowedApps = policy.allowedApps;
 			if (
 				allowedApps !== undefined &&
-				(!Array.isArray(allowedApps) ||
-					allowedApps.some((app) => typeof app !== "string"))
+				(!Array.isArray(allowedApps) || allowedApps.some((app) => !isUri(app)))
 			) {
 				throw new SpaceError(
 					"InvalidRequest",
-					"allowedApps must be an array of client IDs",
+					"allowedApps must be an array of OAuth client ID URIs",
 				);
 			}
 			return {
@@ -73,15 +82,19 @@ export function normalizePolicy(input: unknown): SpacePolicy {
 		}
 		case MANAGEDSPACE_POLICY: {
 			const managingApp = policy.managingApp;
-			if (typeof managingApp !== "string" || !managingApp.startsWith("did:")) {
+			// A did#serviceId reference: the app's service entry, which a bare
+			// DID (an account's #atproto_pds) is not.
+			const [did, fragment, extra] =
+				typeof managingApp === "string" ? managingApp.split("#") : [];
+			if (!did?.startsWith("did:") || !fragment || extra !== undefined) {
 				throw new SpaceError(
 					"InvalidRequest",
-					"managingApp must be a DID with an optional service fragment",
+					`managingApp must be a did#serviceId reference, got: ${String(managingApp)}`,
 				);
 			}
 			return {
 				$type: MANAGEDSPACE_POLICY,
-				managingApp,
+				managingApp: managingApp as string,
 				publishPolicy: optionalBool(policy, "publishPolicy"),
 			};
 		}

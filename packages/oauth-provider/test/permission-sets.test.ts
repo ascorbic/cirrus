@@ -33,7 +33,7 @@ const SPACE_RECORD = {
 	defs: {
 		main: {
 			type: "space",
-			name: "Cirrus Check",
+			title: "Cirrus Check",
 			collections: ["earth.cirrus.check.item", "earth.cirrus.check.result"],
 		},
 	},
@@ -164,7 +164,7 @@ describe("resolveSpaceDeclaration", () => {
 
 		expect(decl).not.toBeNull();
 		expect(decl?.type).toBe("space");
-		expect(decl?.name).toBe("Cirrus Check");
+		expect(decl?.title).toBe("Cirrus Check");
 		expect(decl?.collections).toEqual([
 			"earth.cirrus.check.item",
 			"earth.cirrus.check.result",
@@ -218,7 +218,7 @@ describe("resolveSpaceDeclaration", () => {
 			defs: {
 				main: {
 					type: "space",
-					name: "Broken",
+					title: "Broken",
 					collections: ["not a valid nsid"],
 				},
 			},

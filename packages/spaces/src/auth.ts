@@ -136,7 +136,7 @@ export async function verifySpaceCredentialAuth(
 		);
 	}
 	try {
-		await verifyCredentialSig(opts.headers, payload.cnf!.kid);
+		await verifyCredentialSig(opts.headers, payload.cnf.kid);
 	} catch (err) {
 		if (err instanceof SpaceSignatureError) {
 			throw new SpaceError("BadSpaceSignature", err.message);
@@ -196,7 +196,9 @@ export async function verifyDelegationToken(
 			"Delegation token subject does not match requested space",
 		);
 	}
-	if (payload.aud !== spaceHostAud(space.authority)) {
+	if (
+		payload.aud !== spaceHostAud(space.authority as `did:${string}:${string}`)
+	) {
 		throw new SpaceError(
 			"InvalidDelegationToken",
 			"Delegation token audience does not match the space authority",

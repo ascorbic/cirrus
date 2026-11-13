@@ -15,8 +15,11 @@
  * 2: baseline policies replace simplespace config; members carry
  *    read/write access; writers carry space revisions; revoked
  *    credentials; coalescing notification queue.
+ * 3: webhook registrations (endpoint + token) replace registerNotify;
+ *    writers keep a removal marker; queue rows carry their retry policy
+ *    and authentication.
  */
-export const SPACE_SCHEMA_VERSION = 2;
+export const SPACE_SCHEMA_VERSION = 3;
 
 export const SPACE_DO_SCHEMA = `
 	-- One row. schema_version is checked on every open.
@@ -81,24 +84,34 @@ export const SPACE_DO_SCHEMA = `
 		can_write INTEGER NOT NULL
 	);
 
-	-- The writer set, sequenced by space revision.
+	-- The writer set, sequenced by space revision. A removed writer keeps
+	-- its row, marked removed at the revision of its removal, so listWriters
+	-- can report the removal until it writes again.
 	CREATE TABLE IF NOT EXISTS writer (
 		did TEXT PRIMARY KEY,
 		repo_rev TEXT NOT NULL,
 		data BLOB NOT NULL,
-		space_rev TEXT NOT NULL
+		space_rev TEXT NOT NULL,
+		removed_at INTEGER
 	);
 	CREATE INDEX IF NOT EXISTS idx_writer_space_rev ON writer(space_rev);
 
+	-- Syncer webhook registrations, made through authorizeSpaceSync. Active
+	-- until the credential of their latest authorization expires
+	-- (expires_at, ms); expiry_notified marks a lapse already announced.
 	CREATE TABLE IF NOT EXISTS notify_registration (
-		service TEXT PRIMARY KEY,
 		endpoint TEXT NOT NULL,
-		expires_at TEXT NOT NULL
+		token TEXT NOT NULL,
+		expires_at INTEGER NOT NULL,
+		expiry_notified INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (endpoint, token)
 	);
 
 	-- Outbound notifications, both roles. A row with a coalesce_key is
 	-- replaced by a newer one with the same key; deadline (ms) is when
-	-- retrying stops.
+	-- retrying stops. policy picks the retry schedule ('fanout' | 'repo' |
+	-- 'syncer'); auth is 'service' (a service JWT from the operator) or
+	-- 'none' (a syncer webhook, authenticated by the token in its body).
 	CREATE TABLE IF NOT EXISTS notify_queue (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		service TEXT NOT NULL,
@@ -106,7 +119,9 @@ export const SPACE_DO_SCHEMA = `
 		attempts INTEGER NOT NULL DEFAULT 0,
 		next_at INTEGER NOT NULL,
 		deadline INTEGER,
-		coalesce_key TEXT UNIQUE
+		coalesce_key TEXT UNIQUE,
+		policy TEXT NOT NULL DEFAULT 'fanout',
+		auth TEXT NOT NULL DEFAULT 'service'
 	);
 	CREATE INDEX IF NOT EXISTS idx_notify_queue_next ON notify_queue(next_at);
 
@@ -129,8 +144,6 @@ export const SPACE_DO_SCHEMA = `
 export const OPLOG_RETENTION_DAYS = 30;
 /** Retain at most this many oplog entries. */
 export const OPLOG_RETENTION_OPS = 10_000;
-/** Notify registrations expire after this many days. */
-export const NOTIFY_REGISTRATION_DAYS = 7;
 /**
  * Give up delivering a notification without its own deadline after this
  * many attempts: syncer fan-out is reasonable-effort, and a syncer that
@@ -139,6 +152,21 @@ export const NOTIFY_REGISTRATION_DAYS = 7;
 export const NOTIFY_MAX_ATTEMPTS = 5;
 /** A repo host retries its write notification to the authority this long. */
 export const NOTIFY_WRITE_RETRY_MS = 24 * 60 * 60 * 1000;
+/**
+ * A syncer's deletion or expiry notice is retried after each of these
+ * delays in turn, repeating the last, for at least
+ * {@link SYNCER_NOTICE_RETRY_WINDOW_MS}.
+ */
+export const SYNCER_NOTICE_RETRY_DELAYS_MS = [
+	60_000,
+	10 * 60_000,
+	60 * 60_000,
+	6 * 60 * 60_000,
+	12 * 60 * 60_000,
+];
+export const SYNCER_NOTICE_RETRY_WINDOW_MS = 72 * 60 * 60 * 1000;
+/** The largest notify token a syncer may register. */
+export const MAX_NOTIFY_TOKEN_LENGTH = 512;
 /** Cap on the backoff between notification retries. */
 export const NOTIFY_BACKOFF_MAX_MS = 60 * 60 * 1000;
 /** notifyWrite refuses repo revisions this far ahead of the clock. */

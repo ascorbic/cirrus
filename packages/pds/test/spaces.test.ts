@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { P256Keypair } from "@atproto/crypto";
 import {
-	RECORD_MAC_TYPE,
+	RECORD_MAC_PROFILE,
 	createSpaceSigHeaders,
 	encapsulate,
-	formatWantMacHeader,
-	parseMacHeader,
-	serializeRepo,
+	formatMacRequest,
 	verifyRecord,
+	writeRepoStar,
 } from "@atproto/space";
 import { encode } from "@atproto/lex-cbor";
 import { env, worker, runInDurableObject } from "./helpers";
@@ -45,7 +44,7 @@ async function createSpace(): Promise<string> {
 		policy: { $type: "com.atproto.memberspace.policy" },
 	});
 	expect(res.status).toBe(200);
-	return ((await res.json()) as { uri: string }).uri;
+	return ((await res.json()) as { space: string }).space;
 }
 
 describe("spaces integration", () => {
@@ -206,8 +205,8 @@ describe("spaces integration", () => {
 
 		const key = await P256Keypair.create();
 		const credentialRes = await post(
-			"/xrpc/com.atproto.space.getSpaceCredential",
-			{ space, credentialKid: key.did(), delegationToken: token },
+			"/xrpc/com.atproto.space.authorizeSpaceSync",
+			{ space, credentialKey: key.did(), delegationToken: token },
 			{ "Content-Type": "application/json" },
 		);
 		expect(credentialRes.status).toBe(200);
@@ -215,15 +214,17 @@ describe("spaces integration", () => {
 			credential: string;
 		};
 
-		const headers: Record<string, string> = await createSpaceSigHeaders(key, {
+		const { headers: sigHeaders } = await createSpaceSigHeaders({
 			authorization: `Atproto-Space-Credential ${credential}`,
 			audience: env.DID as `did:${string}:${string}`,
+			keypair: key,
 		});
+		const headers: Record<string, string> = { ...sigHeaders };
 		const { keyShare, sharedSecret } = await encapsulate(
 			`did:key:${env.SPACES_KEM_KEY_PUBLIC}`,
 		);
-		headers["atproto-space-want-mac"] = formatWantMacHeader(
-			RECORD_MAC_TYPE,
+		headers["accept-signature"] = formatMacRequest(
+			RECORD_MAC_PROFILE,
 			keyShare,
 		);
 		const read = await get(
@@ -231,27 +232,28 @@ describe("spaces integration", () => {
 			headers,
 		);
 		expect(read.status).toBe(200);
-		// The MAC header must reach a browser app across origins.
-		expect(read.headers.get("Access-Control-Expose-Headers")).toMatch(
-			/atproto-space-mac/i,
-		);
+		// The MAC headers must reach a browser app across origins.
+		const exposed = read.headers.get("Access-Control-Expose-Headers") ?? "";
+		for (const header of [
+			"atproto-space-record",
+			"signature-input",
+			"signature",
+		]) {
+			expect(exposed.toLowerCase()).toContain(header);
+		}
 		const record = (await read.json()) as {
 			uri: string;
 			cid: string;
 			value: { text: string };
 		};
 		expect(record.value.text).toBe("note");
-		const mac = parseMacHeader(
-			read.headers.get("atproto-space-mac") ?? undefined,
-			RECORD_MAC_TYPE,
-		);
-		expect(
-			await verifyRecord(record as never, {
-				uri: record.uri,
-				sharedSecret,
-				mac,
-			}),
-		).toBe(true);
+		// Throws unless the MAC verifies.
+		await verifyRecord(record as never, {
+			uri: record.uri as never,
+			keyShare,
+			sharedSecret,
+			headers: read.headers,
+		});
 	});
 
 	it("promotes blobs of an imported space repo when they are uploaded", async () => {
@@ -276,7 +278,7 @@ describe("spaces integration", () => {
 		const { LtHash } = await import("@atproto/space");
 		const data = new LtHash().add(`test.cirrus.file/f/${recordCid}`).digest();
 		const chunks: Uint8Array[] = [];
-		for await (const chunk of serializeRepo(
+		for await (const chunk of writeRepoStar(
 			{
 				ver: 1,
 				repo: env.DID as never,
@@ -299,7 +301,7 @@ describe("spaces integration", () => {
 			new Request("http://pds.test/xrpc/com.atproto.space.importRepo", {
 				method: "POST",
 				headers: {
-					"Content-Type": "application/octet-stream",
+					"Content-Type": "application/vnd.dasl.star",
 					Authorization: `Bearer ${env.AUTH_TOKEN}`,
 				},
 				body: archive,
@@ -345,9 +347,10 @@ describe("spaces integration", () => {
 		});
 		expect(res.status).toBe(200);
 		const { spaces } = (await res.json()) as {
-			spaces: Array<{ uri: string }>;
+			spaces: Array<{ space: string }>;
 		};
-		expect(spaces.map((s) => s.uri)).toContain(space);
+		expect(space).toBeTruthy();
+		expect(spaces.map((s) => s.space)).toContain(space);
 	});
 
 	it("refuses app-password sessions on spaces but not the public repo", async () => {
@@ -519,7 +522,7 @@ describe("spaces integration", () => {
 			"ServiceUnavailable",
 		);
 		const memberspace = await app.request(
-			"/xrpc/com.atproto.memberspace.putMember",
+			"/xrpc/com.atproto.memberspace.putMembers",
 			{ method: "POST" },
 		);
 		expect(memberspace.status).toBe(503);

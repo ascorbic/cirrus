@@ -272,7 +272,8 @@ const createCommand = defineCommand({
 		},
 		"managing-app": {
 			type: "string",
-			description: "managed: the managing app's service identifier",
+			description:
+				"managed: the managing app's did#serviceId reference (e.g. did:web:app.example#forum)",
 		},
 		allow: {
 			type: "string",
@@ -330,7 +331,7 @@ const createCommand = defineCommand({
 				);
 				process.exit(1);
 		}
-		const result = await xrpc<{ uri: string }>(
+		const result = await xrpc<{ space: string }>(
 			ctx,
 			"POST",
 			"com.atproto.space.createSpace",
@@ -342,7 +343,7 @@ const createCommand = defineCommand({
 				},
 			},
 		);
-		console.log(pc.green("Created:"), result.uri);
+		console.log(pc.green("Created:"), result.space);
 	},
 });
 
@@ -402,12 +403,10 @@ const membersCommand = defineCommand({
 			},
 			async run({ args }) {
 				const ctx = loadContext(Boolean(args.dev));
-				await xrpc(ctx, "POST", "com.atproto.memberspace.putMember", {
+				await xrpc(ctx, "POST", "com.atproto.memberspace.putMembers", {
 					body: {
 						space: args.space,
-						did: args.did,
-						read: args.read,
-						write: args.write,
+						members: [{ did: args.did, read: args.read, write: args.write }],
 					},
 				});
 				console.log(
@@ -426,8 +425,8 @@ const membersCommand = defineCommand({
 			},
 			async run({ args }) {
 				const ctx = loadContext(Boolean(args.dev));
-				await xrpc(ctx, "POST", "com.atproto.memberspace.removeMember", {
-					body: { space: args.space, did: args.did },
+				await xrpc(ctx, "POST", "com.atproto.memberspace.removeMembers", {
+					body: { space: args.space, dids: [args.did] },
 				});
 				console.log(pc.green("Removed:"), args.did);
 			},

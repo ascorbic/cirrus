@@ -296,11 +296,11 @@ function describeSpaceScope(
 	const out: string[] = [];
 
 	const typeLabel =
-		p.type === "*"
+		p.spaceType === "*"
 			? "spaces of ANY type"
 			: info?.name
-				? `"${info.name}" spaces (${p.type})`
-				: `${p.type} spaces`;
+				? `"${info.name}" spaces (${p.spaceType})`
+				: `${p.spaceType} spaces`;
 
 	const authorityLabel =
 		p.authority === "self"
@@ -319,7 +319,7 @@ function describeSpaceScope(
 	const skeySuffix = p.skey === "*" ? "" : ` (space "${p.skey}")`;
 
 	let line = `${verb} private data in ${authorityLabel} ${typeLabel}${skeySuffix}`;
-	if (p.type === "*" || p.authority === "*") {
+	if (p.spaceType === "*" || p.authority === "*") {
 		line = `⚠️ ${line}`;
 	}
 	out.push(line);
@@ -333,7 +333,7 @@ function describeSpaceScope(
 
 	if (info?.error) {
 		out.push(
-			`⚠️ ${p.type} — could not resolve space type declaration: ${info.error}`,
+			`⚠️ ${p.spaceType} — could not resolve space type declaration: ${info.error}`,
 		);
 	}
 
@@ -371,7 +371,7 @@ function getScopeDescriptions(
 	const spacePerms: SpacePermissionType[] = [];
 
 	for (const s of set) {
-		// Space scopes may use the `space?type=...` form with no colon, so
+		// Space scopes may use the `space?spaceType=...` form with no colon, so
 		// they get a dedicated parse ahead of the colon-keyed dispatch.
 		const spacePerm = parseSpaceScope(s);
 		if (spacePerm) {
@@ -494,7 +494,7 @@ function getScopeDescriptions(
 	}
 	for (const p of spacePerms) {
 		const info = spaces?.find(
-			(s) => s.type === p.type && s.authority === p.authority,
+			(s) => s.type === p.spaceType && s.authority === p.authority,
 		);
 		out.push(...describeSpaceScope(p, info));
 	}

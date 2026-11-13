@@ -7,7 +7,7 @@
  */
 
 import {
-	createSpaceToken,
+	createDelegationToken as upstreamCreateDelegationToken,
 	spaceHostAud as upstreamSpaceHostAud,
 } from "@atproto/space";
 import type { SpaceSigningKeypair } from "./types.js";
@@ -17,7 +17,7 @@ import type { SpaceSigningKeypair } from "./types.js";
  * service entry, the audience of delegation tokens and client attestations.
  */
 export function spaceHostAud(authority: string): string {
-	return upstreamSpaceHostAud(authority);
+	return upstreamSpaceHostAud(authority as `did:${string}:${string}`);
 }
 
 /**
@@ -28,13 +28,10 @@ export function createDelegationToken(
 	params: { iss: string; space: string; authority: string },
 	keypair: SpaceSigningKeypair,
 ): Promise<string> {
-	return createSpaceToken(
-		"delegation",
-		{
-			iss: params.iss,
-			sub: params.space,
-			aud: upstreamSpaceHostAud(params.authority),
-		},
-		keypair as Parameters<typeof createSpaceToken>[2],
-	);
+	return upstreamCreateDelegationToken({
+		iss: params.iss as `did:${string}:${string}`,
+		sub: params.space as never,
+		aud: spaceHostAud(params.authority) as never,
+		keypair: keypair as never,
+	});
 }

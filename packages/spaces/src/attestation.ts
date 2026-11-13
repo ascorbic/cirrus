@@ -13,7 +13,7 @@
  */
 
 import { createLocalJWKSet, jwtVerify } from "jose";
-import { SPACE_TOKEN_TYPES, parseSpaceToken } from "@atproto/space";
+import { CLIENT_ATTESTATION_TYP, parseSpaceToken } from "@atproto/space";
 import { SpaceError } from "./errors.js";
 import type { CheckReplay } from "./auth.js";
 
@@ -147,7 +147,7 @@ export async function verifyClientAttestation(
 			issuer: clientId,
 			subject: clientId,
 			audience: opts.expectedAud,
-			typ: SPACE_TOKEN_TYPES.clientAttestation.typ,
+			typ: CLIENT_ATTESTATION_TYP,
 			requiredClaims: ["jti", "exp"],
 			clockTolerance: 5,
 		});

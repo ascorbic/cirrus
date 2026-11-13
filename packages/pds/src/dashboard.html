@@ -877,14 +877,14 @@
 							const members = el("div", "space-members");
 							const input = el("input");
 							input.placeholder = "did:… to add/remove";
-							const mkBtn = (label, nsid, extra = {}) => {
+							const mkBtn = (label, nsid, extra) => {
 								const btn = el("button", null, label);
 								btn.addEventListener("click", async () => {
 									const did = input.value.trim();
 									if (!did) return;
 									try {
 										await xrpc("POST", nsid, {
-											body: { space: space.uri, did, ...extra },
+											body: { space: space.uri, ...extra(did) },
 										});
 										input.value = "";
 										load();
@@ -896,13 +896,13 @@
 							};
 							members.append(
 								input,
-								mkBtn("add member", "com.atproto.memberspace.putMember", {
-									read: true,
-									write: true,
-								}),
+								mkBtn("add member", "com.atproto.memberspace.putMembers", (did) => ({
+									members: [{ did, read: true, write: true }],
+								})),
 								mkBtn(
 									"remove member",
-									"com.atproto.memberspace.removeMember",
+									"com.atproto.memberspace.removeMembers",
+									(did) => ({ dids: [did] }),
 								),
 							);
 							// Only memberspace keeps a member list.

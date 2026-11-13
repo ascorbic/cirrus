@@ -68,7 +68,7 @@ export interface PDSEnv {
 	RELAYS?: string;
 	/**
 	 * Atproto spaces (alpha). Unset or anything but "true" disables every
-	 * space and simplespace route; they fall through to the proxy like any
+	 * space and memberspace route; they fall through to the proxy like any
 	 * unknown method.
 	 */
 	SPACES_ENABLED?: string;

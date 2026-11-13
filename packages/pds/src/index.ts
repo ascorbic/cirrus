@@ -91,9 +91,15 @@ app.use(
 		origin: "*",
 		allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 		// Note: No allowHeaders; using "*" wildcard doesn't cover Authorization, so let Hono reflect the requested headers instead
-		// atproto-space-mac carries the MAC a browser syncer verifies space
-		// data with.
-		exposeHeaders: ["Content-Type", "atproto-space-mac"],
+		// A space MAC is an HTTP message signature over a header describing
+		// the commit or record; a browser syncer must read all three.
+		exposeHeaders: [
+			"Content-Type",
+			"atproto-space-commit",
+			"atproto-space-record",
+			"signature-input",
+			"signature",
+		],
 		maxAge: 86400,
 	}),
 );

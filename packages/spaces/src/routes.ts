@@ -11,13 +11,14 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import {
-	createSpaceToken,
+	createSpaceCredential,
 	isP256DidKey,
+	parseSpaceToken,
 	readRepoStar,
 	readSpaceMetaStar,
-	serializeRepo,
-	serializeSpaceMeta,
 	spaceHostAud,
+	writeRepoStar,
+	writeSpaceMetaStar,
 } from "@atproto/space";
 import type { P256Keypair } from "@atproto/crypto";
 import { encode } from "@atproto/lex-cbor";
@@ -37,18 +38,19 @@ import {
 } from "./auth.js";
 import { verifyClientAttestation } from "./attestation.js";
 import {
-	COMMIT_MAC_TYPE,
-	MAC_HEADER,
-	RECORD_MAC_TYPE,
-	WANT_MAC_HEADER,
+	COMMIT_MAC_PROFILE,
+	MAC_REQUEST_HEADER,
+	RECORD_MAC_PROFILE,
 	buildCommit,
 	bytesToJson,
 	commitMacHeaders,
 	commitToJson,
 	importKemKeypair,
-	macSecret,
+	macExposedHeaders,
+	macRequest,
 	recordMacHeaders,
-	type MacType,
+	type MacParams,
+	type MacProfile,
 } from "./mac.js";
 import { SpaceError, parseSpaceErrorCode, spaceErrorStatus } from "./errors.js";
 import {
@@ -63,6 +65,7 @@ import {
 } from "./policy.js";
 import { prepareRecord, recordBytesToJson } from "./records.js";
 import {
+	MAX_NOTIFY_TOKEN_LENGTH,
 	MAX_REV_CLOCK_SKEW_MS,
 	MAX_SPACE_RECORD_BYTES,
 	NOTIFY_BACKOFF_BASE_MS,
@@ -74,7 +77,12 @@ import {
 	spaceBlobKey,
 	spaceBlobPrefix,
 } from "./blob-keys.js";
-import { requireSpaceUri, spaceId, spaceRecordUri } from "./space-uri.js";
+import {
+	parseSpaceUri,
+	requireSpaceUri,
+	spaceId,
+	spaceRecordUri,
+} from "./space-uri.js";
 import type { SpaceRef } from "./space-uri.js";
 import { isRetryableStatus } from "./space-do.js";
 import type { SpaceDurableObject } from "./space-do.js";
@@ -86,6 +94,7 @@ import {
 	PERSONALSPACE_POLICY,
 	type ImportedRecord,
 	type NotifyItem,
+	type NotifyRegistration,
 	type PreparedSpaceWrite,
 	type RepoCommitResult,
 	type SpaceMember,
@@ -93,18 +102,22 @@ import {
 	type SpaceSigningKeypair,
 } from "./types.js";
 
-const NOTIFY_WRITE_LXM = "com.atproto.space.notifyWrite";
-const SPACE_DELETED_LXM = "com.atproto.space.notifySpaceDeleted";
-const CREDENTIAL_REVOKED_LXM = "com.atproto.space.notifyCredentialRevoked";
-const CHECK_USER_ACCESS_LXM = "com.atproto.managedspace.checkUserAccess";
-/** A managing app that doesn't answer within this window denies access. */
-const CHECK_USER_ACCESS_TIMEOUT_MS = 5000;
-/** The queue key for this repo's pending write notification to a foreign authority. */
-const NOTIFY_WRITE_COALESCE_KEY = "notifyWrite:authority";
+const NOTIFY_REPO_UPDATE_LXM = "com.atproto.space.notifyRepoUpdate";
+const CREDENTIALS_REVOKED_LXM = "com.atproto.space.notifyCredentialsRevoked";
+const CONFIRM_REGISTRATION_LXM = "com.atproto.space.confirmRegistration";
+const CHECK_ACCESS_LXM = "com.atproto.managedspace.checkAccess";
+/** A managing app or syncer endpoint that doesn't answer in this window fails. */
+const UPSTREAM_TIMEOUT_MS = 10_000;
+/** The queue key for this repo's pending update notification to a foreign authority. */
+const NOTIFY_REPO_UPDATE_COALESCE_KEY = "notifyRepoUpdate:authority";
 /** Upper bound on archives accepted by importRepo / importSpaceMeta. */
 const MAX_IMPORT_BYTES = 100 * 1024 * 1024;
 /** Revocations are held until any credential they name has expired. */
 const REVOCATION_TTL_SEC = 3600 + 2 * 5;
+/** The media type of STAR archives (repos and space meta). */
+const STAR_CONTENT_TYPE = "application/vnd.dasl.star";
+/** Batched member changes take at most this many entries. */
+const MAX_MEMBER_BATCH = 100;
 
 export type SpaceStub = DurableObjectStub<SpaceDurableObject>;
 export type SpaceIndexStub = DurableObjectStub<SpaceIndexDurableObject>;
@@ -290,24 +303,27 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 	}
 
 	/**
-	 * The MAC secret owed by a read that returns a commit or record, with
-	 * the response headers a browser syncer needs to read the MAC.
+	 * The MAC owed by a read that returns a commit or record, with the
+	 * response headers a browser syncer needs to read the MAC.
 	 */
-	async function readMacSecret(
+	async function readMac(
 		c: Context,
 		auth: AuthedRead,
-		type: MacType,
-	): Promise<Uint8Array | undefined> {
-		appendHeader(c, "Vary", WANT_MAC_HEADER);
-		const wantMac = c.req.header(WANT_MAC_HEADER);
-		if (wantMac === undefined && auth.kind !== "credential") return undefined;
-		appendHeader(c, "Access-Control-Expose-Headers", MAC_HEADER);
-		return await macSecret({
-			wantMac,
+		profile: MacProfile,
+	): Promise<MacParams | undefined> {
+		appendHeader(c, "Vary", "Accept-Signature");
+		const mac = await macRequest({
+			acceptSignature: c.req.header(MAC_REQUEST_HEADER),
 			credential: auth.kind === "credential",
-			type,
+			profile,
 			getKemKeypair,
 		});
+		if (mac) {
+			for (const header of macExposedHeaders(profile)) {
+				appendHeader(c, "Access-Control-Expose-Headers", header);
+			}
+		}
+		return mac;
 	}
 
 	function assertScope(
@@ -350,10 +366,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 	 */
 	function assertOwner(ref: SpaceRef, session: SpaceSessionAuth): void {
 		if (session.did !== ref.authority) {
-			throw new SpaceError(
-				"NotSpaceOwner",
-				"Only the space owner may manage the space",
-			);
+			throw new SpaceError("NotAuthorized", "Not the space authority");
 		}
 		assertSpaceHost(ref);
 	}
@@ -371,65 +384,77 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 	}
 
 	/**
-	 * Whether a policy authorises a user to read or write. The authority
-	 * always passes under every policy: it alone can reconfigure the space,
-	 * so it must not be able to lock itself out. A managing app that errors
-	 * or times out denies.
+	 * Whether a policy authorises an account to read or write. `repo` is
+	 * absent for a read with no delegation token, which a policy authorises
+	 * only if it does not gate on the account. The authority always passes
+	 * under every policy: it alone can reconfigure the space, so it must not
+	 * be able to lock itself out.
+	 *
+	 * A managing app that can't be reached throws UpstreamFailure rather
+	 * than denying: denying would read as a loss of access, withdrawing a
+	 * syncer's registration and making a repo host drop its notification.
 	 */
-	async function authorizeUser(params: {
+	async function authorizeRepo(params: {
 		policy: SpacePolicy;
 		ref: SpaceRef;
-		userDid: string;
+		repo: string | undefined;
 		access: "read" | "write";
 		clientId?: string;
 		stub: SpaceStub;
 	}): Promise<boolean> {
-		const { policy, ref, userDid, access, clientId, stub } = params;
-		if (userDid === ref.authority) return true;
+		const { policy, ref, repo, access, clientId, stub } = params;
+		if (repo === ref.authority) return true;
 		switch (policy.$type) {
 			case PERSONALSPACE_POLICY:
 				return false;
 			case MEMBERSPACE_POLICY: {
-				if (access === "read" ? policy.publicRead : policy.publicWrite) {
-					return true;
-				}
-				const member = await stub.rpcGetMember(userDid);
-				if (!member) return false;
-				return access === "read" ? member.read : member.write;
+				if (access === "read" && policy.publicRead) return true;
+				if (!repo) return false;
+				const member = await stub.rpcGetMember(repo);
+				if (access === "read") return member?.read ?? false;
+				// A member without write access stays excluded even under
+				// publicWrite.
+				if (member) return member.write;
+				return policy.publicWrite;
 			}
-			case MANAGEDSPACE_POLICY: {
-				const managingApp = policy.managingApp;
-				try {
-					const endpoint = await host.resolveServiceEndpoint(managingApp);
-					if (!endpoint) return false;
-					const token = await createServiceJwt(
-						{
-							iss: host.operatorDid,
-							aud: managingApp,
-							lxm: CHECK_USER_ACCESS_LXM,
-						},
-						await host.getKeypair(),
-					);
-					const url = new URL(`${endpoint}/xrpc/${CHECK_USER_ACCESS_LXM}`);
-					url.searchParams.set("space", ref.uri);
-					url.searchParams.set("user", userDid);
-					url.searchParams.set("access", access);
-					if (clientId && access === "read") {
-						url.searchParams.set("clientId", clientId);
-					}
-					const res = await doFetch(url.toString(), {
-						headers: { Authorization: `Bearer ${token}` },
-						signal: AbortSignal.timeout(CHECK_USER_ACCESS_TIMEOUT_MS),
-					});
-					if (!res.ok) return false;
-					const body = (await res.json()) as { authorized?: unknown };
-					return body.authorized === true;
-				} catch {
-					// Failing open would hand out credentials for the spaces that
-					// asked for the strictest gate. No decision caching in the alpha.
-					return false;
-				}
+			case MANAGEDSPACE_POLICY:
+				return (await checkAccess(policy.managingApp, ref, repo, clientId))[
+					access
+				];
+		}
+	}
+
+	/** Ask a managed space's managing app for an account's access. */
+	async function checkAccess(
+		managingApp: string,
+		ref: SpaceRef,
+		repo: string | undefined,
+		clientId: string | undefined,
+	): Promise<{ read: boolean; write: boolean }> {
+		try {
+			const endpoint = await host.resolveServiceEndpoint(managingApp);
+			if (!endpoint) throw new Error("could not resolve the managing app");
+			const token = await createServiceJwt(
+				{ iss: host.operatorDid, aud: managingApp, lxm: CHECK_ACCESS_LXM },
+				await host.getKeypair(),
+			);
+			const url = new URL(`${endpoint}/xrpc/${CHECK_ACCESS_LXM}`);
+			url.searchParams.set("space", ref.uri);
+			if (repo) url.searchParams.set("repo", repo);
+			if (clientId) url.searchParams.set("clientId", clientId);
+			const res = await doFetch(url.toString(), {
+				headers: { Authorization: `Bearer ${token}` },
+				signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+			});
+			if (!res.ok) throw new Error(`checkAccess answered ${res.status}`);
+			const body = (await res.json()) as { read?: unknown; write?: unknown };
+			if (typeof body.read !== "boolean" || typeof body.write !== "boolean") {
+				throw new Error("checkAccess answered without read and write");
 			}
+			return { read: body.read, write: body.write };
+		} catch (err) {
+			console.warn(`managing app check for ${ref.uri} failed:`, err);
+			throw new SpaceError("UpstreamFailure", "Managing app did not answer");
 		}
 	}
 
@@ -496,98 +521,71 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 	}
 
 	/**
-	 * Fan a sequenced repo update out to the space's registered syncers.
-	 * Reasonable-effort: a syncer that misses one notices the gap in
-	 * prevSpaceRev and recovers through listRepos.
-	 */
-	async function fanOutWrite(
-		ref: SpaceRef,
-		stub: SpaceStub,
-		body: Record<string, unknown>,
-	): Promise<void> {
-		const registrations = await stub.rpcGetActiveRegistrations();
-		if (registrations.length === 0) return;
-		const items: NotifyItem[] = registrations.map((registration) => ({
-			service: registration.service,
-			endpoint: registration.endpoint,
-			lxm: NOTIFY_WRITE_LXM,
-			body: { ...body, space: ref.uri },
-		}));
-		await stub.rpcEnqueueNotify(items);
-	}
-
-	/**
 	 * After a commit: the authority sequences its own update into the writer
-	 * set and fans it out; a repo host in a foreign space delivers its
-	 * latest state to the authority, immediately, persisting a retryable
-	 * failure for the DO's alarm to retry for up to 24 hours. Retries
-	 * coalesce, so only the newest revision is ever pending.
+	 * set, which queues it for registered syncers; a repo host in a foreign
+	 * space delivers its latest state to the authority, immediately,
+	 * persisting a retryable failure for the DO's alarm to retry for up to
+	 * 24 hours. Retries coalesce, so only the newest revision is pending.
 	 */
 	async function postWrite(
 		ref: SpaceRef,
 		stub: SpaceStub,
 		commit: RepoCommitResult,
 	): Promise<void> {
+		if (ref.authority === host.operatorDid) {
+			await stub.rpcRecordWriter(host.operatorDid, commit.rev, commit.data);
+			return;
+		}
 		const body = {
 			space: ref.uri,
 			repo: host.operatorDid,
 			repoRev: commit.rev,
 			data: bytesToJson(commit.data),
 		};
-		if (ref.authority === host.operatorDid) {
-			const sequence = await stub.rpcRecordWriter(
-				host.operatorDid,
-				commit.rev,
-				commit.data,
-			);
-			// Own writes always advance in practice; guard anyway so a
-			// re-ordered background task never fans out stale state.
-			if (!sequence) return;
-			await fanOutWrite(ref, stub, { ...body, ...sequence });
-			return;
-		}
-
-		const endpoint = await host
-			.resolveServiceEndpoint(ref.authority)
-			.catch(() => null);
+		const aud = spaceHostAud(ref.authority as `did:${string}:${string}`);
+		const endpoint = await host.resolveServiceEndpoint(aud).catch(() => null);
 		if (!endpoint) {
-			console.warn(`notifyWrite: no endpoint for ${ref.authority}`);
+			console.warn(`notifyRepoUpdate: no endpoint for ${ref.authority}`);
 			return;
 		}
 		const retry: NotifyItem = {
-			service: ref.authority,
+			service: aud,
 			endpoint,
-			lxm: NOTIFY_WRITE_LXM,
+			lxm: NOTIFY_REPO_UPDATE_LXM,
 			body,
-			coalesceKey: NOTIFY_WRITE_COALESCE_KEY,
+			coalesceKey: NOTIFY_REPO_UPDATE_COALESCE_KEY,
 			deadline: Date.now() + NOTIFY_WRITE_RETRY_MS,
+			policy: "repo",
+			auth: "service",
 		};
 		try {
 			const token = await createServiceJwt(
-				{ iss: host.operatorDid, aud: ref.authority, lxm: NOTIFY_WRITE_LXM },
+				{ iss: host.operatorDid, aud, lxm: NOTIFY_REPO_UPDATE_LXM },
 				await host.getKeypair(),
 			);
-			const res = await doFetch(`${endpoint}/xrpc/${NOTIFY_WRITE_LXM}`, {
+			const res = await doFetch(`${endpoint}/xrpc/${NOTIFY_REPO_UPDATE_LXM}`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify(body),
-				signal: AbortSignal.timeout(10_000),
+				signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
 			});
 			if (res.ok || !isRetryableStatus(res.status)) {
 				if (!res.ok) {
 					console.warn(
-						`notifyWrite to ${ref.authority} refused: ${res.status}; not retrying`,
+						`notifyRepoUpdate to ${ref.authority} refused: ${res.status}; not retrying`,
 					);
 				}
-				await stub.rpcClearNotify(NOTIFY_WRITE_COALESCE_KEY);
+				await stub.rpcClearNotify(NOTIFY_REPO_UPDATE_COALESCE_KEY);
 				return;
 			}
-			console.warn(`notifyWrite to ${ref.authority} failed: ${res.status}`);
+			console.warn(
+				`notifyRepoUpdate to ${ref.authority} failed: ${res.status}`,
+			);
 		} catch (err) {
-			console.warn(`notifyWrite to ${ref.authority} errored:`, err);
+			console.warn(`notifyRepoUpdate to ${ref.authority} errored:`, err);
 		}
 		await stub.rpcEnqueueNotify([retry], { delayMs: NOTIFY_BACKOFF_BASE_MS });
 	}
@@ -1022,12 +1020,12 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 					await archive[Symbol.asyncDispose]();
 				}
 			} catch (err) {
-				throw invalidArchive(err);
+				throw invalidArchive(err, "InvalidRepoFile");
 			}
 
 			if (repo !== host.operatorDid || repo !== session.did) {
 				throw new SpaceError(
-					"InvalidRequest",
+					"RepoMismatch",
 					"Repo does not match the authenticated account",
 				);
 			}
@@ -1080,7 +1078,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			const rkey = c.req.query("rkey");
 			requireString(collection, "collection");
 			requireString(rkey, "rkey");
-			const secret = await readMacSecret(c, auth, RECORD_MAC_TYPE);
+			const mac = await readMac(c, auth, RECORD_MAC_PROFILE);
 
 			const stub = host.getSpaceDO(ref.uri);
 			await requireRepoExists(stub, ref);
@@ -1095,7 +1093,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			return c.json(
 				{ uri, cid: record.cid, value: recordBytesToJson(record.bytes) },
 				200,
-				recordMacHeaders(secret, uri, record.cid),
+				recordMacHeaders(mac, uri, record.cid),
 			);
 		} catch (err) {
 			return errorResponse(c, err);
@@ -1109,7 +1107,6 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			if (auth instanceof Response) return auth;
 			const collection = c.req.query("collection");
 			const limit = clampLimit(c.req.query("limit"), 50, 1000);
-			const reverse = c.req.query("reverse") === "true";
 			const excludeValues = c.req.query("excludeValues") === "true";
 			const after = parseRecordCursor(c.req.query("cursor"));
 
@@ -1119,7 +1116,6 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 				collection,
 				limit,
 				after,
-				reverse,
 				excludeValues,
 			});
 			const records = page.records.map((record) => ({
@@ -1147,7 +1143,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			const ref = requireSpaceUri(c.req.query("space"));
 			const auth = await readAuth(c, ref, c.req.query("repo"));
 			if (auth instanceof Response) return auth;
-			const secret = await readMacSecret(c, auth, COMMIT_MAC_TYPE);
+			const mac = await readMac(c, auth, COMMIT_MAC_PROFILE);
 			const stub = host.getSpaceDO(ref.uri);
 			await requireRepoExists(stub, ref);
 			const state = await stub.rpcGetRepoState();
@@ -1165,7 +1161,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			return c.json(
 				{ commit: commitToJson(commit) },
 				200,
-				commitMacHeaders(secret, commit),
+				commitMacHeaders(mac, commit),
 			);
 		} catch (err) {
 			return errorResponse(c, err);
@@ -1181,7 +1177,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			const since = c.req.query("since");
 			const excludeValues = c.req.query("excludeValues") === "true";
 			const after = parseOpsCursor(c.req.query("cursor"));
-			const secret = await readMacSecret(c, auth, COMMIT_MAC_TYPE);
+			const mac = await readMac(c, auth, COMMIT_MAC_PROFILE);
 
 			const stub = host.getSpaceDO(ref.uri);
 			await requireRepoExists(stub, ref);
@@ -1201,13 +1197,20 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 					? { value: recordBytesToJson(new Uint8Array(op.bytes)) }
 					: {}),
 			}));
+			// Never written: no commit to answer with.
 			if (!page.head) {
-				const last = page.ops[page.ops.length - 1];
-				return c.json({
-					ops,
-					...(last ? { cursor: `${last.rev}/${last.idx}` } : {}),
-				});
+				throw new SpaceError(
+					"RepoNotFound",
+					`Could not find repo for space: ${ref.uri}`,
+				);
 			}
+			// The commit, with its MAC, is on every page. A full page carries a
+			// cursor, so the last page may be empty.
+			const last = page.ops[page.ops.length - 1];
+			const cursor =
+				last && page.ops.length === limit
+					? `${last.rev}/${last.idx}`
+					: undefined;
 			const commit = buildCommit({
 				spaceUri: ref.uri,
 				repo: host.operatorDid,
@@ -1217,9 +1220,9 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 				},
 			});
 			return c.json(
-				{ ops, commit: commitToJson(commit) },
+				{ ops, commit: commitToJson(commit), ...(cursor ? { cursor } : {}) },
 				200,
-				commitMacHeaders(secret, commit),
+				commitMacHeaders(mac, commit),
 			);
 		} catch (err) {
 			return errorResponse(c, err);
@@ -1231,7 +1234,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			const ref = requireSpaceUri(c.req.query("space"));
 			const auth = await readAuth(c, ref, c.req.query("repo"));
 			if (auth instanceof Response) return auth;
-			const secret = await readMacSecret(c, auth, COMMIT_MAC_TYPE);
+			const mac = await readMac(c, auth, COMMIT_MAC_PROFILE);
 
 			const stub = host.getSpaceDO(ref.uri);
 			await requireRepoExists(stub, ref);
@@ -1277,13 +1280,13 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 					}
 				}
 			}
-			const star = serializeRepo(
-				commit as Parameters<typeof serializeRepo>[0],
+			const star = writeRepoStar(
+				commit as Parameters<typeof writeRepoStar>[0],
 				records(),
 			);
 			return c.body(asyncIterableToStream(star), 200, {
-				"Content-Type": "application/octet-stream",
-				...commitMacHeaders(secret, commit),
+				"Content-Type": STAR_CONTENT_TYPE,
+				...commitMacHeaders(mac, commit),
 			});
 		} catch (err) {
 			return errorResponse(c, err);
@@ -1296,12 +1299,11 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			const auth = await readAuth(c, ref, c.req.query("repo"));
 			if (auth instanceof Response) return auth;
 			const limit = clampLimit(c.req.query("limit"), 500, 1000);
-			const since = c.req.query("since");
 			const afterCid = c.req.query("cursor");
 
 			const stub = host.getSpaceDO(ref.uri);
 			await requireRepoExists(stub, ref);
-			const page = await stub.rpcListBlobs({ since, limit, afterCid });
+			const page = await stub.rpcListBlobs({ limit, afterCid });
 			const last = page.cids[page.cids.length - 1];
 			return c.json({
 				cids: page.cids,
@@ -1379,44 +1381,57 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 	// Space host endpoints (authority role)
 	// ---------------------------------------------------------------
 
-	app.post("/xrpc/com.atproto.space.getSpaceCredential", async (c) => {
+	app.post("/xrpc/com.atproto.space.authorizeSpaceSync", async (c) => {
 		try {
 			const body = await c.req.json<{
 				space?: string;
-				credentialKid?: string;
+				credentialKey?: string;
 				delegationToken?: string;
 				clientAttestation?: string;
+				notify?: unknown;
 			}>();
 			const ref = requireSpaceUri(body.space);
-			requireString(body.credentialKid, "credentialKid");
-			if (!isP256DidKey(body.credentialKid!)) {
+			requireString(body.credentialKey, "credentialKey");
+			if (!isP256DidKey(body.credentialKey!)) {
 				throw new SpaceError(
 					"InvalidRequest",
-					"credentialKid must be a P-256 did:key",
+					"credentialKey must be a P-256 did:key",
 				);
 			}
+			const notify =
+				body.notify === undefined ? undefined : parseNotify(body.notify);
+
 			// Before anything touches the space DO: a space this host doesn't
 			// govern must not get one created for it by a well-formed request.
-			assertSpaceHost(ref);
+			await assertActiveSpaceHost(ref);
 			const stub = host.getSpaceDO(ref.uri);
-
-			// Absent when the request carries no delegation token, which only a
-			// space that does not gate on the user accepts.
-			let userDid: string | undefined;
-			if (body.delegationToken) {
-				({ userDid } = await verifyDelegationToken(body.delegationToken, ref, {
-					getSigningKey: host.getSigningKey,
-					checkReplay: (kind, key, exp) => stub.rpcCheckReplay(kind, key, exp),
-				}));
+			const { meta, policy } = await stub.rpcGetAuthorityState();
+			// The durable signal that a space is gone: a syncer that missed
+			// its deletion notice learns it here, the next time it
+			// reauthorises, whatever the request's authorisation.
+			if (meta?.deletedAt) {
+				throw new SpaceError("SpaceDeleted", `Space deleted: ${ref.uri}`);
 			}
 
-			await assertActiveSpaceHost(ref);
-			const { meta, policy } = await stub.rpcGetAuthorityState();
+			// Absent when the request carries no delegation token, which only
+			// a space that does not gate on the account accepts.
+			let repo: string | undefined;
+			if (body.delegationToken) {
+				({ userDid: repo } = await verifyDelegationToken(
+					body.delegationToken,
+					ref,
+					{
+						getSigningKey: host.getSigningKey,
+						checkReplay: (kind, key, exp) =>
+							stub.rpcCheckReplay(kind, key, exp),
+					},
+				));
+			}
 
 			let clientId: string | undefined;
 			if (body.clientAttestation) {
 				clientId = await verifyClientAttestation(body.clientAttestation, {
-					expectedAud: spaceHostAud(ref.authority),
+					expectedAud: spaceHostAud(ref.authority as `did:${string}:${string}`),
 					// Checked pre-verification inside, so a client the space could
 					// never authorise never triggers network I/O.
 					allowedClientIds:
@@ -1428,55 +1443,68 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 				});
 			}
 
-			// The durable signal that a space is gone: a syncer that missed
-			// notifySpaceDeleted learns it here, on its next renewal, with or
-			// without a delegation token.
-			if (meta?.deletedAt) {
-				throw new SpaceError("SpaceDeleted", `Space deleted: ${ref.uri}`);
-			}
 			if (!meta || !policy) {
 				throw new SpaceError("SpaceNotFound", `Space not found: ${ref.uri}`);
 			}
 
-			// The user goes first, and a user the policy refuses is answered as
-			// though the space does not exist, so that a refusal discloses
-			// nothing to someone without access to it.
-			const userAuthorized = userDid
-				? await authorizeUser({
-						policy,
-						ref,
-						userDid,
-						access: "read",
-						clientId,
-						stub,
-					})
-				: isPublicRead(policy);
-			if (!userAuthorized) {
-				throw new SpaceError("SpaceNotFound", `Space not found: ${ref.uri}`);
-			}
-			if (!isAppAuthorized(policy, clientId)) {
-				throw new SpaceError(
-					"AppNotAuthorized",
-					"Application not authorized for this space",
-				);
+			try {
+				// The account goes first, and one the policy refuses is answered
+				// as though the space does not exist, so that a refusal
+				// discloses nothing to someone without access to it.
+				const authorized = await authorizeRepo({
+					policy,
+					ref,
+					repo,
+					access: "read",
+					clientId,
+					stub,
+				});
+				if (!authorized) {
+					throw new SpaceError("SpaceNotFound", `Space not found: ${ref.uri}`);
+				}
+				if (!isAppAuthorized(policy, clientId)) {
+					throw new SpaceError(
+						"AppNotAuthorized",
+						"Application not authorized for this space",
+					);
+				}
+			} catch (err) {
+				// A refusal withdraws the registration the request carries, so a
+				// syncer that has lost access stops being notified. A failure to
+				// decide, such as an unreachable managing app, is not a refusal.
+				if (notify && parseSpaceErrorCode(err)?.code !== "UpstreamFailure") {
+					await stub.rpcRemoveNotifyRegistration(notify);
+				}
+				throw err;
 			}
 
-			const credential = await createSpaceToken(
-				"credential",
-				{
-					iss: host.operatorDid,
-					sub: ref.uri,
-					keyId: body.credentialKid as `did:${string}:${string}`,
-				},
-				(await host.getKeypair()) as Parameters<typeof createSpaceToken>[2],
-			);
-			return c.json({ credential });
+			if (notify && !(await stub.rpcGetNotifyRegistration(notify))) {
+				await confirmRegistration(ref, notify);
+			}
+
+			const credential = await createSpaceCredential({
+				iss: host.operatorDid as `did:${string}:${string}`,
+				sub: ref.uri as never,
+				keyId: body.credentialKey as `did:${string}:${string}`,
+				keypair: (await host.getKeypair()) as never,
+			});
+
+			if (notify) {
+				// Renewed by each authorisation, to the credential's expiry, so a
+				// syncer that keeps reauthorising stays registered.
+				const { exp } = parseSpaceToken("credential", credential).payload;
+				await stub.rpcPutNotifyRegistration(notify, exp * 1000);
+			}
+			// Read after registering, so any update past this revision is
+			// notified.
+			const spaceRev = await stub.rpcGetSpaceRev();
+			return c.json({ credential, ...(spaceRev ? { spaceRev } : {}) });
 		} catch (err) {
 			return errorResponse(c, err);
 		}
 	});
 
-	app.get("/xrpc/com.atproto.space.listRepos", async (c) => {
+	app.get("/xrpc/com.atproto.space.listWriters", async (c) => {
 		try {
 			const ref = requireSpaceUri(c.req.query("space"));
 			await credentialAuth(c, ref);
@@ -1490,14 +1518,22 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			});
 			const last = writers[writers.length - 1];
 			return c.json({
-				repos: writers.map((writer) => ({
-					did: writer.did,
-					repoRev: writer.repoRev,
-					data: bytesToJson(new Uint8Array(writer.data)),
-					spaceRev: writer.spaceRev,
-				})),
-				// As with sync.listRepos, nonempty pages carry a cursor and
-				// empty pages omit it.
+				repos: writers.map((writer) =>
+					writer.removed
+						? {
+								$type: "com.atproto.space.defs#repoRemoved",
+								repo: writer.did,
+								spaceRev: writer.spaceRev,
+							}
+						: {
+								$type: "com.atproto.space.defs#repoWrite",
+								repo: writer.did,
+								repoRev: writer.repoRev,
+								data: bytesToJson(new Uint8Array(writer.data)),
+								spaceRev: writer.spaceRev,
+							},
+				),
+				// Nonempty pages carry a cursor and empty pages omit it.
 				...(last ? { cursor: last.spaceRev } : {}),
 			});
 		} catch (err) {
@@ -1505,46 +1541,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 		}
 	});
 
-	app.post("/xrpc/com.atproto.space.registerNotify", async (c) => {
-		try {
-			const body = await c.req.json<{ space?: string; service?: string }>();
-			const ref = requireSpaceUri(body.space);
-			requireString(body.service, "service");
-			await credentialAuth(c, ref);
-			assertSpaceHost(ref);
-			// Resolve now and store both, so fan-out never resolves DIDs.
-			const endpoint = await host.resolveServiceEndpoint(body.service!);
-			if (!endpoint) {
-				throw new SpaceError(
-					"ServiceNotResolvable",
-					`Could not resolve a service endpoint for ${body.service}`,
-				);
-			}
-			const stub = host.getSpaceDO(ref.uri);
-			const result = await stub.rpcRegisterNotify(body.service!, endpoint);
-			return c.json({ expiresAt: result.expiresAt });
-		} catch (err) {
-			return errorResponse(c, err);
-		}
-	});
-
-	app.post("/xrpc/com.atproto.space.unregisterNotify", async (c) => {
-		try {
-			const body = await c.req.json<{ space?: string; service?: string }>();
-			const ref = requireSpaceUri(body.space);
-			requireString(body.service, "service");
-			await credentialAuth(c, ref);
-			assertSpaceHost(ref);
-			// No endpoint resolution: a subscriber whose DID doc changed must
-			// still be able to withdraw. Idempotent.
-			await host.getSpaceDO(ref.uri).rpcUnregisterNotify(body.service!);
-			return c.json({});
-		} catch (err) {
-			return errorResponse(c, err);
-		}
-	});
-
-	app.post("/xrpc/com.atproto.space.notifyWrite", async (c) => {
+	app.post("/xrpc/com.atproto.space.notifyRepoUpdate", async (c) => {
 		try {
 			const body = await c.req.json<{
 				space?: string;
@@ -1559,23 +1556,24 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 				throw new SpaceError("InvalidRequest", "Missing data bytes");
 			}
 
-			const serviceAuth = await requireServiceAuth(c, NOTIFY_WRITE_LXM);
+			const serviceAuth = await requireServiceAuth(c, NOTIFY_REPO_UPDATE_LXM);
 			if (serviceAuth instanceof Response) return serviceAuth;
 			// iss is the signer, so requiring it to match keeps a PDS from
 			// notifying on another account's behalf.
 			if (serviceAuth.iss !== body.repo) {
 				throw new SpaceError(
 					"Forbidden",
-					"notifyWrite iss does not match claimed writer",
+					"notifyRepoUpdate iss does not match the repo",
 				);
 			}
 			if (
 				serviceAuth.aud !== ref.authority &&
-				serviceAuth.aud !== spaceHostAud(ref.authority)
+				serviceAuth.aud !==
+					spaceHostAud(ref.authority as `did:${string}:${string}`)
 			) {
 				throw new SpaceError(
 					"Forbidden",
-					"notifyWrite aud does not match the space authority",
+					"notifyRepoUpdate aud does not match the space authority",
 				);
 			}
 
@@ -1592,95 +1590,38 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 
 			const stub = host.getSpaceDO(ref.uri);
 			const policy = await requirePolicy(stub, ref);
-			// The same user perimeter used when minting credentials. notifyWrite
-			// comes from a PDS rather than an app, so there is no attestation.
-			const authorized = await authorizeUser({
+			// The same account perimeter used when minting credentials. The
+			// notification comes from a PDS rather than an app, so there is no
+			// attestation. An unreachable managing app is an UpstreamFailure,
+			// which the repo host retries.
+			const authorized = await authorizeRepo({
 				policy,
 				ref,
-				userDid: body.repo!,
+				repo: body.repo!,
 				access: "write",
 				stub,
 			});
 			if (!authorized) {
 				throw new SpaceError(
 					"Forbidden",
-					"notifyWrite writer is not authorized",
+					"Repo is not authorized to write to the space",
 				);
 			}
-
-			const data = fromBase64(body.data.$bytes);
-			const sequence = await stub.rpcRecordWriter(
+			// Sequenced, and queued for registered syncers, in one transaction.
+			// A delayed or replayed notification with an older rev changes
+			// nothing.
+			await stub.rpcRecordWriter(
 				body.repo!,
 				body.repoRev!,
-				data,
+				fromBase64(body.data.$bytes),
 			);
-			// A delayed or replayed notification carrying an older rev did not
-			// change the writer set; do not fan stale state out again.
-			if (sequence) {
-				await fanOutWrite(ref, stub, {
-					repo: body.repo!,
-					repoRev: body.repoRev!,
-					data: body.data,
-					...sequence,
-				});
-			}
 			return c.json({});
 		} catch (err) {
 			return errorResponse(c, err);
 		}
 	});
 
-	app.post("/xrpc/com.atproto.space.notifySpaceDeleted", async (c) => {
-		try {
-			const body = await c.req.json<{ space?: string }>();
-			const ref = requireSpaceUri(body.space);
-			const serviceAuth = await requireServiceAuth(c, SPACE_DELETED_LXM);
-			if (serviceAuth instanceof Response) return serviceAuth;
-			// Only the space's authority may tell us to drop our copy.
-			if (serviceAuth.iss !== ref.authority) {
-				throw new SpaceError(
-					"Forbidden",
-					"notifySpaceDeleted iss is not the space authority",
-				);
-			}
-			// And only when the notification was addressed to us: without the
-			// audience check, an authority-signed token minted for a different
-			// service could be replayed here to tombstone our repo and delete
-			// its blobs. Registrations use service identifiers, so accept the
-			// bare DID or any of our own #fragment forms.
-			if (!isOwnAudience(serviceAuth.aud)) {
-				throw new SpaceError(
-					"Forbidden",
-					"notifySpaceDeleted aud does not match this service",
-				);
-			}
-			if (ref.authority === host.operatorDid) {
-				// We are the authority; nothing to drop from elsewhere.
-				return c.json({});
-			}
-
-			const stub = host.getSpaceDO(ref.uri);
-			const meta = await stub.rpcGetMeta();
-			if (meta && !meta.deletedAt) {
-				await stub.rpcDeleteSpace();
-				await host.getIndexDO().rpcMarkDeleted(ref.uri);
-				if (host.blobs) {
-					waitUntil(
-						c,
-						deleteR2Prefix(
-							host.blobs,
-							spaceBlobPrefix(host.operatorDid, await spaceId(ref.uri)),
-						),
-					);
-				}
-			}
-			return c.json({});
-		} catch (err) {
-			return errorResponse(c, err);
-		}
-	});
-
-	app.post("/xrpc/com.atproto.space.notifyCredentialRevoked", async (c) => {
+	app.post("/xrpc/com.atproto.space.notifyCredentialsRevoked", async (c) => {
 		try {
 			const body = await c.req.json<{
 				space?: string;
@@ -1699,7 +1640,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 					"credentials must be 1 to 100 credential jti strings",
 				);
 			}
-			const serviceAuth = await requireServiceAuth(c, CREDENTIAL_REVOKED_LXM);
+			const serviceAuth = await requireServiceAuth(c, CREDENTIALS_REVOKED_LXM);
 			if (serviceAuth instanceof Response) return serviceAuth;
 			if (serviceAuth.iss !== ref.authority) {
 				throw new SpaceError(
@@ -1776,7 +1717,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			});
 			await index.rpcActivate(ref.uri);
 			afterConfigCommit(c, ref, stub, commit);
-			return c.json({ uri: ref.uri });
+			return c.json({ space: ref.uri });
 		} catch (err) {
 			return errorResponse(c, err);
 		}
@@ -1824,22 +1765,11 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			await assertActiveSpaceHost(ref);
 
 			const stub = host.getSpaceDO(ref.uri);
-			const { registrations } = await stub.rpcDeleteSpace();
+			// Credential issuance stops with the tombstone, and every registered
+			// syncer, lapsed or not, is queued a deletion notice delivered
+			// reliably for 72 hours. Then reap the blob prefix.
+			await stub.rpcDeleteSpace();
 			await host.getIndexDO().rpcMarkDeleted(ref.uri);
-			// Credential issuance stopped with the tombstone. Tell every
-			// registered syncer to drop its copy, retrying until delivered or
-			// the registration expires, then reap the blob prefix.
-			if (registrations.length > 0) {
-				await stub.rpcEnqueueNotify(
-					registrations.map((registration) => ({
-						service: registration.service,
-						endpoint: registration.endpoint,
-						lxm: SPACE_DELETED_LXM,
-						body: { space: ref.uri },
-						deadline: Date.parse(registration.expiresAt),
-					})),
-				);
-			}
 			if (host.blobs) {
 				waitUntil(
 					c,
@@ -1869,7 +1799,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			if (scopeError) return scopeError;
 			assertOwner(ref, session);
 			const policy = await requirePolicy(host.getSpaceDO(ref.uri), ref);
-			return c.json({ uri: ref.uri, policy });
+			return c.json({ space: ref.uri, policy });
 		} catch (err) {
 			return errorResponse(c, err);
 		}
@@ -1877,9 +1807,9 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 
 	app.post("/xrpc/com.atproto.space.removeWriter", async (c) => {
 		try {
-			const body = await c.req.json<{ space?: string; did?: string }>();
+			const body = await c.req.json<{ space?: string; repo?: string }>();
 			const ref = requireSpaceUri(body.space);
-			requireDid(body.did, "did");
+			requireDid(body.repo, "repo");
 			const session = await host.authenticate(c);
 			if (session instanceof Response) return session;
 			const scopeError = assertScope(c, session, {
@@ -1891,7 +1821,8 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			if (scopeError) return scopeError;
 			assertOwner(ref, session);
 			await assertActiveSpaceHost(ref);
-			await host.getSpaceDO(ref.uri).rpcRemoveWriter(body.did!);
+			// Sequenced and announced to syncers as a repoRemoved.
+			await host.getSpaceDO(ref.uri).rpcRemoveWriter(body.repo!);
 			return c.json({});
 		} catch (err) {
 			return errorResponse(c, err);
@@ -1912,7 +1843,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			if (scopeError) return scopeError;
 			assertOwner(ref, session);
 			const exported = await host.getSpaceDO(ref.uri).rpcExportMeta();
-			const star = serializeSpaceMeta({
+			const star = writeSpaceMetaStar({
 				space: ref.uri as never,
 				policy: exported.policy as never,
 				policyState: exported.members.map((member) => ({
@@ -1925,13 +1856,13 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 				})),
 				writers: exported.writers.map((writer) => ({
 					did: writer.did as never,
-					rev: writer.repoRev,
+					repoRev: writer.repoRev,
 					data: new Uint8Array(writer.data),
 					spaceRev: writer.spaceRev,
 				})),
 			});
 			return c.body(asyncIterableToStream(star), 200, {
-				"Content-Type": "application/octet-stream",
+				"Content-Type": STAR_CONTENT_TYPE,
 			});
 		} catch (err) {
 			return errorResponse(c, err);
@@ -1947,7 +1878,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			try {
 				archive = await readSpaceMetaStar([bytes]);
 			} catch (err) {
-				throw invalidArchive(err);
+				throw invalidArchive(err, "InvalidSpaceMeta");
 			}
 			const ref = requireSpaceUri(archive.space);
 			// Importing both creates the space here and sets its configuration.
@@ -1961,7 +1892,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 				if (scopeError) return scopeError;
 			}
 			if (ref.authority !== session.did || ref.authority !== host.operatorDid) {
-				throw new SpaceError("NotSpaceOwner", "Not the space owner");
+				throw new SpaceError("NotAuthorized", "Not the space authority");
 			}
 			const policy = normalizePolicy(archive.policy);
 			const members = parsePolicyState(policy, archive.policyState);
@@ -1983,9 +1914,10 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 				members,
 				writers: archive.writers.map((writer) => ({
 					did: writer.did,
-					repoRev: writer.rev,
+					repoRev: writer.repoRev,
 					data: writer.data,
 					spaceRev: writer.spaceRev,
+					removed: false,
 				})),
 			});
 			await index.rpcActivate(ref.uri);
@@ -2000,7 +1932,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			const session = await host.authenticate(c);
 			if (session instanceof Response) return session;
 			const type = c.req.query("spaceType") || undefined;
-			const authority = c.req.query("did") || undefined;
+			const authority = c.req.query("spaceDid") || undefined;
 			// No one space to check against, so the filters are the target:
 			// an unfiltered listing needs a wildcard grant. It lists only the
 			// caller's own spaces, so read_self is the grant that fits.
@@ -2012,16 +1944,35 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			});
 			if (scopeError) return scopeError;
 			const limit = clampLimit(c.req.query("limit"), 50, 100);
+			const cursor = c.req.query("cursor") || undefined;
+			if (cursor && !parseSpaceUri(cursor)) {
+				throw new SpaceError("InvalidCursor", `Malformed cursor: ${cursor}`);
+			}
 			const page = await host.getIndexDO().rpcList({
 				type,
 				authority,
 				state: "active",
 				limit,
-				afterUri: c.req.query("cursor") || undefined,
+				afterUri: cursor,
 			});
+			// The caller's repo state in each space, and the space's revision
+			// where the caller is its authority.
+			const spaces = await Promise.all(
+				page.spaces.map(async (space) => {
+					const view = await host.getSpaceDO(space.uri).rpcGetSpaceView();
+					return {
+						space: space.uri,
+						...(view?.repoRev ? { repoRev: view.repoRev } : {}),
+						...(view?.data
+							? { data: bytesToJson(new Uint8Array(view.data)) }
+							: {}),
+						...(view?.spaceRev ? { spaceRev: view.spaceRev } : {}),
+					};
+				}),
+			);
 			const last = page.spaces[page.spaces.length - 1];
 			return c.json({
-				spaces: page.spaces.map((space) => ({ uri: space.uri })),
+				spaces,
 				...(page.hasMore && last ? { cursor: last.uri } : {}),
 			});
 		} catch (err) {
@@ -2033,20 +1984,44 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 	// memberspace (authority role, session auth)
 	// ---------------------------------------------------------------
 
-	app.post("/xrpc/com.atproto.memberspace.putMember", async (c) => {
+	app.post("/xrpc/com.atproto.memberspace.putMembers", async (c) => {
 		try {
-			const body = await c.req.json<{
-				space?: string;
-				did?: string;
-				read?: unknown;
-				write?: unknown;
-			}>();
+			const body = await c.req.json<{ space?: string; members?: unknown }>();
 			const ref = requireSpaceUri(body.space);
-			requireDid(body.did, "did");
-			if (typeof body.read !== "boolean" || typeof body.write !== "boolean") {
+			const members = parseMemberBatch(body.members);
+			const session = await host.authenticate(c);
+			if (session instanceof Response) return session;
+			const scopeError = assertScope(c, session, {
+				type: ref.type,
+				authority: ref.authority,
+				skey: ref.skey,
+				manage: "update",
+			});
+			if (scopeError) return scopeError;
+			assertOwner(ref, session);
+			await assertActiveSpaceHost(ref);
+			const stub = host.getSpaceDO(ref.uri);
+			const commit = await stub.rpcPutMembers(members);
+			afterConfigCommit(c, ref, stub, commit);
+			return c.json({});
+		} catch (err) {
+			return errorResponse(c, err);
+		}
+	});
+
+	app.post("/xrpc/com.atproto.memberspace.removeMembers", async (c) => {
+		try {
+			const body = await c.req.json<{ space?: string; dids?: unknown }>();
+			const ref = requireSpaceUri(body.space);
+			const dids = body.dids;
+			if (
+				!Array.isArray(dids) ||
+				dids.length > MAX_MEMBER_BATCH ||
+				dids.some((did) => typeof did !== "string" || !did.startsWith("did:"))
+			) {
 				throw new SpaceError(
 					"InvalidRequest",
-					"read and write must be booleans",
+					`dids must be an array of at most ${MAX_MEMBER_BATCH} DIDs`,
 				);
 			}
 			const session = await host.authenticate(c);
@@ -2061,35 +2036,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			assertOwner(ref, session);
 			await assertActiveSpaceHost(ref);
 			const stub = host.getSpaceDO(ref.uri);
-			const commit = await stub.rpcPutMember(body.did!, {
-				read: body.read,
-				write: body.write,
-			});
-			afterConfigCommit(c, ref, stub, commit);
-			return c.json({});
-		} catch (err) {
-			return errorResponse(c, err);
-		}
-	});
-
-	app.post("/xrpc/com.atproto.memberspace.removeMember", async (c) => {
-		try {
-			const body = await c.req.json<{ space?: string; did?: string }>();
-			const ref = requireSpaceUri(body.space);
-			requireDid(body.did, "did");
-			const session = await host.authenticate(c);
-			if (session instanceof Response) return session;
-			const scopeError = assertScope(c, session, {
-				type: ref.type,
-				authority: ref.authority,
-				skey: ref.skey,
-				manage: "update",
-			});
-			if (scopeError) return scopeError;
-			assertOwner(ref, session);
-			await assertActiveSpaceHost(ref);
-			const stub = host.getSpaceDO(ref.uri);
-			const commit = await stub.rpcRemoveMember(body.did!);
+			const commit = await stub.rpcRemoveMembers(dids as string[]);
 			afterConfigCommit(c, ref, stub, commit);
 			return c.json({});
 		} catch (err) {
@@ -2132,6 +2079,45 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 	// ---------------------------------------------------------------
 	// Helpers that need the host
 	// ---------------------------------------------------------------
+
+	/**
+	 * Before registering a webhook, check it asked to be: the endpoint must
+	 * recognise the token as one it issued for this space and echo back a
+	 * random challenge. The endpoint is the requester's choice, so it is
+	 * fetched as untrusted: https only, no redirects, bounded in time.
+	 */
+	async function confirmRegistration(
+		ref: SpaceRef,
+		notify: NotifyRegistration,
+	): Promise<void> {
+		const challenge = crypto.randomUUID();
+		try {
+			const res = await doFetch(
+				`${notify.endpoint.replace(/\/$/, "")}/xrpc/${CONFIRM_REGISTRATION_LXM}`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						space: ref.uri,
+						token: notify.token,
+						challenge,
+					}),
+					redirect: "manual",
+					signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+				},
+			);
+			if (res.ok) {
+				const body = (await res.json()) as { challenge?: unknown };
+				if (body.challenge === challenge) return;
+			}
+		} catch (err) {
+			console.warn(`registration for ${ref.uri} not confirmed:`, err);
+		}
+		throw new SpaceError(
+			"RegistrationNotConfirmed",
+			"Notify endpoint did not confirm the registration",
+		);
+	}
 
 	/** Service auth for inbound notifications; a Response on failure. */
 	async function requireServiceAuth(
@@ -2200,6 +2186,41 @@ function requireString(value: unknown, name: string): asserts value is string {
 	}
 }
 
+/**
+ * An authorizeSpaceSync `notify`: an https base URL the space host calls
+ * XRPC methods against, and the opaque token that authenticates them.
+ */
+function parseNotify(input: unknown): NotifyRegistration {
+	const notify = input as { endpoint?: unknown; token?: unknown } | null;
+	const endpoint = notify?.endpoint;
+	const token = notify?.token;
+	if (typeof endpoint !== "string" || typeof token !== "string") {
+		throw new SpaceError(
+			"InvalidRequest",
+			"notify requires an endpoint and a token",
+		);
+	}
+	let url: URL;
+	try {
+		url = new URL(endpoint);
+	} catch {
+		throw new SpaceError("InvalidRequest", "notify endpoint must be a URL");
+	}
+	if (url.protocol !== "https:" || url.username || url.password) {
+		throw new SpaceError(
+			"InvalidRequest",
+			"notify endpoint must be a plain https URL",
+		);
+	}
+	if (token.length === 0 || token.length > MAX_NOTIFY_TOKEN_LENGTH) {
+		throw new SpaceError(
+			"InvalidRequest",
+			`notify token must be 1 to ${MAX_NOTIFY_TOKEN_LENGTH} characters`,
+		);
+	}
+	return { endpoint, token };
+}
+
 function requireDid(value: unknown, name: string): asserts value is string {
 	requireString(value, name);
 	if (!value.startsWith("did:")) {
@@ -2223,7 +2244,7 @@ function parseRecordCursor(
 	if (!cursor) return undefined;
 	const slash = cursor.lastIndexOf("/");
 	if (slash <= 0 || slash === cursor.length - 1) {
-		throw new SpaceError("MalformedCursor", `Malformed cursor: ${cursor}`);
+		throw new SpaceError("InvalidCursor", `Malformed cursor: ${cursor}`);
 	}
 	return { collection: cursor.slice(0, slash), rkey: cursor.slice(slash + 1) };
 }
@@ -2235,7 +2256,7 @@ function parseOpsCursor(
 	const slash = cursor.indexOf("/");
 	const idx = slash === -1 ? NaN : Number.parseInt(cursor.slice(slash + 1), 10);
 	if (slash <= 0 || Number.isNaN(idx)) {
-		throw new SpaceError("MalformedCursor", `Malformed cursor: ${cursor}`);
+		throw new SpaceError("InvalidCursor", `Malformed cursor: ${cursor}`);
 	}
 	return { rev: cursor.slice(0, slash), idx };
 }
@@ -2267,16 +2288,54 @@ function parsePolicyState(
 	});
 }
 
-/** A malformed archive in a request body is the caller's error. */
-function invalidArchive(err: unknown): unknown {
+/**
+ * A malformed archive in a request body is the caller's error, reported
+ * under the error name the method declares for it.
+ */
+function invalidArchive(
+	err: unknown,
+	code: "InvalidRepoFile" | "InvalidSpaceMeta",
+): unknown {
 	if (parseSpaceErrorCode(err)) return err;
 	return new SpaceError(
-		"InvalidRequest",
+		code,
 		`Invalid archive: ${err instanceof Error ? err.message : String(err)}`,
 	);
 }
 
+/** A putMembers batch: at most 100 `{did, read, write}` entries. */
+function parseMemberBatch(input: unknown): SpaceMember[] {
+	if (!Array.isArray(input) || input.length > MAX_MEMBER_BATCH) {
+		throw new SpaceError(
+			"InvalidRequest",
+			`members must be an array of at most ${MAX_MEMBER_BATCH} entries`,
+		);
+	}
+	return input.map((entry, i) => {
+		const member = entry as { did?: unknown; read?: unknown; write?: unknown };
+		if (
+			typeof member?.did !== "string" ||
+			!member.did.startsWith("did:") ||
+			typeof member.read !== "boolean" ||
+			typeof member.write !== "boolean"
+		) {
+			throw new SpaceError(
+				"InvalidRequest",
+				`members[${i}] must be {did, read, write}`,
+			);
+		}
+		return { did: member.did, read: member.read, write: member.write };
+	});
+}
+
 async function readBody(c: Context): Promise<Uint8Array> {
+	const contentType = c.req.header("Content-Type")?.split(";")[0]?.trim();
+	if (contentType !== STAR_CONTENT_TYPE) {
+		throw new SpaceError(
+			"InvalidRequest",
+			`Content-Type must be ${STAR_CONTENT_TYPE}`,
+		);
+	}
 	const declared = Number.parseInt(c.req.header("Content-Length") ?? "", 10);
 	if (declared > MAX_IMPORT_BYTES) {
 		throw new SpaceError("InvalidRequest", "Archive is too large");

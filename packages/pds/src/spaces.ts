@@ -31,7 +31,7 @@ import type {
 	SpaceStub,
 	SpaceIndexStub,
 } from "@getcirrus/spaces";
-import { permissionsFor } from "@getcirrus/oauth-provider";
+import { allowsSpace, permissionsFor } from "@getcirrus/oauth-provider";
 import { getProvider } from "./oauth.js";
 import { verifyAccessToken, TokenExpiredError } from "./session.js";
 import { InvalidRecordError, validator } from "./validation.js";
@@ -119,7 +119,7 @@ export async function promoteUploadedSpaceBlob(
 /**
  * Fallback app mounted when SPACES_ENABLED is set but the SPACES /
  * SPACES_INDEX Durable Object bindings are absent: every space and
- * simplespace method answers 503 with a pointer at the fix, and
+ * memberspace method answers 503 with a pointer at the fix, and
  * everything else falls through.
  *
  * Nothing in this module may throw for a missing binding at module scope:
@@ -218,8 +218,8 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 	}
 
 	/**
-	 * Verify an inbound service-auth JWT from a foreign issuer (notifyWrite
-	 * and notifySpaceDeleted): ES256K signature against the issuer's
+	 * Verify an inbound service-auth JWT from a foreign issuer (notifyRepoUpdate
+	 * and notifyCredentialsRevoked): ES256K signature against the issuer's
 	 * #atproto key, expiry, and the lxm method binding. Resolution failures
 	 * surface as auth errors, never 500s.
 	 */
@@ -299,7 +299,7 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 				did: tokenData.sub,
 				fullTrust: false,
 				allowsSpace: (match: SpaceScopeMatch) =>
-					perms.allowsSpace(match as never),
+					allowsSpace(perms, match as never),
 			};
 		}
 
