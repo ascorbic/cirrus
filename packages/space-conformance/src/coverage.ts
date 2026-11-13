@@ -6,6 +6,12 @@
  * one `must` check citing it. When the weekly sync re-vendors a changed
  * lexicon, new methods and error names surface here as gaps the moment
  * they land — no human has to notice that an endpoint grew.
+ *
+ * A requirement no black-box harness can exercise is exempted explicitly,
+ * with the reason, in {@link coverageExemptions}. An exemption is a
+ * reviewed statement, not a silencer: one that names no requirement, or a
+ * requirement a check now covers, is reported as stale so the list cannot
+ * quietly outgrow its reasons.
  */
 
 import type { Check } from "./model.js";
@@ -17,10 +23,56 @@ export interface CoverageRequirement {
 	kind: "method" | "error";
 }
 
+/**
+ * A requirement the suite deliberately does not cover. `ref` is an exact
+ * requirement, or `*@error:Name` for that error on every method declaring
+ * it.
+ */
+export interface CoverageExemption {
+	ref: string;
+	reason: string;
+}
+
+const TAKEDOWN_REASON =
+	"Needs a moderation or account-status action on the target (a takedown, suspension or deactivation of the account being read), which only the host's administrator can take. No black-box harness can arrange it without admin authority, and deactivating the operator's own account would end the session the run depends on.";
+
+const READ_SPACE_NOT_FOUND_REASON =
+	"Declared on the repo-host reads, but neither the lexicons nor proposal 0016 name a condition under which a repo host answers it: reads are answered from the repo, and an empty or never-written repo is equivalent to a nonexistent one (proposal, Repo lifecycle). A must check would be the suite's own reading. The 1105 deleteSpace description said reads of a deleted space fail with SpaceNotFound; 1112 dropped that sentence, and the check that relied on it with it.";
+
+const INVALID_CURSOR_REASON =
+	"Cursors are opaque, host-issued strings. Neither the lexicons nor the proposal define a value every host must reject, so which cursors are invalid is the host's choice. The should check request.garbage-cursor-rejected calibrates what the reference does.";
+
+export const coverageExemptions: CoverageExemption[] = [
+	{ ref: "*@error:RepoTakendown", reason: TAKEDOWN_REASON },
+	{ ref: "*@error:RepoSuspended", reason: TAKEDOWN_REASON },
+	{ ref: "*@error:RepoDeactivated", reason: TAKEDOWN_REASON },
+	{ ref: "*@error:InvalidCursor", reason: INVALID_CURSOR_REASON },
+	...[
+		"getRecord",
+		"listRecords",
+		"getLatestCommit",
+		"listRepoOps",
+		"getRepo",
+		"listBlobs",
+		"getBlob",
+	].map((method) => ({
+		ref: `com.atproto.space.${method}@error:SpaceNotFound`,
+		reason: READ_SPACE_NOT_FOUND_REASON,
+	})),
+];
+
 export interface CoverageReport {
 	requirements: CoverageRequirement[];
 	covered: Array<{ ref: string; by: string[] }>;
+	/** Requirements no `must` check covers and no exemption explains. */
 	gaps: CoverageRequirement[];
+	/** Requirements excused by an exemption, with its reason. */
+	exempt: Array<{ ref: string; reason: string }>;
+	/**
+	 * Exemptions that excuse nothing: they match no requirement, or every
+	 * requirement they match is covered by a check after all.
+	 */
+	staleExemptions: CoverageExemption[];
 	/** Lexicon citations on checks that match no requirement (typo guard). */
 	danglingCitations: Array<{ checkId: string; ref: string }>;
 }
@@ -59,9 +111,17 @@ function citationRefs(check: Check): string[] {
 		.map((c) => c.ref);
 }
 
+function exemptionMatches(exemption: CoverageExemption, ref: string): boolean {
+	if (exemption.ref.startsWith("*@error:")) {
+		return ref.endsWith(exemption.ref.slice(1)) && ref.includes("@error:");
+	}
+	return exemption.ref === ref;
+}
+
 export function coverageReport(
 	catalog: Check[],
 	docs: LexiconDoc[] = lexicons,
+	exemptions: CoverageExemption[] = coverageExemptions,
 ): CoverageReport {
 	const requirements = coverageRequirements(docs);
 	const known = new Set(requirements.map((r) => r.ref));
@@ -69,7 +129,7 @@ export function coverageReport(
 		requirements.filter((r) => r.kind === "method").map((r) => r.ref),
 	);
 	// Every vendored lexicon id, so a citation to a non-method document
-	// (e.g. `com.atproto.space.defs`, the signed-commit shape) is
+	// (e.g. `com.atproto.space.defs`, the commit shape) is
 	// recognised as real rather than flagged as a typo.
 	const knownDocIds = new Set(docs.map((d) => d.id));
 
@@ -109,11 +169,27 @@ export function coverageReport(
 		}
 	}
 
-	const gaps = requirements.filter((r) => !coveredBy.has(r.ref));
+	const uncovered = requirements.filter((r) => !coveredBy.has(r.ref));
+	const exempt: CoverageReport["exempt"] = [];
+	const gaps: CoverageRequirement[] = [];
+	const used = new Set<CoverageExemption>();
+	for (const requirement of uncovered) {
+		const exemption = exemptions.find((e) =>
+			exemptionMatches(e, requirement.ref),
+		);
+		if (exemption) {
+			used.add(exemption);
+			exempt.push({ ref: requirement.ref, reason: exemption.reason });
+		} else {
+			gaps.push(requirement);
+		}
+	}
 	return {
 		requirements,
 		covered: Array.from(coveredBy, ([ref, by]) => ({ ref, by })),
 		gaps,
+		exempt,
+		staleExemptions: exemptions.filter((e) => !used.has(e)),
 		danglingCitations: dangling,
 	};
 }

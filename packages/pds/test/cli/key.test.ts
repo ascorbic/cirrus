@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
-import { Secp256k1Keypair } from "@atproto/crypto";
+import { P256Keypair, Secp256k1Keypair } from "@atproto/crypto";
 import { readDevVars } from "../../src/cli/utils/dotenv.js";
 import {
 	generateSigningKeypair,
@@ -71,5 +71,38 @@ describe("pds secret key CLI", () => {
 		// Verify the public key matches
 		const expectedPublic = keypair.did().replace("did:key:", "");
 		expect(vars.SIGNING_KEY_PUBLIC).toBe(expectedPublic);
+	});
+});
+
+describe("pds spaces kem CLI", () => {
+	let tempDir: string;
+	const cliPath = join(__dirname, "../../dist/cli.js");
+
+	beforeEach(() => {
+		tempDir = mkdtempSync(join(tmpdir(), "pds-kem-test-"));
+		writeFileSync(
+			join(tempDir, "wrangler.jsonc"),
+			JSON.stringify({ name: "test", vars: { DID: "did:web:pds.example" } }),
+		);
+	});
+
+	afterEach(() => {
+		rmSync(tempDir, { recursive: true, force: true });
+	});
+
+	it("generates a P-256 #atproto_kem key whose public half matches", async () => {
+		const output = execSync(`node ${cliPath} spaces kem --local`, {
+			cwd: tempDir,
+			stdio: "pipe",
+		}).toString();
+
+		const vars = readDevVars(tempDir);
+		expect(vars.SPACES_KEM_KEY).toMatch(/^[0-9a-f]{64}$/);
+		const keypair = await P256Keypair.import(vars.SPACES_KEM_KEY!);
+		expect(vars.SPACES_KEM_KEY_PUBLIC).toBe(
+			keypair.did().replace("did:key:", ""),
+		);
+		// did:web needs no PLC operation: the PDS serves the document.
+		expect(output).toMatch(/redeploy/i);
 	});
 });

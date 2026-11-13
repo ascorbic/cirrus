@@ -228,21 +228,29 @@ describe("coverage", () => {
 		const refs = requirements.map((r) => r.ref);
 		// Methods
 		expect(refs).toContain("com.atproto.space.getRecord");
-		expect(refs).toContain("com.atproto.simplespace.createSpace");
+		expect(refs).toContain("com.atproto.space.createSpace");
+		expect(refs).toContain("com.atproto.memberspace.putMembers");
+		expect(refs).toContain("com.atproto.managedspace.checkAccess");
 		// Declared errors, exactly as named
 		expect(refs).toContain(
-			"com.atproto.space.getSpaceCredential@error:UserNotAuthorized",
+			"com.atproto.space.authorizeSpaceSync@error:AccountNotAuthorized",
 		);
 		expect(refs).toContain(
-			"com.atproto.space.getSpaceCredential@error:SpaceDeleted",
+			"com.atproto.space.authorizeSpaceSync@error:RegistrationNotConfirmed",
 		);
 		expect(refs).toContain(
-			"com.atproto.simplespace.createSpace@error:UnsupportedPolicy",
+			"com.atproto.space.createSpace@error:UnsupportedPolicy",
 		);
-		// defs.json is not a method and contributes nothing
-		expect(refs.every((r) => !r.startsWith("com.atproto.space.defs"))).toBe(
-			true,
-		);
+		expect(refs).toContain("com.atproto.space.getRecord@error:InvalidSpaceMac");
+		// defs, records and policy objects are not methods and contribute nothing
+		for (const notMethod of [
+			"com.atproto.space.defs",
+			"com.atproto.space.policy",
+			"com.atproto.memberspace.member",
+			"com.atproto.memberspace.policy",
+		]) {
+			expect(refs.some((r) => r.split("@")[0] === notMethod)).toBe(false);
+		}
 	});
 
 	it("flags an @error typo as dangling instead of crediting the method", () => {
@@ -278,7 +286,7 @@ describe("coverage", () => {
 		const catalog = buildCatalog([
 			okCheck("commit.shape", {
 				citations: [
-					{ source: "lexicon", ref: "com.atproto.space.defs#signedCommit" },
+					{ source: "lexicon", ref: "com.atproto.space.defs#commit" },
 				],
 			}),
 		]);
@@ -313,15 +321,63 @@ describe("coverage", () => {
 		]);
 		// Everything not cited is a gap — e.g. listRepos is uncovered here.
 		expect(report.gaps.map((g) => g.ref)).toContain(
-			"com.atproto.space.listRepos",
+			"com.atproto.space.listWriters",
 		);
 	});
 
 	it("vendored lexicons parse and are all com.atproto space documents", () => {
-		expect(lexicons.length).toBeGreaterThanOrEqual(29);
+		expect(lexicons.length).toBeGreaterThanOrEqual(38);
 		for (const doc of lexicons) {
 			expect(doc.lexicon).toBe(1);
-			expect(doc.id).toMatch(/^com\.atproto\.(space|simplespace)\./);
+			expect(doc.id).toMatch(
+				/^com\.atproto\.(space|memberspace|personalspace|managedspace)\./,
+			);
 		}
+		// Renamed or removed in this alpha.
+		for (const gone of [
+			"simplespace",
+			"getSpaceCredential",
+			"registerNotify",
+			"notifyWrite",
+			"listRepos",
+		]) {
+			expect(
+				lexicons.some((d) => d.id.endsWith(gone) || d.id.includes(`.${gone}.`)),
+			).toBe(false);
+		}
+	});
+
+	it("excuses exempted requirements and reports stale exemptions", () => {
+		const catalog = buildCatalog([
+			okCheck("record.get", {
+				citations: [
+					{
+						source: "lexicon",
+						ref: "com.atproto.space.getRecord@error:RepoTakendown",
+					},
+				],
+			}),
+		]);
+		const report = coverageReport(catalog, undefined, [
+			{ ref: "*@error:RepoTakendown", reason: "needs admin" },
+			{ ref: "com.atproto.space.getRecord@error:RecordNotFound", reason: "x" },
+			{ ref: "com.atproto.space.nonexistent", reason: "typo" },
+		]);
+		const exempt = report.exempt.map((e) => e.ref);
+		// The wildcard excuses every method's RepoTakendown but the covered one.
+		expect(exempt).toContain("com.atproto.space.getRepo@error:RepoTakendown");
+		expect(exempt).not.toContain(
+			"com.atproto.space.getRecord@error:RepoTakendown",
+		);
+		expect(exempt).toContain(
+			"com.atproto.space.getRecord@error:RecordNotFound",
+		);
+		expect(report.gaps.map((g) => g.ref)).not.toContain(
+			"com.atproto.space.getRepo@error:RepoTakendown",
+		);
+		// An exemption that matches nothing is stale, not silently kept.
+		expect(report.staleExemptions.map((e) => e.ref)).toEqual([
+			"com.atproto.space.nonexistent",
+		]);
 	});
 });

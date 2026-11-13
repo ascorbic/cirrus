@@ -91,7 +91,15 @@ app.use(
 		origin: "*",
 		allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 		// Note: No allowHeaders; using "*" wildcard doesn't cover Authorization, so let Hono reflect the requested headers instead
-		exposeHeaders: ["Content-Type"],
+		// A space MAC is an HTTP message signature over a header describing
+		// the commit or record; a browser syncer must read all three.
+		exposeHeaders: [
+			"Content-Type",
+			"atproto-space-commit",
+			"atproto-space-record",
+			"signature-input",
+			"signature",
+		],
 		maxAge: 86400,
 	}),
 );
@@ -554,7 +562,7 @@ const oauthApp = createOAuthApp(getAccountDO);
 app.route("/", oauthApp);
 
 // Atproto spaces (alpha). When the flag is off none of the space or
-// simplespace routes are registered, so they fall through to the proxy
+// memberspace routes are registered, so they fall through to the proxy
 // like any unknown method, and the DID document says nothing about spaces.
 //
 // The bindings check must not throw: deploy-time startup validation
@@ -563,7 +571,15 @@ app.route("/", oauthApp);
 // 503s rather than fail worker startup.
 if (env.SPACES_ENABLED === "true") {
 	if (env.SPACES && env.SPACES_INDEX) {
-		app.route("/", createSpacesApp({ env, didResolver, getKeypair }));
+		app.route(
+			"/",
+			createSpacesApp({
+				env,
+				didResolver,
+				getKeypair,
+				isAccountActive: () => getAccountDO(env).repo().getActive(),
+			}),
+		);
 	} else {
 		console.error(
 			"SPACES_ENABLED is set but the SPACES / SPACES_INDEX Durable Object bindings are missing. Space endpoints will return 503.",
@@ -575,7 +591,15 @@ if (env.SPACES_ENABLED === "true") {
 // whenever the bindings exist, so `pds spaces reset` still works with the
 // flag off or the space DOs in their schema-refusing state.
 if (env.SPACES && env.SPACES_INDEX) {
-	app.route("/", createSpacesAdminApp({ env, didResolver, getKeypair }));
+	app.route(
+		"/",
+		createSpacesAdminApp({
+			env,
+			didResolver,
+			getKeypair,
+			isAccountActive: () => getAccountDO(env).repo().getActive(),
+		}),
+	);
 }
 
 // getFeed is proxied to the AppView but the service-auth JWT must be addressed

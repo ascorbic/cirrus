@@ -42,3 +42,41 @@ export async function spaceBlobKeyForUri(
 ): Promise<string> {
 	return spaceBlobKey(did, await spaceId(spaceUri), cid);
 }
+
+/**
+ * Copy a staged upload into a space's blob prefix. Idempotent; returns
+ * whether the blob is now at its destination (false when it was neither
+ * there nor staged).
+ */
+export async function promoteStagedBlobToSpace(
+	bucket: R2Bucket,
+	did: string,
+	spaceUri: string,
+	cid: string,
+): Promise<boolean> {
+	const destKey = await spaceBlobKeyForUri(did, spaceUri, cid);
+	if (await bucket.head(destKey)) return true;
+	const staged = await bucket.get(stagedBlobKey(did, cid));
+	if (!staged) return false;
+	await bucket.put(destKey, staged.body, { httpMetadata: staged.httpMetadata });
+	return true;
+}
+
+/**
+ * Promote a freshly uploaded blob into every space whose imported records
+ * reference it (see `com.atproto.space.importRepo`). The host calls this
+ * from `com.atproto.repo.uploadBlob`, mirroring how an imported public repo's
+ * blobs are made permanent on upload.
+ */
+export async function promotePendingSpaceBlob(params: {
+	bucket: R2Bucket;
+	did: string;
+	cid: string;
+	claimPendingBlob: (cid: string) => Promise<string[]>;
+}): Promise<number> {
+	const uris = await params.claimPendingBlob(params.cid);
+	for (const uri of uris) {
+		await promoteStagedBlobToSpace(params.bucket, params.did, uri, params.cid);
+	}
+	return uris.length;
+}

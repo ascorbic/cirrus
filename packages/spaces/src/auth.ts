@@ -1,27 +1,33 @@
 /**
  * Worker-side verification of space credentials and delegation tokens.
  *
- * Everything here is stateless except the replay checks, which are one RPC
- * to the space DO's `replay` table. Key resolution goes through the host's
- * DID resolver with a forced refresh on signature failure (handled inside
- * `verifySpaceToken`) so key rotation doesn't strand callers.
+ * A space credential is presented as `Authorization: Atproto-Space-Credential
+ * <jwt>` (scheme case-insensitive), with an `Atproto-Space-Audience` header
+ * naming the service being called and an HTTP message signature over both,
+ * by the P-256 key the credential is bound to (`cnf.kid`). A delegation
+ * token arrives in the `getSpaceCredential` request body.
+ *
+ * Everything here is stateless except the revocation and replay checks,
+ * which are one RPC each to the space DO. Key resolution goes through the
+ * host's DID resolver with a forced refresh on signature failure (handled
+ * inside `verifySpaceToken`) so key rotation doesn't strand callers.
  */
 
 import {
-	DpopProofError,
-	SPACE_TOKEN_TYPES,
+	SpaceSignatureError,
 	SpaceTokenError,
 	spaceHostAud,
-	verifyDpopProof,
+	verifyCredentialSig,
 	verifySpaceToken,
 } from "@atproto/space";
 import { SpaceError } from "./errors.js";
+import type { SpaceErrorCode } from "./errors.js";
+import { parseSpaceUri } from "./space-uri.js";
 import type { SpaceRef } from "./space-uri.js";
 
-/** Resolve an issuer DID (+ key id) to a did:key string. */
+/** Resolve an issuer DID's `#atproto` key to a did:key string. */
 export type GetSigningKey = (
 	iss: string,
-	kid: string | undefined,
 	forceRefresh: boolean,
 ) => Promise<string>;
 
@@ -32,165 +38,177 @@ export type CheckReplay = (
 	expiresAtSec: number,
 ) => Promise<boolean>;
 
+/** Whether a credential has been revoked by the space's authority. */
+export type CheckRevoked = (jti: string) => Promise<boolean>;
+
+export const SPACE_CREDENTIAL_SCHEME = "Atproto-Space-Credential";
+export const SPACE_AUDIENCE_HEADER = "atproto-space-audience";
+
 /**
- * Peek at an unverified JWT's `typ` header. Used only for routing between
- * authentication schemes — safe because neither token type verifies as the
- * other.
+ * Split an Authorization header into scheme and token. The scheme is
+ * case-insensitive, as for every HTTP authentication scheme.
  */
-export function unverifiedJwtTyp(token: string): string | null {
-	const dot = token.indexOf(".");
-	if (dot <= 0) return null;
-	try {
-		const header = JSON.parse(
-			atob(token.slice(0, dot).replace(/-/g, "+").replace(/_/g, "/")),
-		) as { typ?: unknown };
-		return typeof header.typ === "string" ? header.typ : null;
-	} catch {
-		return null;
-	}
+function splitAuthorization(
+	authorization: string | undefined,
+): { scheme: string; token: string } | null {
+	if (!authorization) return null;
+	const parts = authorization.split(" ");
+	if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+	return { scheme: parts[0].toLowerCase(), token: parts[1] };
 }
 
 /** Whether an Authorization header carries a space credential. */
-export function isSpaceCredentialAuth(authorization: string | undefined): boolean {
-	if (!authorization?.startsWith("DPoP ")) return false;
+export function isSpaceCredentialAuth(
+	authorization: string | undefined,
+): boolean {
 	return (
-		unverifiedJwtTyp(authorization.slice(5)) ===
-		SPACE_TOKEN_TYPES.credential.typ
+		splitAuthorization(authorization)?.scheme ===
+		SPACE_CREDENTIAL_SCHEME.toLowerCase()
 	);
 }
 
-export interface VerifyRequestOpts {
-	/** HTTP method of the request. */
-	htm: string;
-	/** Request URL; its path is combined with `publicOrigin` for htu. */
-	url: string;
+export interface VerifyCredentialOpts {
+	/** Request headers, lower-cased names. */
+	headers: Record<string, string | undefined>;
 	/**
-	 * The origin clients see (`https://host`). The Worker may be behind a
-	 * proxy, so htu is reconstructed from this rather than trusted from the
-	 * incoming URL.
+	 * The DID this request is addressed to: the repo DID for repo-host
+	 * reads, the authority DID for space-host methods. The signed
+	 * `Atproto-Space-Audience` header must name it.
 	 */
-	publicOrigin: string;
-	dpopProof: string | undefined;
+	audience: string;
 	getSigningKey: GetSigningKey;
-	checkReplay: CheckReplay;
+	checkRevoked: CheckRevoked;
 }
-
-function htuFor(opts: VerifyRequestOpts): string {
-	return `${opts.publicOrigin}${new URL(opts.url).pathname}`;
-}
-
-const nowSec = () => Math.floor(Date.now() / 1000);
 
 export interface SpaceCredentialResult {
 	kind: "credential";
-	/** The credential issuer — the space's authority DID. */
+	/** The credential issuer: the space's authority DID. */
 	iss: string;
+	jti: string;
 }
 
 /**
- * Verify a space credential (`Authorization: DPoP <jwt>` + `DPoP` proof)
- * presented against `space`. Checks, per the proposal: signature against
- * the issuer's `#atproto_space` / `#atproto` key, `sub` equal to the
- * requested space, `iss` equal to the space's authority, `cnf.jkt` equal
- * to the proof key's thumbprint, proof `htm`/`htu`/`ath`/`iat` valid and
- * proof `jti` unseen.
+ * Verify a space credential presented against `space`: the token itself
+ * (type, signature against the issuer's `#atproto` key, expiry, lifetime),
+ * its issuer being the space's authority and its subject the space, the
+ * HTTP message signature by its bound key over the credential and the
+ * audience, the audience naming this service, and revocation.
  */
 export async function verifySpaceCredentialAuth(
-	credential: string,
 	space: SpaceRef,
-	opts: VerifyRequestOpts,
+	opts: VerifyCredentialOpts,
 ): Promise<SpaceCredentialResult> {
+	const authorization = splitAuthorization(opts.headers.authorization);
+	if (
+		!authorization ||
+		authorization.scheme !== SPACE_CREDENTIAL_SCHEME.toLowerCase()
+	) {
+		throw new SpaceError("MissingJwt", "Missing space credential");
+	}
+
 	let payload;
 	try {
-		({ payload } = await verifySpaceToken("credential", credential, {
+		({ payload } = await verifySpaceToken("credential", authorization.token, {
 			getSigningKey: opts.getSigningKey,
-			sub: space.uri,
 		}));
 	} catch (err) {
-		throw invalidCredential(err);
+		throw tokenError(err, "BadJwt");
 	}
-	if (payload.iss !== space.authority) {
+	const subject = parseSpaceUri(payload.sub);
+	if (!subject) {
 		throw new SpaceError(
-			"InvalidCredential",
+			"BadJwtSub",
+			`Space token subject is not a space URI: ${payload.sub}`,
+		);
+	}
+	if (payload.iss !== subject.authority) {
+		throw new SpaceError(
+			"BadJwtIss",
 			"Space credential issuer is not the space authority",
 		);
 	}
-	const jkt = payload.cnf?.jkt;
-	if (!jkt) {
+
+	const audience = opts.headers[SPACE_AUDIENCE_HEADER];
+	if (!audience?.startsWith("did:")) {
 		throw new SpaceError(
-			"InvalidCredential",
-			"Space credential is missing its cnf.jkt binding",
+			"BadSpaceSignature",
+			"Missing or invalid space audience DID",
 		);
 	}
-	if (!opts.dpopProof) {
-		throw new SpaceError("InvalidCredential", "Missing DPoP proof");
-	}
-	let proof;
 	try {
-		proof = await verifyDpopProof(opts.dpopProof, {
-			htm: opts.htm,
-			htu: htuFor(opts),
-			credential,
-			jkt,
-		});
+		await verifyCredentialSig(opts.headers, payload.cnf.kid);
 	} catch (err) {
-		throw invalidCredential(err);
+		if (err instanceof SpaceSignatureError) {
+			throw new SpaceError("BadSpaceSignature", err.message);
+		}
+		throw err;
 	}
-	const fresh = await opts.checkReplay(
-		"dpop",
-		proof.jti,
-		nowSec() + 300,
-	);
-	if (!fresh) {
-		throw new SpaceError("InvalidCredential", "DPoP proof replayed");
+	if (audience !== opts.audience) {
+		throw new SpaceError(
+			"BadSpaceAudience",
+			"Space audience does not match the request",
+		);
 	}
-	return { kind: "credential", iss: payload.iss };
+	if (payload.sub !== space.uri) {
+		throw new SpaceError(
+			"InvalidCredential",
+			"Credential is not scoped to this space",
+		);
+	}
+	if (await opts.checkRevoked(payload.jti)) {
+		throw new SpaceError(
+			"CredentialRevoked",
+			"Space credential has been revoked",
+		);
+	}
+	return { kind: "credential", iss: payload.iss, jti: payload.jti };
 }
 
 export interface DelegationResult {
 	/** The user the delegation token vouches for. */
 	userDid: string;
-	/** Thumbprint of the DPoP key the credential must be bound to. */
-	dpopJkt: string;
 }
 
 /**
- * Verify a delegation token (`Authorization: Bearer <jwt>` on
- * getSpaceCredential) plus its DPoP proof (no `ath` when obtaining a
- * credential). Single use by `(iss, jti)`.
+ * Verify a delegation token from a `getSpaceCredential` body: signature
+ * against the issuer's `#atproto` key, audience the space authority's
+ * `#atproto_pds`, subject the requested space, single use by `(iss, jti)`.
+ * Any failure is `InvalidDelegationToken`: the token arrives in the body
+ * rather than as the request's authorization, so it is an invalid request,
+ * not an authentication failure.
  */
-export async function verifyDelegationAuth(
+export async function verifyDelegationToken(
 	token: string,
 	space: SpaceRef,
-	opts: VerifyRequestOpts,
+	opts: { getSigningKey: GetSigningKey; checkReplay: CheckReplay },
 ): Promise<DelegationResult> {
 	let payload;
 	try {
 		({ payload } = await verifySpaceToken("delegation", token, {
 			getSigningKey: opts.getSigningKey,
-			aud: spaceHostAud(space.authority),
-			sub: space.uri,
 		}));
 	} catch (err) {
-		throw invalidDelegation(err);
+		throw tokenError(err, "InvalidDelegationToken", "InvalidDelegationToken");
+	}
+	if (payload.sub !== space.uri) {
+		throw new SpaceError(
+			"InvalidDelegationToken",
+			"Delegation token subject does not match requested space",
+		);
+	}
+	if (
+		payload.aud !== spaceHostAud(space.authority as `did:${string}:${string}`)
+	) {
+		throw new SpaceError(
+			"InvalidDelegationToken",
+			"Delegation token audience does not match the space authority",
+		);
 	}
 	if (!payload.iss.startsWith("did:")) {
 		throw new SpaceError(
 			"InvalidDelegationToken",
 			"Delegation token issuer is not a DID",
 		);
-	}
-	if (!opts.dpopProof) {
-		throw new SpaceError("InvalidDelegationToken", "Missing DPoP proof");
-	}
-	let proof;
-	try {
-		proof = await verifyDpopProof(opts.dpopProof, {
-			htm: opts.htm,
-			htu: htuFor(opts),
-		});
-	} catch (err) {
-		throw invalidDelegation(err);
 	}
 	const fresh = await opts.checkReplay(
 		"delegation",
@@ -203,25 +221,21 @@ export async function verifyDelegationAuth(
 			"Delegation token has already been used",
 		);
 	}
-	return { userDid: payload.iss, dpopJkt: proof.jkt };
+	return { userDid: payload.iss };
 }
 
-function invalidCredential(err: unknown): SpaceError {
-	// Server-side detail for operators; clients get the generic message.
-	console.warn("space credential verification failed:", err);
-	return new SpaceError("InvalidCredential", authErrorMessage(err));
-}
-
-function invalidDelegation(err: unknown): SpaceError {
-	console.warn("delegation token verification failed:", err);
-	return new SpaceError("InvalidDelegationToken", authErrorMessage(err));
-}
-
-function authErrorMessage(err: unknown): string {
-	if (err instanceof SpaceTokenError || err instanceof DpopProofError) {
-		return err.message;
+function tokenError(
+	err: unknown,
+	fallback: SpaceErrorCode,
+	override?: SpaceErrorCode,
+): SpaceError {
+	// Server-side detail for operators; clients get the token library's
+	// message, never infrastructure internals.
+	console.warn("space token verification failed:", err);
+	if (err instanceof SpaceTokenError) {
+		return new SpaceError(override ?? err.code, err.message);
 	}
 	// DID resolution failures and other infrastructure errors must surface
-	// as 401s, never 500s — but without leaking internals.
-	return "Token verification failed";
+	// as auth errors, never 500s.
+	return new SpaceError(override ?? fallback, "Token verification failed");
 }

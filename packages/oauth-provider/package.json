@@ -26,7 +26,7 @@
 		"@atcute/lexicon-resolver": "^0.1.6",
 		"@atcute/lexicons": "^1.2.6",
 		"@atcute/repo": "^0.1.1",
-		"@atproto/oauth-scopes": "0.0.0-spaces-alpha-20260818163953",
+		"@atproto/oauth-scopes": "0.0.0-spaces-alpha-20261112204144",
 		"@atproto/oauth-types": "^0.6.3",
 		"@atproto/syntax": "^0.4.2",
 		"jose": "^6.1.3"

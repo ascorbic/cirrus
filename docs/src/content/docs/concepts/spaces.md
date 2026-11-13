@@ -24,26 +24,34 @@ Every participant stores *their own* records for a space in their own PDS — th
 Because Cirrus is single-user, one account wears three hats:
 
 - **Repo host** — serving your own permissioned repos, one per space you have written into, whether you own the space or not.
-- **Space host** — for spaces you own: issuing credentials to readers, tracking who has written, notifying syncers after writes, and managing membership.
+- **Space host** — for spaces you own: issuing credentials to readers, tracking who has written (and who has been removed), notifying syncers of those changes, and managing membership.
 - **Your PDS** — minting short-lived delegation tokens so apps you've signed into can read spaces hosted elsewhere.
 
 ## How access control works
 
 Reading a space requires a **space credential** from its authority. The flow:
 
-1. Your app asks your PDS for a **delegation token** — a 60-second, single-use JWT proving the app acts for you.
-2. The app exchanges it at the space's authority for a **credential** — a two-hour, DPoP-bound JWT.
-3. Every read presents the credential plus a fresh DPoP proof.
+1. Your app asks your PDS for a **delegation token**: a 60-second, single-use JWT proving the app acts for you.
+2. The app generates a P-256 key and asks the space's authority for a **credential** bound to it: a ten-minute JWT. A space that is publicly readable issues one without a delegation token.
+3. Every read presents the credential with an HTTP message signature by that key, naming the service it is addressed to. A stolen credential is useless without the key, and a signed request for one host can't be replayed at another.
 
-Whether the authority grants a credential is its policy. Cirrus implements the `simplespace` policies:
+Whether the authority grants a credential is up to the space's **policy**. Cirrus implements the three baseline policies every PDS supports:
 
-- **public** — anyone with an account may read.
-- **member-list** — only DIDs on the space's member list (managed from the CLI or dashboard).
-- **managing-app** — a nominated app service is asked to decide, per request.
+- **personalspace**: only you. For bookmarks, drafts, mutes.
+- **memberspace**: a member list you manage, where each member can be allowed to read, to write, or both. It can be opened to everyone for reading (`publicRead`) or writing (`publicWrite`), and restricted to named apps (`allowedApps`, checked against client attestations).
+- **managedspace**: a nominated app service (named as `did#service`) is asked to decide, per user, per request. If it can't be reached the request fails with `UpstreamFailure`, rather than being treated as a refusal.
 
-Spaces can additionally gate on *which app* is asking, via an allow-list of OAuth client IDs backed by client attestations.
+Someone the policy refuses is told the space doesn't exist, so a refusal reveals nothing about it. A memberspace or managedspace can also publish its policy, and a memberspace its member list, as records in your own repo in the space, so readers can see who else is in it.
+
+A syncer that wants to hear about changes passes a webhook endpoint and a token of its own with its credential request. The first time, your PDS calls the syncer back (`confirmRegistration`) to check it really asked; after that, every writer update goes to the endpoint, with the token, until the registration lapses with the credential. A registration that lapses gets one final notice saying so, and if the space is deleted every syncer that ever registered is told, with retries for up to three days.
 
 Writes never use credentials: they're ordinary authenticated requests to your own PDS, covered by OAuth `space:` grants or your own full-access session. App passwords are deliberately excluded.
+
+## Proving data came from you
+
+Space data isn't signed. Instead, your PDS has a second key, published in your DID document as `#atproto_kem`. A syncer reading your repo sends an ephemeral key with each request, both sides derive a one-off shared secret, and your PDS returns a MAC: an HTTP message signature keyed by that secret, over an `Atproto-Space-Commit` or `Atproto-Space-Record` header describing the data. The syncer knows the data is yours; but because the syncer could have computed the same MAC itself, a leaked response proves nothing to anyone else. That's the point: private data shouldn't come with a signature that lets it be passed around as authentic.
+
+Cirrus can't serve space data to syncers without this key. `pds spaces kem` creates it; see [Enable spaces](/guides/enable-spaces/).
 
 ## Blobs
 
@@ -64,6 +72,6 @@ which deletes all space data — and *can only* delete space data. There is no m
 ## Alpha caveats
 
 - **Interop is the point, stability is not.** Cirrus targets the reference alpha PDS and apps like bulletin.my. Expect breaking changes; expect `pds spaces reset` to be part of upgrading.
-- **No migration of space data.** The protocol has no import yet. `pds spaces export` writes one CAR per space so data isn't lost, but it can't yet be imported anywhere.
+- **Migration is new.** The protocol can now move space data between hosts: `pds spaces export` writes each space repo as a STAR archive (and, for spaces you own, the space's policy, members and writers as a space meta archive), which `com.atproto.space.importSpaceMeta` and `importRepo` accept on the new host. Notification registrations, revoked credentials and deleted-space tombstones don't move. Nothing migrates *between alpha builds*: that's still `pds spaces reset`.
 - **Access control, not encryption.** Space data is not encrypted at rest beyond what R2 and Durable Object storage already do. Your PDS (and any space host) can read what it stores.
-- **Pinned dependencies.** The `@atproto/space` and `@atproto/oauth-scopes` alpha builds are pinned exactly and excluded from automatic updates.
+- **Pinned dependencies.** The `@atproto/space` and `@atproto/oauth-scopes` alpha builds are pinned exactly and excluded from automatic updates. `@atproto/space` and its alpha dependencies are bundled into `@getcirrus/spaces`, because several of them have broken releases that would otherwise be installed in their place.

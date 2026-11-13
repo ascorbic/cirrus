@@ -44,8 +44,9 @@ const LEXICON_SCHEMA_COLLECTION = "com.atproto.lexicon.schema";
  */
 export type LexiconSpace = {
 	readonly type: "space";
-	readonly name: string;
-	readonly "name:lang"?: Readonly<Record<string, string>>;
+	/** Optional since the 2026-11-12 alpha; consumers fall back to the NSID. */
+	readonly title?: string;
+	readonly "title:lang"?: Readonly<Record<string, string>>;
 	readonly collections: readonly string[];
 	readonly description?: string;
 };
@@ -219,9 +220,11 @@ export function createAtcutePermissionSetResolver(
 			// is already proof-verified above; this only guards the fields the
 			// consent UI and grant-time collection defaulting rely on.
 			const decl = main as Record<string, unknown>;
-			if (typeof decl.name !== "string") {
+			// `title` is optional. A leftover pre-1112 `name` is ignored, as
+			// the reference ignores it: the consent screen shows the NSID.
+			if (decl.title !== undefined && typeof decl.title !== "string") {
 				throw new Error(
-					`space type declaration is missing a name; nsid=${nsid}`,
+					`space type declaration has an invalid title; nsid=${nsid}`,
 				);
 			}
 			if (

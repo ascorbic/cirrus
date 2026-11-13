@@ -12,6 +12,8 @@ Cirrus stores four Worker secrets, each with a different lifetime and rotation p
 | `PASSWORD_HASH` | Account password verification | Low — forces a sign-in next time |
 | `AUTH_TOKEN` | Static bearer token for admin | Low — invalidates current scripts |
 
+With the [spaces alpha](/concepts/spaces/) enabled there is a fifth, `SPACES_KEM_KEY`: the `#atproto_kem` key syncers verify space data against. Like the signing key it has a public sibling var, `SPACES_KEM_KEY_PUBLIC`, and changes the DID document. Rotate it by running `pds spaces kem` again (and, for did:plc, `pds spaces kem --publish`); syncers fail to verify space data until the DID document carries the new key.
+
 The signing key has a sibling public value, `SIGNING_KEY_PUBLIC`, that lives in `wrangler.jsonc` as a `var` (not a secret). It is the public half of the signing keypair and is used to serve the DID document. Rotating the signing key requires updating both.
 
 This page covers how to rotate each.

@@ -13,6 +13,13 @@ import pc from "picocolors";
 import { getVars } from "../utils/wrangler.js";
 import { readDevVars } from "../utils/dotenv.js";
 import { getTargetUrl } from "../utils/cli-helpers.js";
+import {
+	generateKemKeypair,
+	setPublicVar,
+	setSecretValue,
+} from "../utils/secrets.js";
+import { PlcDirectoryClient } from "../utils/plc-client.js";
+import { DidResolver } from "../../did-resolver.js";
 
 interface SpacesContext {
 	baseUrl: string;
@@ -78,7 +85,8 @@ async function xrpc<T>(
 		}
 		throw new Error(`${nsid} failed (${res.status}): ${message}`);
 	}
-	return (await res.json()) as T;
+	const text = await res.text();
+	return (text ? JSON.parse(text) : {}) as T;
 }
 
 interface SpaceStatusEntry {
@@ -86,6 +94,7 @@ interface SpaceStatusEntry {
 	role: string;
 	state: string;
 	outdated: boolean;
+	policy: string | null;
 	recordCount: number;
 	memberCount: number;
 	writerCount: number;
@@ -94,6 +103,7 @@ interface SpaceStatusEntry {
 interface SpacesStatus {
 	enabled: boolean;
 	schemaVersion: number;
+	kem?: { configured: boolean; didKey?: string };
 	stats: {
 		total: number;
 		active: number;
@@ -129,6 +139,9 @@ const listCommand = defineCommand({
 		for (const space of status.spaces) {
 			const flags = [
 				space.role,
+				space.policy
+					? space.policy.replace(/^com\.atproto\.|\.policy$/g, "")
+					: null,
 				space.state !== "active" ? pc.yellow(space.state) : null,
 				space.outdated ? pc.red("outdated") : null,
 			]
@@ -171,8 +184,62 @@ const statusCommand = defineCommand({
 				),
 			);
 		}
+		await reportKem(ctx, status.kem);
 	},
 });
+
+/**
+ * Check that the deployed `#atproto_kem` key is the one the DID document
+ * publishes: syncers derive MAC secrets against the published key, so a
+ * mismatch fails every credentialed read that returns a commit or record.
+ */
+async function reportKem(
+	ctx: SpacesContext,
+	kem: SpacesStatus["kem"],
+): Promise<void> {
+	if (!kem?.configured) {
+		console.log(
+			pc.yellow(
+				"  kem key:        not configured — syncers cannot verify space data. Run 'pds spaces kem'.",
+			),
+		);
+		return;
+	}
+	let published: string | undefined;
+	try {
+		const doc = await new DidResolver().resolve(ctx.did, {
+			forceRefresh: true,
+		});
+		const method = (
+			(doc?.verificationMethod ?? []) as Array<{
+				id: string;
+				publicKeyMultibase?: string;
+			}>
+		).find((m) => m.id.endsWith("#atproto_kem"));
+		published = method?.publicKeyMultibase
+			? `did:key:${method.publicKeyMultibase}`
+			: undefined;
+	} catch {
+		// reported below as unpublished
+	}
+	if (!kem.didKey) {
+		console.log(
+			pc.yellow(
+				"  kem key:        secret set, but SPACES_KEM_KEY_PUBLIC is missing. Re-run 'pds spaces kem'.",
+			),
+		);
+	} else if (published === kem.didKey) {
+		console.log(
+			`  kem key:        ${pc.green("published")} ${pc.dim(kem.didKey)}`,
+		);
+	} else {
+		console.log(
+			pc.yellow(
+				`  kem key:        ${published ? "DID document publishes a different key" : "not in the DID document"}. ${ctx.did.startsWith("did:plc:") ? "Run 'pds spaces kem --publish'." : "Redeploy so the DID document picks it up."}`,
+			),
+		);
+	}
+}
 
 const createCommand = defineCommand({
 	meta: { name: "create", description: "Create a hosted space" },
@@ -189,54 +256,94 @@ const createCommand = defineCommand({
 		},
 		policy: {
 			type: "string",
-			description: "User policy: public | member-list | managing-app",
-			default: "member-list",
+			description: "Policy: personal | member | managed",
+			default: "member",
+		},
+		"public-read": {
+			type: "boolean",
+			description:
+				"member: anyone may read, with or without a delegation token",
+			default: false,
+		},
+		"public-write": {
+			type: "boolean",
+			description: "member: track anyone's writes, not only members'",
+			default: false,
 		},
 		"managing-app": {
 			type: "string",
-			description: "Managing app service identifier (managing-app policy)",
+			description:
+				"managed: the managing app's did#serviceId reference (e.g. did:web:app.example#forum)",
 		},
 		allow: {
 			type: "string",
 			description:
-				"Allowed OAuth client ID (repeatable); sets the allowList app policy",
+				"member: allowed OAuth client ID (repeatable); only these apps may read",
+		},
+		"publish-policy": {
+			type: "boolean",
+			description: "Publish the policy to readers as a record in your repo",
+			default: false,
+		},
+		"publish-members": {
+			type: "boolean",
+			description: "member: publish the member list to readers",
+			default: false,
 		},
 	},
 	async run({ args }) {
 		const ctx = loadContext(args.dev);
-		const policyType = args.policy;
-		const policy =
-			policyType === "public"
-				? { $type: "com.atproto.simplespace.defs#publicPolicy" }
-				: policyType === "managing-app"
-					? {
-							$type: "com.atproto.simplespace.defs#managingAppPolicy",
-							managingApp: args["managing-app"],
-						}
-					: { $type: "com.atproto.simplespace.defs#memberListPolicy" };
 		const allowed = args.allow
 			? Array.isArray(args.allow)
 				? args.allow
 				: [args.allow]
-			: [];
-		const appAccess =
-			allowed.length > 0
-				? { $type: "com.atproto.simplespace.defs#allowList", allowed }
-				: { $type: "com.atproto.simplespace.defs#open" };
-		const result = await xrpc<{ uri: string }>(
+			: undefined;
+		let policy: Record<string, unknown>;
+		switch (args.policy) {
+			case "personal":
+				policy = { $type: "com.atproto.personalspace.policy" };
+				break;
+			case "managed":
+				if (!args["managing-app"]) {
+					console.error(pc.red("Error:"), "--managing-app is required");
+					process.exit(1);
+				}
+				policy = {
+					$type: "com.atproto.managedspace.policy",
+					managingApp: args["managing-app"],
+					publishPolicy: args["publish-policy"],
+				};
+				break;
+			case "member":
+				policy = {
+					$type: "com.atproto.memberspace.policy",
+					publicRead: args["public-read"],
+					publicWrite: args["public-write"],
+					...(allowed ? { allowedApps: allowed } : {}),
+					publishPolicy: args["publish-policy"],
+					publishMembers: args["publish-members"],
+				};
+				break;
+			default:
+				console.error(
+					pc.red("Error:"),
+					`Unknown policy '${args.policy}' (personal | member | managed)`,
+				);
+				process.exit(1);
+		}
+		const result = await xrpc<{ space: string }>(
 			ctx,
 			"POST",
-			"com.atproto.simplespace.createSpace",
+			"com.atproto.space.createSpace",
 			{
 				body: {
-					type: args.type,
+					spaceType: args.type,
 					...(args.skey ? { skey: args.skey } : {}),
 					policy,
-					appAccess,
 				},
 			},
 		);
-		console.log(pc.green("Created:"), result.uri);
+		console.log(pc.green("Created:"), result.space);
 	},
 });
 
@@ -264,7 +371,7 @@ const deleteCommand = defineCommand({
 				return;
 			}
 		}
-		await xrpc(ctx, "POST", "com.atproto.simplespace.deleteSpace", {
+		await xrpc(ctx, "POST", "com.atproto.space.deleteSpace", {
 			body: { space: args.space },
 		});
 		console.log(pc.green("Deleted:"), args.space);
@@ -275,18 +382,38 @@ const membersCommand = defineCommand({
 	meta: { name: "members", description: "Manage a hosted space's member list" },
 	subCommands: {
 		add: defineCommand({
-			meta: { name: "add", description: "Add a member" },
+			meta: {
+				name: "add",
+				description: "Add a member, or replace their access",
+			},
 			args: {
 				...devArg,
 				space: { type: "positional", description: "Space URI", required: true },
 				did: { type: "positional", description: "Member DID", required: true },
+				read: {
+					type: "boolean",
+					description: "May read (use --no-read to deny)",
+					default: true,
+				},
+				write: {
+					type: "boolean",
+					description: "Writes are tracked (use --no-write to deny)",
+					default: true,
+				},
 			},
 			async run({ args }) {
 				const ctx = loadContext(Boolean(args.dev));
-				await xrpc(ctx, "POST", "com.atproto.simplespace.addMember", {
-					body: { space: args.space, did: args.did },
+				await xrpc(ctx, "POST", "com.atproto.memberspace.putMembers", {
+					body: {
+						space: args.space,
+						members: [{ did: args.did, read: args.read, write: args.write }],
+					},
 				});
-				console.log(pc.green("Added:"), args.did);
+				console.log(
+					pc.green("Added:"),
+					args.did,
+					pc.dim(`(read: ${args.read}, write: ${args.write})`),
+				);
 			},
 		}),
 		remove: defineCommand({
@@ -298,8 +425,8 @@ const membersCommand = defineCommand({
 			},
 			async run({ args }) {
 				const ctx = loadContext(Boolean(args.dev));
-				await xrpc(ctx, "POST", "com.atproto.simplespace.removeMember", {
-					body: { space: args.space, did: args.did },
+				await xrpc(ctx, "POST", "com.atproto.memberspace.removeMembers", {
+					body: { space: args.space, dids: [args.did] },
 				});
 				console.log(pc.green("Removed:"), args.did);
 			},
@@ -312,18 +439,23 @@ const membersCommand = defineCommand({
 			},
 			async run({ args }) {
 				const ctx = loadContext(Boolean(args.dev));
-				const result = await xrpc<{ members: Array<{ did: string }> }>(
-					ctx,
-					"GET",
-					"com.atproto.simplespace.listMembers",
-					{ params: { space: String(args.space), limit: "1000" } },
-				);
+				const result = await xrpc<{
+					members: Array<{ did: string; read: boolean; write: boolean }>;
+				}>(ctx, "GET", "com.atproto.memberspace.listMembers", {
+					params: { space: String(args.space), limit: "1000" },
+				});
 				if (result.members.length === 0) {
 					console.log(pc.dim("No members."));
 					return;
 				}
 				for (const member of result.members) {
-					console.log(member.did);
+					const access = [
+						member.read ? "read" : null,
+						member.write ? "write" : null,
+					]
+						.filter(Boolean)
+						.join(", ");
+					console.log(`${member.did}  ${pc.dim(`(${access || "no access"})`)}`);
 				}
 			},
 		}),
@@ -333,7 +465,8 @@ const membersCommand = defineCommand({
 const exportCommand = defineCommand({
 	meta: {
 		name: "export",
-		description: "Export every space repo as a CAR file",
+		description:
+			"Export every space repo as a STAR archive, plus the host-side state of hosted spaces",
 	},
 	args: {
 		...devArg,
@@ -351,38 +484,177 @@ const exportCommand = defineCommand({
 			"gg.mk.experimental.getSpacesStatus",
 		);
 		const exportable = status.spaces.filter(
-			(space) =>
-				space.state === "active" && !space.outdated && space.recordCount > 0,
+			(space) => space.state === "active" && !space.outdated,
 		);
 		if (exportable.length === 0) {
 			console.log(pc.dim("Nothing to export."));
 			return;
 		}
 		mkdirSync(args.out, { recursive: true });
-		for (const space of exportable) {
-			const url = new URL(`${ctx.baseUrl}/xrpc/com.atproto.space.getRepo`);
-			url.searchParams.set("space", space.uri);
-			url.searchParams.set("repo", ctx.did);
+		const download = async (
+			nsid: string,
+			params: Record<string, string>,
+			filename: string,
+			label: string,
+		): Promise<void> => {
+			const url = new URL(`${ctx.baseUrl}/xrpc/${nsid}`);
+			for (const [key, value] of Object.entries(params)) {
+				url.searchParams.set(key, value);
+			}
 			const res = await fetch(url, {
 				headers: { Authorization: `Bearer ${ctx.authToken}` },
 			});
 			if (!res.ok) {
-				console.log(
-					pc.red("✗"),
-					`${space.uri}: export failed (${res.status})`,
-				);
-				continue;
+				console.log(pc.red("✗"), `${label}: export failed (${res.status})`);
+				return;
 			}
 			const bytes = new Uint8Array(await res.arrayBuffer());
-			const filename = `${space.uri
-				.replace("at://", "")
-				.replace(/[^a-zA-Z0-9._-]+/g, "_")}.car`;
 			writeFileSync(join(args.out, filename), bytes);
 			console.log(
 				pc.green("✓"),
-				`${space.uri} → ${filename} (${bytes.length} bytes)`,
+				`${label} → ${filename} (${bytes.length} bytes)`,
 			);
+		};
+		for (const space of exportable) {
+			const base = space.uri
+				.replace("at://", "")
+				.replace(/[^a-zA-Z0-9._-]+/g, "_");
+			// The space meta archive first: importSpaceMeta must precede
+			// importRepo for a space you are the authority of.
+			if (space.role === "authority") {
+				await download(
+					"com.atproto.space.exportSpaceMeta",
+					{ space: space.uri },
+					`${base}.meta.star`,
+					`${space.uri} (space)`,
+				);
+			}
+			if (space.recordCount > 0) {
+				await download(
+					"com.atproto.space.getRepo",
+					{ space: space.uri, repo: ctx.did },
+					`${base}.star`,
+					`${space.uri} (repo)`,
+				);
+			}
 		}
+	},
+});
+
+const kemCommand = defineCommand({
+	meta: {
+		name: "kem",
+		description:
+			"Generate the #atproto_kem key syncers verify space data against, and publish it",
+	},
+	args: {
+		...devArg,
+		local: {
+			type: "boolean",
+			description: "Write to .dev.vars instead of wrangler secrets/config",
+			default: false,
+		},
+		publish: {
+			type: "boolean",
+			description:
+				"did:plc: add the key to your DID document via a PLC operation signed by this PDS",
+			default: false,
+		},
+	},
+	async run({ args }) {
+		p.intro("Spaces KEM key");
+		const config = { ...readDevVars(), ...getVars() };
+		const did = config.DID;
+		if (!did) {
+			p.log.error("No DID configured. Run 'pds init' first.");
+			process.exit(1);
+		}
+
+		let publicKey = config.SPACES_KEM_KEY_PUBLIC;
+		if (publicKey && !args.publish) {
+			const replace = await p.confirm({
+				message:
+					"A KEM key is already configured. Replace it? Syncers holding the old key will fail to verify until the DID document is updated.",
+				initialValue: false,
+			});
+			if (p.isCancel(replace) || !replace) {
+				p.cancel("Kept the existing key.");
+				return;
+			}
+		}
+		if (!publicKey || !args.publish) {
+			const keypair = await generateKemKeypair();
+			await setSecretValue("SPACES_KEM_KEY", keypair.privateKey, args.local);
+			setPublicVar("SPACES_KEM_KEY_PUBLIC", keypair.publicKey, args.local);
+			publicKey = keypair.publicKey;
+			p.log.success(`Generated did:key:${publicKey}`);
+		}
+		const didKey = `did:key:${publicKey}`;
+
+		if (did.startsWith("did:web:")) {
+			p.outro(
+				"did:web: the DID document is served by your PDS, so it publishes #atproto_kem once you redeploy.",
+			);
+			return;
+		}
+		if (!args.publish) {
+			p.note(
+				[
+					"Your DID is a did:plc, so the key must be added to its PLC document",
+					"as the `atproto_kem` verification method. Redeploy, then run:",
+					"",
+					"  pds spaces kem --publish",
+					"",
+					"That asks your PDS to sign the PLC operation, which works when its",
+					"signing key is one of your DID's rotation keys (true after migrating",
+					"with Cirrus). Otherwise, add it with whoever holds your rotation key.",
+				].join("\n"),
+				"Publish the key",
+			);
+			p.outro("Done.");
+			return;
+		}
+
+		const ctx = loadContext(args.dev);
+		const spinner = p.spinner();
+		spinner.start("Fetching the current PLC operation...");
+		const log = await new PlcDirectoryClient().getAuditLog(did);
+		const current = log.filter((entry) => !entry.nullified).pop();
+		if (!current) {
+			spinner.stop("Could not read the PLC audit log");
+			process.exit(1);
+		}
+		const verificationMethods = {
+			...current.operation.verificationMethods,
+			atproto_kem: didKey,
+		};
+		spinner.message("Signing the PLC operation...");
+		const { token } = await xrpc<{ token: string }>(
+			ctx,
+			"GET",
+			"gg.mk.experimental.getMigrationToken",
+		);
+		const { operation } = await xrpc<{ operation: unknown }>(
+			ctx,
+			"POST",
+			"com.atproto.identity.signPlcOperation",
+			{ body: { token, verificationMethods } },
+		);
+		spinner.message("Submitting to the PLC directory...");
+		try {
+			await xrpc(ctx, "POST", "com.atproto.identity.submitPlcOperation", {
+				body: { operation },
+			});
+		} catch (err) {
+			spinner.stop("The PLC directory refused the operation");
+			p.log.error(err instanceof Error ? err.message : String(err));
+			p.log.info(
+				"This PDS's signing key is probably not a rotation key for your DID. Add the atproto_kem verification method with whoever holds it.",
+			);
+			process.exit(1);
+		}
+		spinner.stop("Published #atproto_kem");
+		p.outro(didKey);
 	},
 });
 
@@ -454,6 +726,7 @@ export const spacesCommand = defineCommand({
 		delete: deleteCommand,
 		members: membersCommand,
 		export: exportCommand,
+		kem: kemCommand,
 		reset: resetCommand,
 	},
 });

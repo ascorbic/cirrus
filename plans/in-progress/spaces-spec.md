@@ -5,6 +5,8 @@
 - Depends on: [proposal 0016](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data), `@atproto/space@alpha`, the `permissioned-data-alpha` branch of the reference PDS
 - Scope: the Cirrus PDS only. A standalone space host is discussed as a consequence of the design, not specified here.
 
+> **Superseded in places by the 20261105 alpha.** The mechanics below describe the August build: DPoP-bound credentials, signed commits with `ikm`, CAR `getRepo`, `#atproto_space_host`, and simplespace policies. Those were replaced upstream by HTTP-signature credentials, MAC-authenticated commits (`#atproto_kem`), STAR archives, plain `#atproto_pds` discovery and the personal/member/managed baseline policies. The user stories, isolation design and phasing still hold. See [spaces.md](./spaces.md) for what changed and the sync process.
+
 ## Summary
 
 Add atproto spaces to Cirrus behind a feature flag, with all space state isolated from the public repository so that alpha-era breaking changes can be absorbed by wiping space data and never by touching the account's MST, blobs or OAuth state.

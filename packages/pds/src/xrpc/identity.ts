@@ -45,6 +45,20 @@ export function buildDidDocument(env: PDSEnv) {
 				controller: env.DID,
 				publicKeyMultibase: env.SIGNING_KEY_PUBLIC,
 			},
+			// Spaces alpha: the P-256 key syncers derive MAC secrets against.
+			// The space host is #atproto_pds and space tokens are signed with
+			// #atproto, like any other account, so this is the only spaces
+			// entry.
+			...(env.SPACES_ENABLED === "true" && env.SPACES_KEM_KEY_PUBLIC
+				? [
+						{
+							id: `${env.DID}#atproto_kem`,
+							type: "Multikey",
+							controller: env.DID,
+							publicKeyMultibase: env.SPACES_KEM_KEY_PUBLIC,
+						},
+					]
+				: []),
 		],
 		service: [
 			{
@@ -52,19 +66,6 @@ export function buildDidDocument(env: PDSEnv) {
 				type: "AtprotoPersonalDataServer",
 				serviceEndpoint: `https://${env.PDS_HOSTNAME}`,
 			},
-			// Spaces alpha: advertise the space host endpoint. No dedicated
-			// #atproto_space verification key is added — the proposal falls
-			// back to #atproto, and a second key would create a rotation and
-			// backup story for no benefit on a single-user PDS.
-			...(env.SPACES_ENABLED === "true"
-				? [
-						{
-							id: "#atproto_space_host",
-							type: "AtprotoSpaceHost",
-							serviceEndpoint: `https://${env.PDS_HOSTNAME}`,
-						},
-					]
-				: []),
 		],
 	};
 }
@@ -86,7 +87,13 @@ export async function getRecommendedDidCredentials(
 	return c.json({
 		rotationKeys: [signingKey],
 		alsoKnownAs: [`at://${c.env.HANDLE}`],
-		verificationMethods: { atproto: signingKey },
+		verificationMethods: {
+			atproto: signingKey,
+			// Carried through a migration so space data stays verifiable.
+			...(c.env.SPACES_KEM_KEY_PUBLIC
+				? { atproto_kem: `did:key:${c.env.SPACES_KEM_KEY_PUBLIC}` }
+				: {}),
+		},
 		services: {
 			atproto_pds: {
 				type: "AtprotoPersonalDataServer",

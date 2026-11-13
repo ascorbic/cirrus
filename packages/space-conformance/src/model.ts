@@ -19,12 +19,29 @@ export type Tier = "must" | "should" | "info";
 
 /** Where a check's claim comes from. Every `must` check needs at least one. */
 export interface Citation {
-	/** e.g. "lexicon", "proposal", "pds-design-spec", "reference" */
-	source: "lexicon" | "proposal" | "pds-design-spec" | "reference";
+	/**
+	 * - `lexicon`: a vendored lexicon (machine-checked by the coverage
+	 *   generator).
+	 * - `proposal` / `pds-design-spec`: the upstream prose specs.
+	 * - `changeset`: an upstream changeset (`.changeset/<name>.md` on the
+	 *   alpha branch). For alpha protocol mechanics no lexicon can express —
+	 *   the credential HTTP signature, the MAC exchange, key discovery — the
+	 *   changeset is the alpha's only normative prose, so it is a citable
+	 *   source for a `must`.
+	 * - `reference`: what the reference implementation happens to do. Fine
+	 *   for a `should`; never enough on its own for a `must`.
+	 */
+	source:
+		| "lexicon"
+		| "proposal"
+		| "pds-design-spec"
+		| "changeset"
+		| "reference";
 	/**
 	 * Locator within the source: a lexicon id (optionally `#def` or
-	 * `@error:Name`), a proposal section anchor, or a design-spec heading.
-	 * Lexicon locators are machine-checked by the coverage generator.
+	 * `@error:Name`), a proposal section anchor, a design-spec heading or a
+	 * changeset name. Lexicon locators are machine-checked by the coverage
+	 * generator.
 	 */
 	ref: string;
 }
@@ -39,15 +56,16 @@ export interface Citation {
  *   scopes — only harnesses that can drive the target's consent flow.
  * - `identities`: harness-controlled DIDs with resolvable documents and
  *   held keys, for playing reader/writer roles.
- * - `syncer-inbox`: an HTTPS endpoint the harness controls that the
- *   target can deliver notifications to.
+ * - `syncer-inbox`: an endpoint the harness serves that the target can
+ *   reach — registered as a syncer's `notify` endpoint, and named (through
+ *   a resolvable `did#serviceId`) as a `managedspace` managing app.
  * - `pds-blobs`: the target is a full PDS implementing
  *   `com.atproto.repo.uploadBlob` and `com.atproto.sync.getBlob` — needed
  *   to prove a space blob is not served publicly. A standalone space host,
  *   or an isolated space-routes fixture, does not provide it.
  * - `pds-delegation`: the target implements
  *   `com.atproto.space.getDelegationToken`, so the operator can obtain a
- *   credential for its own space (the bulletin self-flow) with no
+ *   credential for its own non-public space (the self-flow) with no
  *   harness-held reader key. A space-routes fixture does not provide it.
  * - `alpha-libs`: the transport can execute the alpha crypto libraries
  *   (`@atproto/space`), whose bundle pulls node-only dependencies. Real
@@ -83,49 +101,75 @@ export interface CheckResult {
 	durationMs?: number;
 }
 
-/** An identity the harness controls: a resolvable DID plus its keys. */
+/**
+ * An identity the harness controls: a DID the target can resolve, plus the
+ * key behind its `#atproto` verification method. The harness signs as this
+ * party — delegation tokens as a reader, service auth as a writer's PDS,
+ * credentials and revocations as a foreign space authority.
+ */
 export interface HarnessIdentity {
 	did: string;
-	/** Sign bytes with the identity's atproto signing key (ES256K/ES256). */
+	/** Sign bytes with the identity's `#atproto` key (ES256K/ES256), compact. */
 	sign(bytes: Uint8Array): Promise<Uint8Array>;
 	/** JWT `alg` for {@link sign}. */
 	jwtAlg: string;
 }
 
-/** A DPoP key the harness controls (always ES256, per the proposal). */
-export interface DpopKey {
-	bareJwk: Record<string, unknown>;
-	/** Algorithms the key supports; `["ES256"]` for DPoP. */
-	algorithms: readonly string[];
-	/** RFC 7638 thumbprint of {@link bareJwk}. */
-	jkt: string;
-	createJwt(
-		header: Record<string, unknown>,
-		payload: Record<string, unknown>,
-	): Promise<string>;
-}
-
 export interface IdentityProvider {
 	/** Mint (or reuse) a harness identity by role label. */
 	identity(role: string): Promise<HarnessIdentity>;
-	/** Mint a fresh DPoP key. */
-	dpopKey(): Promise<DpopKey>;
 }
 
+/**
+ * A syncer endpoint the harness serves: the `notify` target of
+ * `authorizeSpaceSync`, which the space host calls back with
+ * `com.atproto.space.confirmRegistration` and `notifySpaceUpdate`. The
+ * same endpoint doubles as a `managedspace` managing app answering
+ * `com.atproto.managedspace.checkAccess`.
+ *
+ * `createSyncerInbox()` implements all of this over a fetch-style handler;
+ * a harness only has to route requests for `endpoint` to it.
+ */
 export interface SyncerInbox {
-	/** The service identifier to register (did, optionally with #fragment). */
+	/** The base URL registered as `notify.endpoint` (`{endpoint}/xrpc/...`). */
+	endpoint: string;
+	/**
+	 * A `did#serviceId` reference whose DID document routes that service to
+	 * `endpoint`, for naming the inbox as a managing app. The target sends
+	 * service auth addressed to it.
+	 */
 	service: string;
+	/**
+	 * Issue a fresh notify token for `space`. The inbox confirms a
+	 * registration (echoes the challenge) and accepts notifications only for
+	 * tokens it issued for that space; anything else is refused with 400.
+	 */
+	issueToken(space: string): string;
 	/** Wait for a delivery matching the predicate, or time out (null). */
 	waitFor(
 		predicate: (delivery: InboxDelivery) => boolean,
 		timeoutMs: number,
 	): Promise<InboxDelivery | null>;
+	/**
+	 * Answer queries for `lxm` (e.g. `com.atproto.managedspace.checkAccess`)
+	 * with the handler's JSON body; pass undefined to stop answering. Queries
+	 * are recorded as deliveries either way.
+	 */
+	respond(
+		lxm: string,
+		handler: ((delivery: InboxDelivery) => unknown) | undefined,
+	): void;
 }
 
 export interface InboxDelivery {
 	lxm: string;
+	/** Parsed JSON body of a procedure. */
 	body: unknown;
+	/** Query parameters of a query. */
+	params?: Record<string, string>;
 	authorization?: string;
+	/** The HTTP status the inbox answered with. */
+	status: number;
 	receivedAt: number;
 }
 
@@ -137,6 +181,11 @@ export interface Target {
 	did: string;
 	/** Free-form implementation label for the report ("cirrus", "reference"). */
 	implementation?: string;
+	/**
+	 * The PLC directory did:plc identities resolve against (the target's own
+	 * and the repos it reads). Defaults to https://plc.directory.
+	 */
+	plcDirectory?: string;
 }
 
 export interface CheckContext {
@@ -145,9 +194,9 @@ export interface CheckContext {
 	/**
 	 * Present when the harness has an authenticated session on the target.
 	 * Provide `authorize` when auth is plain header injection (a bearer
-	 * token), or `fetch` when each request must be individually signed — a
-	 * DPoP-bound OAuth session, where the proof depends on the method and
-	 * URL, cannot be expressed as headers alone. At least one is required;
+	 * token), or `fetch` when each request must be individually signed — an
+	 * OAuth session's DPoP proof depends on the method and URL, so it cannot
+	 * be expressed as headers alone. At least one is required;
 	 * `fetch` wins when both are present.
 	 */
 	operator?: {
@@ -160,6 +209,13 @@ export interface CheckContext {
 	};
 	identities?: IdentityProvider;
 	syncerInbox?: SyncerInbox;
+	/**
+	 * Resolve a DID document. Optional: by default the suite fetches did:web
+	 * documents from their host and did:plc documents from
+	 * `target.plcDirectory`, over `fetch`. An in-process fixture with its own
+	 * resolution supplies this instead.
+	 */
+	resolveDid?(did: string): Promise<unknown>;
 	/**
 	 * Scratch space shared across checks in one run — e.g. the probe space
 	 * a setup check created, reused by later checks. Keys are namespaced by
@@ -180,6 +236,8 @@ export interface Check {
 	destructive?: boolean;
 	/** Depends on real time passing (expiry windows); excluded by default. */
 	slow?: boolean;
+	/** Overrides the runner's per-check timeout (for slow checks). */
+	timeoutMs?: number;
 	run(ctx: CheckContext): Promise<CheckOutcome>;
 }
 

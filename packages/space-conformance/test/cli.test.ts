@@ -1,34 +1,59 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { P256Keypair, Secp256k1Keypair } from "@atproto/crypto";
 import { runConformance } from "../src/cli/run";
-import { originGatedFetch } from "../src/cli/oauth";
+import { OAUTH_SCOPE, originGatedFetch } from "../src/cli/oauth";
 
 const DID = "did:web:target.test";
 
+/** A DID document carrying everything the alpha requires of an authority. */
+let didDoc: Record<string, unknown>;
+beforeAll(async () => {
+	const signing = await Secp256k1Keypair.create();
+	const kem = await P256Keypair.create();
+	didDoc = {
+		id: DID,
+		verificationMethod: [
+			{
+				id: `${DID}#atproto`,
+				type: "Multikey",
+				controller: DID,
+				publicKeyMultibase: signing.did().slice(8),
+			},
+			{
+				id: `${DID}#atproto_kem`,
+				type: "Multikey",
+				controller: DID,
+				publicKeyMultibase: kem.did().slice(8),
+			},
+		],
+		service: [
+			{
+				id: "#atproto_pds",
+				type: "AtprotoPersonalDataServer",
+				serviceEndpoint: "https://target.test",
+			},
+		],
+	};
+});
+
 /**
- * A minimal fake target: a valid DID document plus refusing auth
- * endpoints. Enough to exercise the base (no-crypto) checks and prove the
- * crypto checks skip cleanly when no operator/identities are supplied.
+ * A minimal fake target: a valid DID document plus refusing endpoints.
+ * Enough to exercise the base (no-crypto) checks and prove the crypto
+ * checks skip cleanly when no operator/identities are supplied.
  */
 function fakeTarget(): typeof fetch {
 	return (async (input: RequestInfo | URL) => {
 		const url = new URL(String(input));
 		if (url.pathname === "/.well-known/did.json") {
-			return Response.json({
-				id: DID,
-				service: [
-					{
-						id: "#atproto_space_host",
-						type: "AtprotoSpaceHost",
-						serviceEndpoint: "https://target.test",
-					},
-				],
-				verificationMethod: [{ id: `${DID}#atproto` }],
-			});
+			return Response.json(didDoc);
 		}
 		if (url.pathname.startsWith("/xrpc/com.atproto.space.getLatestCommit")) {
 			return Response.json({ error: "InvalidRequest" }, { status: 400 });
 		}
-		// Everything else (space reads, credential requests) is unauthenticated.
+		if (url.pathname === "/xrpc/com.atproto.space.authorizeSpaceSync") {
+			return Response.json({ error: "SpaceNotFound" }, { status: 400 });
+		}
+		// Everything else (space reads) is unauthenticated.
 		return Response.json({ error: "AuthMissing" }, { status: 401 });
 	}) as typeof fetch;
 }
@@ -45,12 +70,19 @@ describe("runConformance (CLI core)", () => {
 		expect(report.target.did).toBe(DID);
 		const byId = Object.fromEntries(report.results.map((r) => [r.id, r]));
 		// Base checks ran and passed.
-		expect(byId["discovery.space-host-service"]!.status).toBe("pass");
-		expect(byId["auth.getrecord-unauthenticated-refused"]!.status).toBe("pass");
-		expect(byId["request.invalid-space-uri-rejected"]!.status).toBe("pass");
+		for (const id of [
+			"discovery.pds-service",
+			"discovery.signing-key",
+			"discovery.kem-key",
+			"auth.getrecord-unauthenticated-refused",
+			"credential.tokenless-unknown-space",
+			"request.invalid-space-uri-rejected",
+		]) {
+			expect(byId[id]!.status, id).toBe("pass");
+		}
 		// Crypto checks skipped for want of operator/identities — reported,
 		// not silently passed.
-		expect(byId["credential.round-trip"]!.status).toBe("skipped");
+		expect(byId["credential.member-gate"]!.status).toBe("skipped");
 		expect(byId["writes.create-and-read"]!.status).toBe("skipped");
 		expect(report.summary.mustFail).toBe(0);
 		expect(report.summary.skipped).toBeGreaterThan(0);
@@ -83,17 +115,7 @@ describe("runConformance (CLI core)", () => {
 		) => {
 			const url = new URL(String(input));
 			if (url.pathname === "/.well-known/did.json") {
-				return Response.json({
-					id: DID,
-					service: [
-						{
-							id: "#atproto_space_host",
-							type: "AtprotoSpaceHost",
-							serviceEndpoint: "https://target.test",
-						},
-					],
-					verificationMethod: [{ id: `${DID}#atproto` }],
-				});
+				return Response.json(didDoc);
 			}
 			if (url.pathname === "/xrpc/com.atproto.server.createSession") {
 				const body = JSON.parse(String(init?.body)) as {
@@ -106,7 +128,7 @@ describe("runConformance (CLI core)", () => {
 				});
 				return Response.json({ accessJwt: "sess-tok", did: DID });
 			}
-			if (url.pathname === "/xrpc/com.atproto.simplespace.createSpace") {
+			if (url.pathname === "/xrpc/com.atproto.space.createSpace") {
 				authHeaders.push(new Headers(init?.headers).get("Authorization"));
 			}
 			return Response.json({ error: "AuthMissing" }, { status: 401 });
@@ -173,35 +195,9 @@ describe("runConformance (CLI core)", () => {
 	});
 
 	it("surfaces a target that fails a base check as a must failure", async () => {
-		// A target whose DID document lacks the space host entry must fail
-		// discovery.
+		// A pre-alpha DID document: #atproto_space_host instead of a
+		// #atproto_pds that routes here, and no #atproto_kem key.
 		const brokenTarget = (async (input: RequestInfo | URL) => {
-			const url = new URL(String(input));
-			if (url.pathname === "/.well-known/did.json") {
-				return Response.json({
-					id: DID,
-					service: [],
-					verificationMethod: [{ id: `${DID}#atproto` }],
-				});
-			}
-			return Response.json({ error: "AuthMissing" }, { status: 401 });
-		}) as typeof fetch;
-		const report = await runConformance({
-			origin: "https://target.test",
-			fetch: brokenTarget,
-			suiteVersion: "0.0.0-test",
-		});
-		const discovery = report.results.find(
-			(r) => r.id === "discovery.space-host-service",
-		);
-		expect(discovery!.status).toBe("fail");
-		expect(report.summary.mustFail).toBeGreaterThan(0);
-	});
-
-	it("counts must-tier errors so an unreachable target does not pass green", async () => {
-		// did.json resolves, but every XRPC call throws (target down). The
-		// base must-checks error rather than fail — the CLI must still gate.
-		const halfDown = (async (input: RequestInfo | URL) => {
 			const url = new URL(String(input));
 			if (url.pathname === "/.well-known/did.json") {
 				return Response.json({
@@ -213,8 +209,75 @@ describe("runConformance (CLI core)", () => {
 							serviceEndpoint: "https://target.test",
 						},
 					],
-					verificationMethod: [{ id: `${DID}#atproto` }],
+					verificationMethod: (didDoc.verificationMethod as unknown[]).slice(
+						0,
+						1,
+					),
 				});
+			}
+			return Response.json({ error: "AuthMissing" }, { status: 401 });
+		}) as typeof fetch;
+		const report = await runConformance({
+			origin: "https://target.test",
+			fetch: brokenTarget,
+			suiteVersion: "0.0.0-test",
+		});
+		const status = (id: string) =>
+			report.results.find((r) => r.id === id)!.status;
+		expect(status("discovery.pds-service")).toBe("fail");
+		expect(status("discovery.kem-key")).toBe("fail");
+		expect(status("discovery.signing-key")).toBe("pass");
+		expect(report.summary.mustFail).toBeGreaterThan(0);
+	});
+
+	it("resolves a did:plc target through --plc", async () => {
+		const plcDid = "did:plc:abcdefghijklmnopqrstuvwx";
+		const requested: string[] = [];
+		const plcFetch = (async (input: RequestInfo | URL) => {
+			const url = String(input);
+			requested.push(url);
+			if (url === `https://plc.test/${plcDid}`) {
+				// Relative fragment ids, as PLC renders them.
+				const methods = didDoc.verificationMethod as Array<{ id: string }>;
+				return Response.json({
+					...didDoc,
+					id: plcDid,
+					verificationMethod: methods.map((m) => ({
+						...m,
+						id: m.id.slice(m.id.indexOf("#")),
+						controller: plcDid,
+					})),
+				});
+			}
+			return Response.json({ error: "AuthMissing" }, { status: 401 });
+		}) as typeof fetch;
+		const report = await runConformance({
+			origin: "https://target.test",
+			did: plcDid,
+			plcDirectory: "https://plc.test",
+			fetch: plcFetch,
+			suiteVersion: "0.0.0-test",
+		});
+		expect(report.target.plcDirectory).toBe("https://plc.test");
+		expect(
+			report.results.find((r) => r.id === "discovery.kem-key")!.status,
+		).toBe("pass");
+		expect(requested).toContain(`https://plc.test/${plcDid}`);
+	});
+
+	it("signs in with a scope that reaches spaces the operator does not own", () => {
+		// NotSpaceOwner probes and writes into a foreign authority's space
+		// need authority=*, still confined to the probe space type.
+		expect(OAUTH_SCOPE).toContain("space:earth.cirrus.check.space?authority=*");
+	});
+
+	it("counts must-tier errors so an unreachable target does not pass green", async () => {
+		// did.json resolves, but every XRPC call throws (target down). The
+		// base must-checks error rather than fail — the CLI must still gate.
+		const halfDown = (async (input: RequestInfo | URL) => {
+			const url = new URL(String(input));
+			if (url.pathname === "/.well-known/did.json") {
+				return Response.json(didDoc);
 			}
 			throw new Error("connection refused");
 		}) as typeof fetch;

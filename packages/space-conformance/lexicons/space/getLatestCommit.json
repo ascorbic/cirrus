@@ -4,20 +4,18 @@
   "defs": {
     "main": {
       "type": "query",
-      "description": "Get the current signed commit for an account's permissioned repo within a space. Served by a repo host. Throws RepoNotFound when the account holds no repo in the space, including the case of a member that has never written to it. Callable with either OAuth (for the authenticated user's own data) or a space credential (for syncing services).",
+      "description": "Get the current commit of a space repo. Responses are authenticated with a MAC. Requires auth as the repo's account or with a space credential; implemented by PDS.",
       "parameters": {
         "type": "params",
         "required": ["space", "repo"],
         "properties": {
           "space": {
             "type": "string",
-            "format": "space-ref",
-            "description": "Reference to the space."
+            "format": "space-ref"
           },
           "repo": {
             "type": "string",
-            "format": "did",
-            "description": "The DID of the account whose latest commit to retrieve."
+            "format": "did"
           }
         }
       },
@@ -28,14 +26,17 @@
           "properties": {
             "commit": {
               "type": "ref",
-              "ref": "com.atproto.space.defs#signedCommit",
-              "description": "The account's current signed commit."
+              "ref": "com.atproto.space.defs#commit"
             }
           },
           "required": ["commit"]
         }
       },
       "errors": [
+        {
+          "name": "InvalidSpaceMac",
+          "description": "The MAC requested in the Accept-Signature header is missing or invalid."
+        },
         {
           "name": "SpaceNotFound"
         },

@@ -235,26 +235,26 @@ export class ATProtoOAuthProvider {
 			const perm = parseSpaceScope(token);
 			if (!perm) continue;
 			const info: SpaceScopeInfo = {
-				type: perm.type,
+				type: perm.spaceType,
 				authority: perm.authority,
 			};
 			if (
-				perm.type !== "*" &&
+				perm.spaceType !== "*" &&
 				this.permissionSetResolver?.resolveSpaceDeclaration
 			) {
 				try {
 					const decl =
 						await this.permissionSetResolver.resolveSpaceDeclaration(
-							perm.type as Parameters<
+							perm.spaceType as Parameters<
 								NonNullable<
 									PermissionSetResolver["resolveSpaceDeclaration"]
 								>
 							>[0],
 						);
-					if (decl?.name) {
-						info.name = decl.name;
-					} else {
+					if (!decl) {
 						info.error = "Space type declaration was not found";
+					} else if (decl.title) {
+						info.name = decl.title;
 					}
 				} catch (e) {
 					info.error =
