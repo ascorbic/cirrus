@@ -50,7 +50,7 @@
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
 		"@atproto/api": "^0.18.9",
-		"@atproto/space": "0.0.0-spaces-alpha-20261105160032",
+		"@atproto/space": "0.0.0-spaces-alpha-20261112204144",
 		"@cloudflare/vite-plugin": "^1.17.0",
 		"@cloudflare/vitest-pool-workers": "^0.16.9",
 		"@cloudflare/workers-types": "^4.20260524.1",

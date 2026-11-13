@@ -5,7 +5,9 @@
  */
 
 import space_applyWrites from "../lexicons/space/applyWrites.json" with { type: "json" };
+import space_authorizeSpaceSync from "../lexicons/space/authorizeSpaceSync.json" with { type: "json" };
 import space_clearRecords from "../lexicons/space/clearRecords.json" with { type: "json" };
+import space_confirmRegistration from "../lexicons/space/confirmRegistration.json" with { type: "json" };
 import space_createRecord from "../lexicons/space/createRecord.json" with { type: "json" };
 import space_createSpace from "../lexicons/space/createSpace.json" with { type: "json" };
 import space_defs from "../lexicons/space/defs.json" with { type: "json" };
@@ -18,30 +20,28 @@ import space_getLatestCommit from "../lexicons/space/getLatestCommit.json" with 
 import space_getRecord from "../lexicons/space/getRecord.json" with { type: "json" };
 import space_getRepo from "../lexicons/space/getRepo.json" with { type: "json" };
 import space_getSpace from "../lexicons/space/getSpace.json" with { type: "json" };
-import space_getSpaceCredential from "../lexicons/space/getSpaceCredential.json" with { type: "json" };
 import space_importRepo from "../lexicons/space/importRepo.json" with { type: "json" };
 import space_importSpaceMeta from "../lexicons/space/importSpaceMeta.json" with { type: "json" };
 import space_listBlobs from "../lexicons/space/listBlobs.json" with { type: "json" };
 import space_listRecords from "../lexicons/space/listRecords.json" with { type: "json" };
 import space_listRepoOps from "../lexicons/space/listRepoOps.json" with { type: "json" };
-import space_listRepos from "../lexicons/space/listRepos.json" with { type: "json" };
 import space_listSpaces from "../lexicons/space/listSpaces.json" with { type: "json" };
-import space_notifyCredentialRevoked from "../lexicons/space/notifyCredentialRevoked.json" with { type: "json" };
-import space_notifySpaceDeleted from "../lexicons/space/notifySpaceDeleted.json" with { type: "json" };
-import space_notifyWrite from "../lexicons/space/notifyWrite.json" with { type: "json" };
+import space_listWriters from "../lexicons/space/listWriters.json" with { type: "json" };
+import space_notifyCredentialsRevoked from "../lexicons/space/notifyCredentialsRevoked.json" with { type: "json" };
+import space_notifyRepoUpdate from "../lexicons/space/notifyRepoUpdate.json" with { type: "json" };
+import space_notifySpaceUpdate from "../lexicons/space/notifySpaceUpdate.json" with { type: "json" };
 import space_policy from "../lexicons/space/policy.json" with { type: "json" };
 import space_putRecord from "../lexicons/space/putRecord.json" with { type: "json" };
-import space_registerNotify from "../lexicons/space/registerNotify.json" with { type: "json" };
 import space_removeWriter from "../lexicons/space/removeWriter.json" with { type: "json" };
-import space_unregisterNotify from "../lexicons/space/unregisterNotify.json" with { type: "json" };
 import space_updateSpace from "../lexicons/space/updateSpace.json" with { type: "json" };
+import memberspace_defs from "../lexicons/memberspace/defs.json" with { type: "json" };
 import memberspace_listMembers from "../lexicons/memberspace/listMembers.json" with { type: "json" };
 import memberspace_member from "../lexicons/memberspace/member.json" with { type: "json" };
 import memberspace_policy from "../lexicons/memberspace/policy.json" with { type: "json" };
-import memberspace_putMember from "../lexicons/memberspace/putMember.json" with { type: "json" };
-import memberspace_removeMember from "../lexicons/memberspace/removeMember.json" with { type: "json" };
+import memberspace_putMembers from "../lexicons/memberspace/putMembers.json" with { type: "json" };
+import memberspace_removeMembers from "../lexicons/memberspace/removeMembers.json" with { type: "json" };
 import personalspace_policy from "../lexicons/personalspace/policy.json" with { type: "json" };
-import managedspace_checkUserAccess from "../lexicons/managedspace/checkUserAccess.json" with { type: "json" };
+import managedspace_checkAccess from "../lexicons/managedspace/checkAccess.json" with { type: "json" };
 import managedspace_policy from "../lexicons/managedspace/policy.json" with { type: "json" };
 
 export interface LexiconDoc {
@@ -52,7 +52,9 @@ export interface LexiconDoc {
 
 export const lexicons: LexiconDoc[] = [
 	space_applyWrites as LexiconDoc,
+	space_authorizeSpaceSync as LexiconDoc,
 	space_clearRecords as LexiconDoc,
+	space_confirmRegistration as LexiconDoc,
 	space_createRecord as LexiconDoc,
 	space_createSpace as LexiconDoc,
 	space_defs as LexiconDoc,
@@ -65,29 +67,27 @@ export const lexicons: LexiconDoc[] = [
 	space_getRecord as LexiconDoc,
 	space_getRepo as LexiconDoc,
 	space_getSpace as LexiconDoc,
-	space_getSpaceCredential as LexiconDoc,
 	space_importRepo as LexiconDoc,
 	space_importSpaceMeta as LexiconDoc,
 	space_listBlobs as LexiconDoc,
 	space_listRecords as LexiconDoc,
 	space_listRepoOps as LexiconDoc,
-	space_listRepos as LexiconDoc,
 	space_listSpaces as LexiconDoc,
-	space_notifyCredentialRevoked as LexiconDoc,
-	space_notifySpaceDeleted as LexiconDoc,
-	space_notifyWrite as LexiconDoc,
+	space_listWriters as LexiconDoc,
+	space_notifyCredentialsRevoked as LexiconDoc,
+	space_notifyRepoUpdate as LexiconDoc,
+	space_notifySpaceUpdate as LexiconDoc,
 	space_policy as LexiconDoc,
 	space_putRecord as LexiconDoc,
-	space_registerNotify as LexiconDoc,
 	space_removeWriter as LexiconDoc,
-	space_unregisterNotify as LexiconDoc,
 	space_updateSpace as LexiconDoc,
+	memberspace_defs as LexiconDoc,
 	memberspace_listMembers as LexiconDoc,
 	memberspace_member as LexiconDoc,
 	memberspace_policy as LexiconDoc,
-	memberspace_putMember as LexiconDoc,
-	memberspace_removeMember as LexiconDoc,
+	memberspace_putMembers as LexiconDoc,
+	memberspace_removeMembers as LexiconDoc,
 	personalspace_policy as LexiconDoc,
-	managedspace_checkUserAccess as LexiconDoc,
+	managedspace_checkAccess as LexiconDoc,
 	managedspace_policy as LexiconDoc,
 ];
