@@ -6,4 +6,6 @@ Migrating a `did:plc` account with `pds identity` now gives your PDS control of 
 
 Accounts that were already migrated can run the new `pds rotation-keys` command to fix this. The change can be signed by your previous PDS (with your password there and an email code), by a rotation key you hold, or by your PDS once it is a rotation key. `pds status` now reports whether your PDS can update your identity, and outbound migration explains the problem instead of failing at the PLC directory.
 
+`pds identity` also sets your handle in the PLC directory to the one configured for your PDS. Previously, migrating from a `*.bsky.social` handle to a custom domain left the old handle in your DID document, so apps showed the new handle as invalid.
+
 `pds identity --token` also works now. It previously skipped the login that signing needs.

@@ -50,6 +50,23 @@ export interface PlcAuditLog {
 }
 
 /**
+ * Set the account's handle in an alsoKnownAs list. Handles are verified
+ * against the first at:// entry, so the handle replaces it, or is added
+ * first if there is none. Any later copy of the handle is dropped, and
+ * other entries are kept.
+ */
+export function withHandle(alsoKnownAs: string[], handle: string): string[] {
+	const aka = `at://${handle}`;
+	const first = alsoKnownAs.findIndex((uri) => uri.startsWith("at://"));
+	if (first < 0) {
+		return [aka, ...alsoKnownAs];
+	}
+	return alsoKnownAs
+		.map((uri, i) => (i === first ? aka : uri))
+		.filter((uri, i) => uri !== aka || i === first);
+}
+
+/**
  * Get the most recent non-nullified operation for a DID, or null if the
  * log cannot be fetched.
  */

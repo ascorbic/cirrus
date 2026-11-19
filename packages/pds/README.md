@@ -145,7 +145,7 @@ The command:
 3. Chooses your [rotation keys](#rotation-and-recovery-keys): any keys you already hold, then your new PDS's key. The source PDS's key is removed. If you don't hold any keys, it offers to create a recovery key and helps you back it up
 4. Shows a summary and asks you to confirm
 5. Requests an email confirmation code from the source PDS
-6. Gets the source PDS to sign a PLC operation with the new endpoint, signing key and rotation keys
+6. Gets the source PDS to sign a PLC operation with the new endpoint, signing key, rotation keys and handle (`alsoKnownAs`), so a handle chosen in `pds init` replaces a `*.bsky.social` one
 7. Submits the signed operation to the PLC directory and checks the result
 
 **Note:** Only `did:plc` identities are supported. `did:web` identities don't use PLC operations.
@@ -571,7 +571,7 @@ This updates your DID document to point to your new PDS and gives your new PDS c
 1. Authenticates with your source PDS (requires password)
 2. Sets your rotation keys: keys you hold first, then your new PDS's key. If you hold none, it offers to create a [recovery key](#rotation-and-recovery-keys). Back it up when asked
 3. Requests an email confirmation code
-4. Gets the source PDS to sign a PLC operation with your new endpoint, signing key and rotation keys
+4. Gets the source PDS to sign a PLC operation with your new endpoint, signing key, rotation keys and handle
 5. Submits the signed operation to the PLC directory
 
 You'll receive an email with a confirmation code – enter it when prompted.

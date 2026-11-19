@@ -7,7 +7,7 @@
  *    recovery key, then this PDS's key. The source PDS's key is removed.
  * 2. Requests an email token from the source PDS
  * 3. Gets the source PDS to sign a PLC operation with the new endpoint,
- *    signing key and rotation keys
+ *    signing key, rotation keys and handle
  * 4. Submits the signed operation to the PLC directory
  */
 import { defineCommand } from "citty";
@@ -34,6 +34,7 @@ import {
 	getPdsRotationKey,
 	type RotationKeyChoice,
 } from "../utils/rotation-key-prompts.js";
+import { withHandle } from "../../plc.js";
 
 // Helper to override clack's dim styling in notes
 const brightNote = (lines: string[]) =>
@@ -191,6 +192,10 @@ export const identityCommand = defineCommand({
 			process.exit(1);
 		}
 		const currentKeys = current.operation.rotationKeys;
+		const currentHandle = current.operation.alsoKnownAs
+			.find((uri) => uri.startsWith("at://"))
+			?.slice("at://".length);
+		const alsoKnownAs = withHandle(current.operation.alsoKnownAs, handle);
 		spinner.stop("PLC record loaded");
 
 		// Check if already pointing to target
@@ -276,6 +281,9 @@ export const identityCommand = defineCommand({
 				"",
 				`${pc.dim("From:")} ${sourceDisplayName}`,
 				`${pc.dim("To:")}   ${targetDomain}`,
+				currentHandle && currentHandle !== handle
+					? `${pc.dim("Handle:")} ${currentHandle} → ${handle}`
+					: `${pc.dim("Handle:")} ${handle}`,
 				"",
 				...describeRotationKeys(choice),
 				"",
@@ -332,6 +340,7 @@ export const identityCommand = defineCommand({
 		spinner.start("Signing identity update...");
 		const signResult = await sourcePdsClient.signPlcOperation(token.trim(), {
 			rotationKeys: choice.rotationKeys,
+			alsoKnownAs,
 			verificationMethods: { atproto: pdsKey },
 			services: {
 				atproto_pds: {
@@ -355,14 +364,20 @@ export const identityCommand = defineCommand({
 		spinner.stop("Operation signed");
 
 		// The source PDS builds the operation; refuse to submit it if it
-		// doesn't carry the rotation keys we asked for
-		const signedKeys = signResult.signedOperation.rotationKeys;
-		if (
-			signedKeys.length !== choice.rotationKeys.length ||
-			signedKeys.some((key, i) => key !== choice.rotationKeys[i])
-		) {
+		// doesn't carry the rotation keys and handle we asked for
+		const signed = signResult.signedOperation;
+		const sameList = (a: string[], b: string[]) =>
+			a.length === b.length && a.every((item, i) => item === b[i]);
+		if (!sameList(signed.rotationKeys, choice.rotationKeys)) {
 			p.log.error(
-				`${sourceDisplayName} signed different rotation keys than requested: ${signedKeys.join(", ")}`,
+				`${sourceDisplayName} signed different rotation keys than requested: ${signed.rotationKeys.join(", ")}`,
+			);
+			p.outro("Identity update cancelled. Nothing was submitted.");
+			process.exit(1);
+		}
+		if (!sameList(signed.alsoKnownAs, alsoKnownAs)) {
+			p.log.error(
+				`${sourceDisplayName} signed a different handle than requested: ${signed.alsoKnownAs.join(", ")}`,
 			);
 			p.outro("Identity update cancelled. Nothing was submitted.");
 			process.exit(1);
@@ -370,10 +385,7 @@ export const identityCommand = defineCommand({
 
 		// Submit to PLC directory
 		spinner.start("Submitting to PLC directory...");
-		const submitResult = await plcClient.submitOperation(
-			did,
-			signResult.signedOperation,
-		);
+		const submitResult = await plcClient.submitOperation(did, signed);
 
 		if (!submitResult.success) {
 			spinner.stop("Failed to submit operation");
