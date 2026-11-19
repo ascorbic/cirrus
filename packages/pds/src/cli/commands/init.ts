@@ -26,6 +26,61 @@ import {
 } from "../utils/cli-helpers.js";
 
 /**
+ * Explain how the handle will be verified: automatically when it matches the
+ * PDS hostname, otherwise with a DNS TXT record or a file on the handle's
+ * domain. For a migration (didWeb false) the handle switches when
+ * `pds identity` runs, so the record must exist by then.
+ */
+function showHandleSetup(opts: {
+	handle: string;
+	hostname: string;
+	did: string;
+	didWeb: boolean;
+}): void {
+	const { handle, hostname, did, didWeb } = opts;
+	const didWebLines = (verb: string) =>
+		didWeb
+			? [
+					`For did:web, your PDS ${verb} the DID document at:`,
+					`  https://${hostname}/.well-known/did.json`,
+					"",
+				]
+			: [];
+	if (handle === hostname) {
+		p.note(
+			[
+				"Your handle matches your PDS hostname, so your PDS will",
+				"automatically handle domain verification for you!",
+				"",
+				...didWebLines("serves"),
+				"For handle verification, it serves:",
+				`  https://${hostname}/.well-known/atproto-did`,
+				"",
+				didWeb
+					? "No additional DNS or hosting setup needed. Easy! 🎉"
+					: "No additional DNS setup needed. Your handle switches when you run 'pds identity'.",
+			].join("\n"),
+			"Identity Setup 🪪",
+		);
+	} else {
+		p.note(
+			[
+				...didWebLines("will serve"),
+				didWeb
+					? "To verify your handle, create a DNS TXT record:"
+					: "Before you run 'pds identity', verify your handle with a DNS TXT record:",
+				`  _atproto.${handle} TXT "did=${did}"`,
+				"",
+				"Or serve a file at:",
+				`  https://${handle}/.well-known/atproto-did`,
+				`  containing: ${did}`,
+			].join("\n"),
+			"Identity Setup 🪪",
+		);
+	}
+}
+
+/**
  * Slugify a handle to create a worker name
  * e.g., "example.com" -> "example-com-pds"
  */
@@ -287,7 +342,7 @@ export const initCommand = defineCommand({
 							? `*${theirDomain}`
 							: "*.bsky.social";
 						p.log.warn(
-							`You'll need a custom domain for your new handle (not ${domainExample}). You can set this up after transferring your data.`,
+							`Your handle needs to move to a domain you control (not ${domainExample}). Choose it below: 'pds identity' switches to it as part of the migration.`,
 						);
 					}
 					if (attempts >= MAX_ATTEMPTS) {
@@ -330,6 +385,10 @@ export const initCommand = defineCommand({
 				initialValue: currentVars.PDS_HOSTNAME || handle,
 				validate: (v) => (!v ? "Hostname is required" : undefined),
 			});
+
+			if (handle !== existingHandle) {
+				showHandleSetup({ handle, hostname, did, didWeb: false });
+			}
 
 			workerName = await promptWorkerName(handle, currentWorkerName);
 
@@ -381,39 +440,7 @@ export const initCommand = defineCommand({
 			// Ensure Cloudflare account is configured before any wrangler operations
 			await ensureAccountConfigured();
 
-			// Show different notes based on whether handle matches hostname
-			if (handle === hostname) {
-				p.note(
-					[
-						"Your handle matches your PDS hostname, so your PDS will",
-						"automatically handle domain verification for you!",
-						"",
-						"For did:web, your PDS serves the DID document at:",
-						`  https://${hostname}/.well-known/did.json`,
-						"",
-						"For handle verification, it serves:",
-						`  https://${hostname}/.well-known/atproto-did`,
-						"",
-						"No additional DNS or hosting setup needed. Easy! 🎉",
-					].join("\n"),
-					"Identity Setup 🪪",
-				);
-			} else {
-				p.note(
-					[
-						"For did:web, your PDS will serve the DID document at:",
-						`  https://${hostname}/.well-known/did.json`,
-						"",
-						"To verify your handle, create a DNS TXT record:",
-						`  _atproto.${handle} TXT "did=${did}"`,
-						"",
-						"Or serve a file at:",
-						`  https://${handle}/.well-known/atproto-did`,
-						`  containing: ${did}`,
-					].join("\n"),
-					"Identity Setup 🪪",
-				);
-			}
+			showHandleSetup({ handle, hostname, did, didWeb: true });
 		}
 
 		// Prompt for data location (skip if already configured)

@@ -35,6 +35,7 @@ import {
 	type RotationKeyChoice,
 } from "../utils/rotation-key-prompts.js";
 import { withHandle } from "../../plc.js";
+import { checkHandleResolutionDetailed } from "../utils/checks.js";
 
 // Helper to override clack's dim styling in notes
 const brightNote = (lines: string[]) =>
@@ -212,6 +213,55 @@ export const identityCommand = defineCommand({
 			p.log.info(`Next step: ${formatCommand(pm, "pds", "activate")}`);
 			p.outro("All set!");
 			return;
+		}
+
+		// The new handle is written to the PLC directory below, so make sure it
+		// verifies first; otherwise apps show it as invalid after the move
+		if (currentHandle !== handle) {
+			spinner.start(`Checking ${handle} resolves to your DID...`);
+			const handleCheck = await checkHandleResolutionDetailed(
+				targetClient,
+				handle,
+				did,
+			);
+			if (handleCheck.ok) {
+				spinner.stop(
+					`${handle} resolves to your DID (via ${handleCheck.methods.join(", ")})`,
+				);
+			} else {
+				spinner.stop(`${handle} doesn't resolve to your DID yet`);
+				p.note(
+					brightNote(
+						handle === pdsHostname
+							? [
+									"Your handle is your PDS hostname, so your PDS verifies it at:",
+									`  https://${handle}/.well-known/atproto-did`,
+									"",
+									"Check the PDS is deployed on that domain.",
+								]
+							: [
+									"Add a DNS TXT record:",
+									`  _atproto.${handle} TXT "did=${did}"`,
+									"",
+									"Or serve a file at:",
+									`  https://${handle}/.well-known/atproto-did`,
+									`  containing: ${did}`,
+								],
+					),
+					"Handle not verified",
+				);
+				const proceed = await promptConfirm({
+					message:
+						"Continue anyway? Apps will show your handle as invalid until it resolves.",
+					initialValue: false,
+				});
+				if (!proceed) {
+					p.outro(
+						"Identity update cancelled. Set up your handle, then run this again.",
+					);
+					process.exit(0);
+				}
+			}
 		}
 
 		// Determine friendly names for display

@@ -141,12 +141,13 @@ pds identity --token XXX # Skip the email step if you already have a code
 The command:
 
 1. Resolves your current DID to find the source PDS
-2. Authenticates with your source PDS (requires your password)
-3. Chooses your [rotation keys](#rotation-and-recovery-keys): any keys you already hold, then your new PDS's key. The source PDS's key is removed. If you don't hold any keys, it offers to create a recovery key and helps you back it up
-4. Shows a summary and asks you to confirm
-5. Requests an email confirmation code from the source PDS
-6. Gets the source PDS to sign a PLC operation with the new endpoint, signing key, rotation keys and handle (`alsoKnownAs`), so a handle chosen in `pds init` replaces a `*.bsky.social` one
-7. Submits the signed operation to the PLC directory and checks the result
+2. If your handle is changing, checks that the new one already resolves to your DID. If it doesn't, it shows how to fix that and asks before continuing
+3. Authenticates with your source PDS (requires your password)
+4. Chooses your [rotation keys](#rotation-and-recovery-keys): any keys you already hold, then your new PDS's key. The source PDS's key is removed. If you don't hold any keys, it offers to create a recovery key and helps you back it up
+5. Shows a summary and asks you to confirm
+6. Requests an email confirmation code from the source PDS
+7. Gets the source PDS to sign a PLC operation with the new endpoint, signing key, rotation keys and handle (`alsoKnownAs`), so a handle chosen in `pds init` replaces a `*.bsky.social` one
+8. Submits the signed operation to the PLC directory and checks the result
 
 **Note:** Only `did:plc` identities are supported. `did:web` identities don't use PLC operations.
 
@@ -541,7 +542,7 @@ npx pds init
 # Answer "Yes" when asked about migrating an existing account
 ```
 
-This detects your existing account, generates new signing keys, and configures the PDS in deactivated mode (ready for data import).
+This detects your existing account, generates new signing keys, and configures the PDS in deactivated mode (ready for data import). If your handle is on a hosted domain such as `*.bsky.social`, choose a domain you control as your new handle. `pds identity` moves your handle to it, so set up verification first: using your PDS hostname as the handle needs nothing extra, and any other domain needs the DNS TXT record `init` shows.
 
 ### Step 2: Deploy and transfer data
 
