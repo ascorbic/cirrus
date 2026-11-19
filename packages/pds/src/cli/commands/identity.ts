@@ -3,9 +3,12 @@
  *
  * This command handles the PLC operation flow for migrating identity
  * from source PDS to Cirrus. It:
- * 1. Requests an email token from the source PDS
- * 2. Gets the source PDS to sign a PLC operation with the new endpoint
- * 3. Submits the signed operation to the PLC directory
+ * 1. Chooses the rotation keys: keys the user holds, an optional new
+ *    recovery key, then this PDS's key. The source PDS's key is removed.
+ * 2. Requests an email token from the source PDS
+ * 3. Gets the source PDS to sign a PLC operation with the new endpoint,
+ *    signing key, rotation keys and handle
+ * 4. Submits the signed operation to the PLC directory
  */
 import { defineCommand } from "citty";
 import * as p from "@clack/prompts";
@@ -22,8 +25,17 @@ import {
 	detectPackageManager,
 	formatCommand,
 	promptText,
+	promptConfirm,
 } from "../utils/cli-helpers.js";
-import { Secp256k1Keypair } from "@atproto/crypto";
+import {
+	checkRotationKeys,
+	chooseRotationKeys,
+	describeRotationKeys,
+	getPdsRotationKey,
+	type RotationKeyChoice,
+} from "../utils/rotation-key-prompts.js";
+import { withHandle } from "../../plc.js";
+import { checkHandleResolutionDetailed } from "../utils/checks.js";
 
 // Helper to override clack's dim styling in notes
 const brightNote = (lines: string[]) =>
@@ -42,7 +54,8 @@ export const identityCommand = defineCommand({
 		},
 		token: {
 			type: "string",
-			description: "Email token (if you already have one)",
+			description:
+				"Confirmation code from your previous PDS's email, if you already have one",
 		},
 	},
 	async run({ args }) {
@@ -85,12 +98,6 @@ export const identityCommand = defineCommand({
 
 		if (!pdsHostname && !isDev) {
 			p.log.error("No PDS_HOSTNAME configured in wrangler.jsonc");
-			p.outro("Identity update cancelled.");
-			process.exit(1);
-		}
-
-		if (!signingKey) {
-			p.log.error("No SIGNING_KEY found. Run 'pds init' first.");
 			p.outro("Identity update cancelled.");
 			process.exit(1);
 		}
@@ -139,16 +146,8 @@ export const identityCommand = defineCommand({
 		const sourceDomain = getDomain(sourcePdsUrl);
 		spinner.stop(`Current PDS: ${sourceDomain}`);
 
-		// Check if already pointing to target
 		const targetEndpoint = targetUrl.replace(/\/$/, "");
 		const currentEndpoint = sourcePdsUrl.replace(/\/$/, "");
-
-		if (currentEndpoint === targetEndpoint) {
-			p.log.success("Your DID already points to your new PDS!");
-			p.log.info(`Next step: ${formatCommand(pm, "pds", "activate")}`);
-			p.outro("All set!");
-			return;
-		}
 
 		// Check target PDS is healthy
 		spinner.start(`Checking ${targetDomain}...`);
@@ -170,20 +169,160 @@ export const identityCommand = defineCommand({
 		}
 		spinner.stop(`New PDS is ready`);
 
-		// Get signing key in did:key format for the PLC operation
-		spinner.start("Preparing signing key...");
-		const signingKeyDid = await getSigningKeyDid(signingKey);
-		if (!signingKeyDid) {
-			spinner.stop("Failed to derive signing key");
-			p.log.error("Could not convert signing key to did:key format");
+		spinner.start("Fetching your PDS's signing key...");
+		let pdsKey: string;
+		try {
+			pdsKey = await getPdsRotationKey(targetClient, targetDomain, signingKey);
+		} catch (err) {
+			spinner.stop("Failed to fetch signing key");
+			p.log.error(
+				err instanceof Error ? err.message : "Could not fetch credentials",
+			);
 			p.outro("Identity update cancelled.");
 			process.exit(1);
 		}
-		spinner.stop("Signing key ready");
+		spinner.stop(`Signing key: ${pdsKey}`);
+
+		const plcClient = new PlcDirectoryClient();
+		spinner.start("Reading your PLC record...");
+		const current = await plcClient.getLatestOperation(did).catch(() => null);
+		if (!current || current.operation.type !== "plc_operation") {
+			spinner.stop("Failed to read PLC record");
+			p.log.error(`Could not read the current PLC operation for ${did}`);
+			p.outro("Identity update cancelled.");
+			process.exit(1);
+		}
+		const currentKeys = current.operation.rotationKeys;
+		const currentHandle = current.operation.alsoKnownAs
+			.find((uri) => uri.startsWith("at://"))
+			?.slice("at://".length);
+		const alsoKnownAs = withHandle(current.operation.alsoKnownAs, handle);
+		spinner.stop("PLC record loaded");
+
+		// Check if already pointing to target
+		if (currentEndpoint === targetEndpoint) {
+			p.log.success("Your DID already points to your new PDS!");
+			if (!currentKeys.includes(pdsKey)) {
+				p.log.warn(
+					"Your PDS can't update your identity, because its key isn't one of your rotation keys.",
+				);
+				p.log.info(
+					`Fix this with: ${formatCommand(pm, "pds", "rotation-keys")}`,
+				);
+			}
+			p.log.info(`Next step: ${formatCommand(pm, "pds", "activate")}`);
+			p.outro("All set!");
+			return;
+		}
+
+		// The new handle is written to the PLC directory below, so make sure it
+		// verifies first; otherwise apps show it as invalid after the move
+		if (currentHandle !== handle) {
+			spinner.start(`Checking ${handle} resolves to your DID...`);
+			const handleCheck = await checkHandleResolutionDetailed(
+				targetClient,
+				handle,
+				did,
+			);
+			if (handleCheck.ok) {
+				spinner.stop(
+					`${handle} resolves to your DID (via ${handleCheck.methods.join(", ")})`,
+				);
+			} else {
+				spinner.stop(`${handle} doesn't resolve to your DID yet`);
+				p.note(
+					brightNote(
+						handle === pdsHostname
+							? [
+									"Your handle is your PDS hostname, so your PDS verifies it at:",
+									`  https://${handle}/.well-known/atproto-did`,
+									"",
+									"Check the PDS is deployed on that domain.",
+								]
+							: [
+									"Add a DNS TXT record:",
+									`  _atproto.${handle} TXT "did=${did}"`,
+									"",
+									"Or serve a file at:",
+									`  https://${handle}/.well-known/atproto-did`,
+									`  containing: ${did}`,
+								],
+					),
+					"Handle not verified",
+				);
+				const proceed = await promptConfirm({
+					message:
+						"Continue anyway? Apps will show your handle as invalid until it resolves.",
+					initialValue: false,
+				});
+				if (!proceed) {
+					p.outro(
+						"Identity update cancelled. Set up your handle, then run this again.",
+					);
+					process.exit(0);
+				}
+			}
+		}
 
 		// Determine friendly names for display
 		const isBlueskyPds = sourceDomain.endsWith(".bsky.network");
 		const sourceDisplayName = isBlueskyPds ? "bsky.social" : sourceDomain;
+
+		// Create source PDS client
+		const sourcePdsClient = new SourcePdsPlcClient(sourcePdsUrl);
+
+		// Log in to the source PDS: signing needs a session, and its
+		// recommended credentials tell us which rotation keys it holds
+		let token = args.token;
+		let sourcePdsKeys: string[] | undefined;
+
+		const password = await p.password({
+			message: `Your password for ${sourceDisplayName}:`,
+		});
+
+		if (p.isCancel(password)) {
+			p.cancel("Identity update cancelled.");
+			process.exit(0);
+		}
+
+		spinner.start(`Logging in to ${sourceDisplayName}...`);
+		const sourceClient = new PDSClient(sourcePdsUrl);
+		try {
+			const session = await sourceClient.createSession(did, password);
+			sourcePdsClient.setAuthToken(session.accessJwt);
+			spinner.stop("Authenticated");
+		} catch (err) {
+			spinner.stop("Login failed");
+			p.log.error(err instanceof Error ? err.message : "Authentication failed");
+			p.outro("Identity update cancelled.");
+			process.exit(1);
+		}
+
+		try {
+			sourcePdsKeys = (await sourcePdsClient.getRecommendedDidCredentials())
+				.rotationKeys;
+		} catch {
+			p.log.warn(
+				`Couldn't ask ${sourceDisplayName} which rotation keys it holds.`,
+			);
+		}
+
+		let choice: RotationKeyChoice;
+		try {
+			choice = await chooseRotationKeys({
+				did,
+				handle,
+				currentKeys,
+				pdsKey,
+				pdsName: targetDomain,
+				sourcePdsKeys,
+				sourceName: sourceDisplayName,
+			});
+		} catch (err) {
+			p.log.error(err instanceof Error ? err.message : String(err));
+			p.outro("Identity update cancelled.");
+			process.exit(1);
+		}
 
 		// Show what we're about to do
 		p.note(
@@ -192,45 +331,28 @@ export const identityCommand = defineCommand({
 				"",
 				`${pc.dim("From:")} ${sourceDisplayName}`,
 				`${pc.dim("To:")}   ${targetDomain}`,
+				currentHandle && currentHandle !== handle
+					? `${pc.dim("Handle:")} ${currentHandle} → ${handle}`
+					: `${pc.dim("Handle:")} ${handle}`,
 				"",
-				pc.dim("This tells the network where to find you."),
+				...describeRotationKeys(choice),
+				"",
+				pc.dim("This tells the network where to find you, and gives"),
+				pc.dim("your new PDS control of your identity."),
 			]),
 			"🔄 DID Update",
 		);
 
-		// Create source PDS client
-		const sourcePdsClient = new SourcePdsPlcClient(sourcePdsUrl);
-
-		// If no token provided, need to get one
-		let token = args.token;
+		const proceed = await promptConfirm({
+			message: "Update your identity?",
+			initialValue: true,
+		});
+		if (!proceed) {
+			p.outro("Identity update cancelled.");
+			process.exit(0);
+		}
 
 		if (!token) {
-			// Authenticate with source PDS to request token
-			const password = await p.password({
-				message: `Your password for ${sourceDisplayName}:`,
-			});
-
-			if (p.isCancel(password)) {
-				p.cancel("Identity update cancelled.");
-				process.exit(0);
-			}
-
-			// Login to source PDS
-			spinner.start(`Logging in to ${sourceDisplayName}...`);
-			const sourceClient = new PDSClient(sourcePdsUrl);
-			try {
-				const session = await sourceClient.createSession(did, password);
-				sourcePdsClient.setAuthToken(session.accessJwt);
-				spinner.stop("Authenticated");
-			} catch (err) {
-				spinner.stop("Login failed");
-				p.log.error(
-					err instanceof Error ? err.message : "Authentication failed",
-				);
-				p.outro("Identity update cancelled.");
-				process.exit(1);
-			}
-
 			// Request PLC operation signature (sends email)
 			spinner.start("Requesting identity update token...");
 			const signatureRequest =
@@ -266,11 +388,17 @@ export const identityCommand = defineCommand({
 
 		// Sign the PLC operation via source PDS
 		spinner.start("Signing identity update...");
-		const signResult = await sourcePdsClient.signPlcOperation(
-			token.trim(),
-			targetUrl,
-			signingKeyDid,
-		);
+		const signResult = await sourcePdsClient.signPlcOperation(token.trim(), {
+			rotationKeys: choice.rotationKeys,
+			alsoKnownAs,
+			verificationMethods: { atproto: pdsKey },
+			services: {
+				atproto_pds: {
+					type: "AtprotoPersonalDataServer",
+					endpoint: targetUrl,
+				},
+			},
+		});
 
 		if (!signResult.success || !signResult.signedOperation) {
 			spinner.stop("Failed to sign operation");
@@ -285,14 +413,29 @@ export const identityCommand = defineCommand({
 		}
 		spinner.stop("Operation signed");
 
-		// Submit to PLC directory
-		const plcClient = new PlcDirectoryClient();
+		// The source PDS builds the operation; refuse to submit it if it
+		// doesn't carry the rotation keys and handle we asked for
+		const signed = signResult.signedOperation;
+		const sameList = (a: string[], b: string[]) =>
+			a.length === b.length && a.every((item, i) => item === b[i]);
+		if (!sameList(signed.rotationKeys, choice.rotationKeys)) {
+			p.log.error(
+				`${sourceDisplayName} signed different rotation keys than requested: ${signed.rotationKeys.join(", ")}`,
+			);
+			p.outro("Identity update cancelled. Nothing was submitted.");
+			process.exit(1);
+		}
+		if (!sameList(signed.alsoKnownAs, alsoKnownAs)) {
+			p.log.error(
+				`${sourceDisplayName} signed a different handle than requested: ${signed.alsoKnownAs.join(", ")}`,
+			);
+			p.outro("Identity update cancelled. Nothing was submitted.");
+			process.exit(1);
+		}
 
+		// Submit to PLC directory
 		spinner.start("Submitting to PLC directory...");
-		const submitResult = await plcClient.submitOperation(
-			did,
-			signResult.signedOperation,
-		);
+		const submitResult = await plcClient.submitOperation(did, signed);
 
 		if (!submitResult.success) {
 			spinner.stop("Failed to submit operation");
@@ -309,16 +452,35 @@ export const identityCommand = defineCommand({
 		const verifyResolver = new DidResolver();
 		const newDidDoc = await verifyResolver.resolve(did);
 		const newPdsEndpoint = newDidDoc ? getPdsEndpoint(newDidDoc) : null;
+		const keyMismatch = await checkRotationKeys(
+			plcClient,
+			did,
+			choice.rotationKeys,
+		).catch(() => undefined);
 
-		if (newPdsEndpoint?.replace(/\/$/, "") === targetEndpoint) {
+		if (newPdsEndpoint?.replace(/\/$/, "") === targetEndpoint && !keyMismatch) {
 			spinner.stop("Verified! DID now points to new PDS");
 		} else {
 			spinner.stop("Update submitted (verification pending)");
 			p.log.warn("It may take a moment for the update to propagate.");
+			if (keyMismatch) {
+				p.log.warn(
+					`plc.directory lists these rotation keys: ${keyMismatch.join(", ") || "none"}`,
+				);
+				p.log.info(
+					`Check them with: ${formatCommand(pm, "pds", "rotation-keys")}`,
+				);
+			}
 		}
 
 		// Success!
 		p.log.success("Your identity now points to your new PDS!");
+
+		if (choice.createdRecoveryKey) {
+			p.log.info(
+				"Keep your recovery key offline. If your PDS ever makes an identity change you didn't ask for, you have 72 hours to undo it with that key.",
+			);
+		}
 
 		p.note(
 			brightNote([
@@ -334,17 +496,3 @@ export const identityCommand = defineCommand({
 		p.outro("Identity updated! 🎉");
 	},
 });
-
-/**
- * Convert a hex-encoded secp256k1 private key to a did:key
- *
- * This imports the private key and returns the did:key representation.
- */
-async function getSigningKeyDid(hexPrivateKey: string): Promise<string | null> {
-	try {
-		const keypair = await Secp256k1Keypair.import(hexPrivateKey);
-		return keypair.did();
-	} catch {
-		return null;
-	}
-}

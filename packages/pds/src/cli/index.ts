@@ -10,6 +10,7 @@ import { initCommand } from "./commands/init.js";
 import { migrateCommand } from "./commands/migrate.js";
 import { migrateTokenCommand } from "./commands/migrate-token.js";
 import { identityCommand } from "./commands/identity.js";
+import { rotationKeysCommand } from "./commands/rotation-keys.js";
 import { activateCommand } from "./commands/activate.js";
 import { deactivateCommand } from "./commands/deactivate.js";
 import { statusCommand } from "./commands/status.js";
@@ -31,6 +32,7 @@ const main = defineCommand({
 		migrate: migrateCommand,
 		"migrate-token": migrateTokenCommand,
 		identity: identityCommand,
+		"rotation-keys": rotationKeysCommand,
 		activate: activateCommand,
 		deactivate: deactivateCommand,
 		status: statusCommand,
