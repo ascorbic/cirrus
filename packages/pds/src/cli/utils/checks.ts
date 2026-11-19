@@ -4,6 +4,7 @@
 import { PDSClient, type MigrationStatus } from "./pds-client.js";
 import { resolveHandleToDid } from "./handle-resolver.js";
 import { DidResolver } from "../../did-resolver.js";
+import { PlcDirectoryClient } from "./plc-client.js";
 
 export interface CheckResult {
 	ok: boolean;
@@ -118,6 +119,36 @@ export async function checkDidDocument(
 		ok: true,
 		message: `PDS endpoint → ${expectedEndpoint}`,
 	};
+}
+
+/**
+ * Check whether this PDS can update a did:plc identity: its signing key
+ * must be one of the DID's rotation keys. Also reports whether any other
+ * key is listed, such as a recovery key. Returns null if either side
+ * can't be read.
+ */
+export async function checkPlcRotationKeys(
+	client: PDSClient,
+	did: string,
+	plcClient = new PlcDirectoryClient(),
+): Promise<{ pdsCanSign: boolean; otherKeys: number } | null> {
+	try {
+		const [credentials, latest] = await Promise.all([
+			client.getRecommendedDidCredentials(),
+			plcClient.getLatestOperation(did),
+		]);
+		const pdsKey = credentials.rotationKeys[0];
+		if (!pdsKey || latest?.operation.type !== "plc_operation") {
+			return null;
+		}
+		const keys = latest.operation.rotationKeys;
+		return {
+			pdsCanSign: keys.includes(pdsKey),
+			otherKeys: keys.filter((key) => key !== pdsKey).length,
+		};
+	} catch {
+		return null;
+	}
 }
 
 /**

@@ -21,12 +21,64 @@ import {
 	promptSelect,
 	detectPackageManager,
 	formatCommand,
-	copyToClipboard,
-	saveKeyBackup,
-	is1PasswordAvailable,
-	saveTo1Password,
+	promptKeyBackup,
 	runCommand,
 } from "../utils/cli-helpers.js";
+
+/**
+ * Explain how the handle will be verified: automatically when it matches the
+ * PDS hostname, otherwise with a DNS TXT record or a file on the handle's
+ * domain. For a migration (didWeb false) the handle switches when
+ * `pds identity` runs, so the record must exist by then.
+ */
+function showHandleSetup(opts: {
+	handle: string;
+	hostname: string;
+	did: string;
+	didWeb: boolean;
+}): void {
+	const { handle, hostname, did, didWeb } = opts;
+	const didWebLines = (verb: string) =>
+		didWeb
+			? [
+					`For did:web, your PDS ${verb} the DID document at:`,
+					`  https://${hostname}/.well-known/did.json`,
+					"",
+				]
+			: [];
+	if (handle === hostname) {
+		p.note(
+			[
+				"Your handle matches your PDS hostname, so your PDS will",
+				"automatically handle domain verification for you!",
+				"",
+				...didWebLines("serves"),
+				"For handle verification, it serves:",
+				`  https://${hostname}/.well-known/atproto-did`,
+				"",
+				didWeb
+					? "No additional DNS or hosting setup needed. Easy! 🎉"
+					: "No additional DNS setup needed. Your handle switches when you run 'pds identity'.",
+			].join("\n"),
+			"Identity Setup 🪪",
+		);
+	} else {
+		p.note(
+			[
+				...didWebLines("will serve"),
+				didWeb
+					? "To verify your handle, create a DNS TXT record:"
+					: "Before you run 'pds identity', verify your handle with a DNS TXT record:",
+				`  _atproto.${handle} TXT "did=${did}"`,
+				"",
+				"Or serve a file at:",
+				`  https://${handle}/.well-known/atproto-did`,
+				`  containing: ${did}`,
+			].join("\n"),
+			"Identity Setup 🪪",
+		);
+	}
+}
 
 /**
  * Slugify a handle to create a worker name
@@ -290,7 +342,7 @@ export const initCommand = defineCommand({
 							? `*${theirDomain}`
 							: "*.bsky.social";
 						p.log.warn(
-							`You'll need a custom domain for your new handle (not ${domainExample}). You can set this up after transferring your data.`,
+							`Your handle needs to move to a domain you control (not ${domainExample}). Choose it below: 'pds identity' switches to it as part of the migration.`,
 						);
 					}
 					if (attempts >= MAX_ATTEMPTS) {
@@ -333,6 +385,10 @@ export const initCommand = defineCommand({
 				initialValue: currentVars.PDS_HOSTNAME || handle,
 				validate: (v) => (!v ? "Hostname is required" : undefined),
 			});
+
+			if (handle !== existingHandle) {
+				showHandleSetup({ handle, hostname, did, didWeb: false });
+			}
 
 			workerName = await promptWorkerName(handle, currentWorkerName);
 
@@ -384,39 +440,7 @@ export const initCommand = defineCommand({
 			// Ensure Cloudflare account is configured before any wrangler operations
 			await ensureAccountConfigured();
 
-			// Show different notes based on whether handle matches hostname
-			if (handle === hostname) {
-				p.note(
-					[
-						"Your handle matches your PDS hostname, so your PDS will",
-						"automatically handle domain verification for you!",
-						"",
-						"For did:web, your PDS serves the DID document at:",
-						`  https://${hostname}/.well-known/did.json`,
-						"",
-						"For handle verification, it serves:",
-						`  https://${hostname}/.well-known/atproto-did`,
-						"",
-						"No additional DNS or hosting setup needed. Easy! 🎉",
-					].join("\n"),
-					"Identity Setup 🪪",
-				);
-			} else {
-				p.note(
-					[
-						"For did:web, your PDS will serve the DID document at:",
-						`  https://${hostname}/.well-known/did.json`,
-						"",
-						"To verify your handle, create a DNS TXT record:",
-						`  _atproto.${handle} TXT "did=${did}"`,
-						"",
-						"Or serve a file at:",
-						`  https://${handle}/.well-known/atproto-did`,
-						`  containing: ${did}`,
-					].join("\n"),
-					"Identity Setup 🪪",
-				);
-			}
+			showHandleSetup({ handle, hostname, did, didWeb: true });
 		}
 
 		// Prompt for data location (skip if already configured)
@@ -521,108 +545,12 @@ export const initCommand = defineCommand({
 				"Critical: Back Up Your Signing Key",
 			);
 
-			// Check if 1Password CLI is available
-			const has1Password = await is1PasswordAvailable();
-
-			// Build backup options dynamically
-			type BackupOption = "1password" | "copy" | "file" | "show" | "skip";
-			const backupOptions: Array<{
-				value: BackupOption;
-				label: string;
-				hint: string;
-			}> = [];
-
-			if (has1Password) {
-				backupOptions.push({
-					value: "1password" as const,
-					label: "Save to 1Password",
-					hint: "recommended - uses op CLI",
-				});
-			}
-
-			backupOptions.push(
-				{
-					value: "copy" as const,
-					label: "Copy to clipboard",
-					hint: "paste into password manager",
-				},
-				{
-					value: "file" as const,
-					label: "Save to file",
-					hint: "signing-key-backup.txt",
-				},
-				{
-					value: "show" as const,
-					label: "Display it (I'll copy manually)",
-					hint: "shown in terminal",
-				},
-				{
-					value: "skip" as const,
-					label: "Skip (I understand the risk)",
-					hint: "not recommended",
-				},
-			);
-
-			const backupChoice = await promptSelect<BackupOption>({
-				message: "How would you like to back up your signing key?",
-				options: backupOptions,
+			await promptKeyBackup({
+				key: signingKey,
+				kind: "signing",
+				handle,
+				allowSkip: true,
 			});
-
-			if (backupChoice === "1password") {
-				spinner.start("Saving to 1Password...");
-				const result = await saveTo1Password(signingKey, handle);
-				if (result.success) {
-					spinner.stop("Saved to 1Password");
-					p.log.success(`Created: "${result.itemName}"`);
-				} else {
-					spinner.stop("Failed to save to 1Password");
-					p.log.error(result.error || "Unknown error");
-					p.log.info("Falling back to displaying the key...");
-					p.note(
-						[
-							"SIGNING KEY (keep this secret!):",
-							"",
-							signingKey,
-							"",
-							"Copy this to your password manager now.",
-						].join("\n"),
-						"🔑 Your Signing Key",
-					);
-				}
-			} else if (backupChoice === "copy") {
-				await copyToClipboard(signingKey);
-				p.log.success("Signing key copied to clipboard");
-				p.log.info("Paste it into your password manager now!");
-			} else if (backupChoice === "file") {
-				const backupPath = await saveKeyBackup(signingKey, handle);
-				p.log.success(`Signing key saved to: ${backupPath}`);
-				p.log.warn(
-					"Move this file to a secure location and delete the local copy!",
-				);
-			} else if (backupChoice === "show") {
-				p.note(
-					[
-						"SIGNING KEY (keep this secret!):",
-						"",
-						signingKey,
-						"",
-						"Copy this to your password manager now.",
-					].join("\n"),
-					"🔑 Your Signing Key",
-				);
-			}
-
-			if (backupChoice !== "skip") {
-				const confirmed = await promptConfirm({
-					message: "Have you saved your signing key securely?",
-					initialValue: true,
-				});
-				if (!confirmed) {
-					p.log.warn("Please back up your key before continuing!");
-					// Show it one more time
-					p.note(signingKey, "🔑 Signing Key");
-				}
-			}
 		}
 
 		const jwtSecret = await getOrGenerateSecret(

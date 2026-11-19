@@ -12,6 +12,8 @@ import type { PDSEnv } from "../types";
 export interface AuthInfo {
 	did: string;
 	scope: string;
+	/** How the request authenticated */
+	method: "static" | "session" | "app-password" | "service" | "oauth";
 }
 
 export type AuthVariables = {
@@ -86,6 +88,36 @@ export function requireScope(
 	return checker(check);
 }
 
+/**
+ * Require credentials allowed to change the account's identity, such as
+ * signing PLC operations: the static AUTH_TOKEN, a password session, or an
+ * OAuth token granted `identity:*`. App passwords and service JWTs are
+ * refused. Returns a 403 Response, or null when allowed.
+ */
+export function requireIdentityControl(
+	c: Context<{ Bindings: PDSEnv; Variables: AuthVariables }>,
+): Response | null {
+	const auth = c.get("auth");
+	switch (auth?.method) {
+		case "static":
+		case "session":
+			return null;
+		case "oauth":
+			return requireScope(c, (perms) => perms.assertIdentity({ attr: "*" }));
+		default:
+			return c.json(
+				{
+					error: "InsufficientScope",
+					message:
+						auth?.method === "app-password"
+							? "App passwords can't change your identity. Sign in with your account password."
+							: "These credentials can't change your identity.",
+				},
+				403,
+			);
+	}
+}
+
 export async function requireAuth(
 	c: Context<{ Bindings: PDSEnv; Variables: AuthVariables }>,
 	next: Next,
@@ -122,7 +154,11 @@ export async function requireAuth(
 			);
 		}
 
-		c.set("auth", { did: tokenData.sub, scope: tokenData.scope });
+		c.set("auth", {
+			did: tokenData.sub,
+			scope: tokenData.scope,
+			method: "oauth",
+		});
 		return next();
 	}
 
@@ -143,7 +179,11 @@ export async function requireAuth(
 	// shared operator secret; requireScope() treats `com.atproto.access` as a
 	// fully-trusted legacy scope, so this carries the same broad authority.
 	if (token === c.env.AUTH_TOKEN) {
-		c.set("auth", { did: c.env.DID, scope: "com.atproto.access" });
+		c.set("auth", {
+			did: c.env.DID,
+			scope: "com.atproto.access",
+			method: "static",
+		});
 		return next();
 	}
 
@@ -170,7 +210,11 @@ export async function requireAuth(
 		}
 
 		// Store auth info in context for downstream use
-		c.set("auth", { did: payload.sub, scope: payload.scope as string });
+		c.set("auth", {
+			did: payload.sub,
+			scope: payload.scope as string,
+			method: payload.apf === true ? "app-password" : "session",
+		});
 		return next();
 	} catch (err) {
 		// Match official PDS: expired tokens return 400 with 'ExpiredToken'
@@ -237,7 +281,11 @@ export async function requireAuth(
 		// represent a fully-authenticated caller bound to one method (above);
 		// mark with the legacy `com.atproto.access` scope so requireScope()
 		// short-circuits at the resource layer.
-		c.set("auth", { did: payload.iss, scope: "com.atproto.access" });
+		c.set("auth", {
+			did: payload.iss,
+			scope: "com.atproto.access",
+			method: "service",
+		});
 		return next();
 	} catch {
 		// Service JWT verification also failed
