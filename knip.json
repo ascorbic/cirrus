@@ -13,11 +13,30 @@
 		},
 		"packages/pds": {
 			"ignore": ["scripts/**", "test/fixtures/**", "e2e/fixture/**"],
-			"ignoreDependencies": ["tsx", "vite", "@cloudflare/vite-plugin"]
+			"ignoreDependencies": [
+				"tsx",
+				"vite",
+				"@cloudflare/vite-plugin",
+				"@atproto/common",
+				"@atproto/common-web"
+			]
 		},
 		"packages/spaces": {
 			"ignore": ["test/fixtures/**"],
-			"ignoreDependencies": ["wrangler"]
+			"ignoreDependencies": [
+				"wrangler",
+				"@atproto/common",
+				"@atproto/common-web"
+			]
+		},
+		"packages/space-conformance": {
+			"ignoreDependencies": [
+				"@atproto/common",
+				"@atproto/common-web",
+				"@atproto/lexicon",
+				"@atproto/oauth-client",
+				"@atproto/xrpc"
+			]
 		},
 		"apps/check": {
 			"entry": ["src/worker.ts"]
