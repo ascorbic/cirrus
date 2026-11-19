@@ -16,6 +16,7 @@ import { fail, pass, type Check, type CheckContext } from "../model.js";
 import { bytesEqual, lexBytes, rawCid, sha256 } from "../encoding.js";
 import {
 	POST,
+	PROBE_TYPE,
 	createProbeSpace,
 	deleteProbeSpace,
 	describe,
@@ -761,7 +762,11 @@ const garbageCursor = defineCheck({
 			for (const [name, params] of [
 				["com.atproto.space.listRecords", base],
 				["com.atproto.space.listRepoOps", base],
-				["com.atproto.space.listSpaces", { cursor }],
+				// Filtered to the probe type, so a session scoped to it may list.
+				[
+					"com.atproto.space.listSpaces",
+					{ cursor, spaceType: PROBE_TYPE, spaceDid: ctx.target.did },
+				],
 				["com.atproto.memberspace.listMembers", { space: space.uri, cursor }],
 			] as const) {
 				const res = await xrpcGet(op(ctx), name, params);
