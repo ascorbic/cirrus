@@ -32,7 +32,7 @@ import { startReferencePds, type ReferencePds } from "../src/reference.js";
 import { startHarnessServices, type HarnessServices } from "../src/harness.js";
 
 /** The alpha build this partition was calibrated against. */
-const CALIBRATED_ALPHA = "0.0.0-spaces-alpha-20261112204144";
+const CALIBRATED_ALPHA = "0.0.0-spaces-alpha-20261117141222";
 
 /**
  * Checks the reference PDS is known to fail, with the reason it diverges from
@@ -56,14 +56,6 @@ const EXPECTED_DIVERGENCES: Record<string, string> = {
 	// (writes.space-not-found passes). Unchanged since 1105.
 	"writes.delete-in-missing-space":
 		"reference deleteRecord short-circuits on an absent record before checking the space, answering 200",
-	// ClientAttestationVerifier.verify still calls parseSpaceToken outside its
-	// invalid() wrapper, so a structurally malformed attestation escapes as an
-	// uncaught SpaceTokenError: 500 InternalServerError, where authorizeSpaceSync
-	// declares InvalidClientAttestation. A well-formed but unverifiable one is
-	// refused correctly (credential.unverifiable-attestation-refused passes).
-	// Unchanged since 1105.
-	"credential.garbage-attestation-refused":
-		"reference answers 500 for a malformed client attestation (parseSpaceToken throws outside invalid())",
 };
 
 /**

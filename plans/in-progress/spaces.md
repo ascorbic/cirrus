@@ -213,6 +213,22 @@ requirements, zero gaps, 36 exempt. Results on 2026-11-13:
 - The probe space declaration (`earth.cirrus.check.space`) uses `title`
   and needs republishing (loop in `probe-lexicons/README.md`).
 
+## Alpha 20261117141222 (2026-11-19)
+
+Pins bumped from 1112, passing 1113 (`20261113224550`). Neither build
+changes a space lexicon or the code of `@atproto/space` /
+`@atproto/oauth-scopes`. 1113 publishes the alpha's internal deps as
+exact versions rather than `^` ranges. That isn't enough to stop bundling:
+exact sibling pins already failed to rescue npm at 1105. 1117 merges main.
+Its one spaces behaviour change is the reference refusing app passwords
+on every space route, which Cirrus already did. No new outranking broken
+releases.
+
+The 1117 reference fixed `credential.garbage-attestation-refused` (a
+malformed attestation is now `InvalidClientAttestation`, not a 500), so
+the matrix is 104 pass, 1 pinned divergence
+(`writes.delete-in-missing-space`), the slow check skipped.
+
 ## Alpha sync process
 
 Upstream cuts a build from `permissioned-data-alpha` most Thursdays. To
@@ -264,7 +280,7 @@ move to a new one (the update loop from the space-conformance spec, #228):
 - Standalone host package (S9): the engine boundary is in place; no
   package yet.
 - Alpha deps (`@atproto/space`, `@atproto/oauth-scopes` at
-  `0.0.0-spaces-alpha-20261112204144`) follow the sync process above;
+  `0.0.0-spaces-alpha-20261117141222`) follow the sync process above;
   Renovate is configured to leave them alone.
 
 ## Implementation notes (non-obvious)

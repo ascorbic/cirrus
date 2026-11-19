@@ -2,7 +2,7 @@
 "@getcirrus/space-conformance": minor
 ---
 
-Port the conformance suite to the 2026-11-12 spaces alpha (`0.0.0-spaces-alpha-20261112204144`).
+Port the conformance suite to the 2026-11-12 spaces protocol, pinned to the 2026-11-17 alpha (`0.0.0-spaces-alpha-20261117141222`).
 
 - Credentials come from `authorizeSpaceSync` (with `credentialKey`), and the writer set from `listWriters`, whose typed `repoWrite` / `repoRemoved` entries the checks now read. Member checks use the batched `putMembers` / `removeMembers`, and the managing-app checks use `checkAccess`, including the new tokenless call without a `repo`.
 - MAC requests are `Accept-Signature` headers keyed by an HPKE-exported secret, and the full checks verify the MAC signatures that come back. Credential signatures are checked to be found by tag under any label, with `keyid`, `alg`, component and duplicate-signature refusals.

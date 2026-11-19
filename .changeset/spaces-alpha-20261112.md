@@ -4,7 +4,7 @@
 "@getcirrus/oauth-provider": minor
 ---
 
-Update atproto spaces to the 2026-11-12 alpha (`0.0.0-spaces-alpha-20261112204144`). This is a breaking alpha change: the space schema moves to version 3, so existing space data refuses to open until you run `pds spaces reset`, and apps and syncers built against the 2026-11-05 alpha need updating.
+Update atproto spaces to the 2026-11-17 alpha (`0.0.0-spaces-alpha-20261117141222`), which carries the 2026-11-12 protocol changes. This is a breaking alpha change: the space schema moves to version 3, so existing space data refuses to open until you run `pds spaces reset`, and apps and syncers built against the 2026-11-05 alpha need updating.
 
 - Renamed methods: `getSpaceCredential` is now `authorizeSpaceSync` (taking `credentialKey`), `listRepos` is `listWriters`, `notifyWrite` is `notifyRepoUpdate`, `notifyCredentialRevoked` is `notifyCredentialsRevoked` and the managing app's `checkUserAccess` is `checkAccess`. `putMember` / `removeMember` are replaced by batched `putMembers` / `removeMembers` (up to 100 at a time, in one commit).
 - Syncers register for notifications by passing a webhook endpoint and token to `authorizeSpaceSync`, which the space host confirms with the syncer's `confirmRegistration` before issuing. Updates go to its `notifySpaceUpdate`; a lapsed registration gets one `registrationExpired` notice, and deleting a space tells every registered syncer, retried for up to 72 hours. `registerNotify`, `unregisterNotify` and `notifySpaceDeleted` are gone.

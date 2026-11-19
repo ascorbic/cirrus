@@ -51,20 +51,21 @@ check:
 - the dev-env PLC as `target.plcDirectory`, so the operator's did:plc
   document (and its `#atproto_kem` key) resolves.
 
-## Pinned reference divergences (alpha `0.0.0-spaces-alpha-20261112204144`)
+## Pinned reference divergences (alpha `0.0.0-spaces-alpha-20261117141222`)
 
-| Check                                    | Why the reference diverges                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `writes.delete-in-missing-space`         | `deleteRecord` declares `SpaceNotFound`, and proposal 0016 (Repo lifecycle) says that when the writer is the space authority "the space must already exist" (changeset `brave-spaces-exist`: such writes are rejected with `SpaceNotFound`). The reference's `deleteRecord` checks whether the record exists first (`hasRecord` → no-op, for idempotency), so a delete in a missing or deleted space is a silent 200. Its create, put and applyWrites do answer `SpaceNotFound`. |
-| `credential.garbage-attestation-refused` | `ClientAttestationVerifier.verify` calls `parseSpaceToken` outside its `invalid()` wrapper, so a structurally malformed client attestation escapes as an uncaught `SpaceTokenError` — 500 `InternalServerError` where `authorizeSpaceSync` declares `InvalidClientAttestation`. A well-formed but unverifiable attestation is refused correctly (`credential.unverifiable-attestation-refused` passes).                                                                          |
+| Check                            | Why the reference diverges                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `writes.delete-in-missing-space` | `deleteRecord` declares `SpaceNotFound`, and proposal 0016 (Repo lifecycle) says that when the writer is the space authority "the space must already exist" (changeset `brave-spaces-exist`: such writes are rejected with `SpaceNotFound`). The reference's `deleteRecord` checks whether the record exists first (`hasRecord` → no-op, for idempotency), so a delete in a missing or deleted space is a silent 200. Its create, put and applyWrites do answer `SpaceNotFound`. |
 
-Both are carried over unchanged from the 1105 alpha. The third 1105
+Carried over unchanged from the 1105 alpha. The 1117 reference fixed
+`credential.garbage-attestation-refused` (a malformed client attestation
+was a 500, now `InvalidClientAttestation`), so it passes. The third 1105
 divergence, `space.reads-after-delete-not-found`, is gone with the check: the
 1112 lexicons dropped the `deleteSpace` sentence it cited, and the read
 methods' `SpaceNotFound` is now a reasoned coverage exemption instead.
 
 Not run here: `notify.registration-expired`, a `slow` check that waits out a
-real 10-minute credential before writing. It was run by hand against this alpha (2026-11-13, about 10 minutes) and passed: after the credential lapsed, the next write was replaced by `registrationExpired` and the `repoWrite` was not delivered. Run it with `slow: true`.
+real 10-minute credential before writing. It was run by hand against the 1112 alpha (2026-11-13, about 10 minutes) and passed; 1117 changed nothing it exercises: after the credential lapsed, the next write was replaced by `registrationExpired` and the `repoWrite` was not delivered. Run it with `slow: true`.
 
 Everything else in the catalog passes against the reference, including the
 identity-gated checks (foreign readers, writers' `notifyRepoUpdate`, foreign
