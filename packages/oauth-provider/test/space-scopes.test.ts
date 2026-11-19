@@ -3,6 +3,7 @@ import {
 	ScopeParseError,
 	finalizeSpaceScopes,
 	parseScope,
+	allowsSpace,
 	parseSpaceScope,
 	permissionsFor,
 } from "../src/scopes.js";
@@ -19,7 +20,7 @@ describe("parseScope with space scopes", () => {
 
 	it("rejects the named-param space form by default too", () => {
 		expect(() =>
-			parseScope("atproto space?type=app.bsky.group"),
+			parseScope("atproto space?spaceType=app.bsky.group"),
 		).toThrow(/not enabled/);
 	});
 
@@ -53,10 +54,11 @@ describe("parseScope with space scopes", () => {
 
 describe("parseSpaceScope", () => {
 	it("parses positional and named-param forms", () => {
-		expect(parseSpaceScope("space:app.bsky.group")?.type).toBe(
+		expect(parseSpaceScope("space:app.bsky.group")?.spaceType).toBe(
 			"app.bsky.group",
 		);
-		expect(parseSpaceScope("space?type=app.bsky.group")?.type).toBe(
+		// The named parameter is `spaceType` since the 2026-11-12 alpha.
+		expect(parseSpaceScope("space?spaceType=app.bsky.group")?.spaceType).toBe(
 			"app.bsky.group",
 		);
 	});
@@ -138,7 +140,7 @@ describe("space permission checks", () => {
 		);
 		const perms = permissionsFor(stored);
 		expect(
-			perms.allowsSpace({
+			allowsSpace(perms, {
 				type: "app.bsky.group",
 				authority: did,
 				skey: "3kbcq3p7ad400",
@@ -146,7 +148,7 @@ describe("space permission checks", () => {
 			}),
 		).toBe(true);
 		expect(
-			perms.allowsSpace({
+			allowsSpace(perms, {
 				type: "app.bsky.group",
 				authority: did,
 				skey: "3kbcq3p7ad400",
@@ -155,7 +157,7 @@ describe("space permission checks", () => {
 			}),
 		).toBe(true);
 		expect(
-			perms.allowsSpace({
+			allowsSpace(perms, {
 				type: "app.bsky.group",
 				authority: did,
 				skey: "3kbcq3p7ad400",
@@ -164,7 +166,7 @@ describe("space permission checks", () => {
 			}),
 		).toBe(false);
 		expect(
-			perms.allowsSpace({
+			allowsSpace(perms, {
 				type: "app.bsky.group",
 				authority: "did:plc:someoneelse",
 				skey: "3kbcq3p7ad400",
@@ -176,7 +178,7 @@ describe("space permission checks", () => {
 	it("transition:generic grants nothing on spaces", () => {
 		const perms = permissionsFor("atproto transition:generic");
 		expect(
-			perms.allowsSpace({
+			allowsSpace(perms, {
 				type: "app.bsky.group",
 				authority: "did:web:alice.test",
 				skey: "*",
@@ -193,7 +195,7 @@ describe("space permission checks", () => {
 		);
 		const perms = permissionsFor(stored);
 		expect(
-			perms.allowsSpace({
+			allowsSpace(perms, {
 				type: "app.bsky.group",
 				authority: did,
 				skey: "*",
@@ -201,7 +203,7 @@ describe("space permission checks", () => {
 			}),
 		).toBe(true);
 		expect(
-			perms.allowsSpace({
+			allowsSpace(perms, {
 				type: "app.bsky.group",
 				authority: did,
 				skey: "*",

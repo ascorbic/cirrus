@@ -37,7 +37,12 @@ export function parseSpaceUri(uri: string): SpaceRef | null {
 	];
 	if (marker !== "space") return null;
 	if (!isDid(authority) || !isNsid(type) || !isRecordKey(skey)) return null;
-	const ref = { uri: formatSpaceUri(authority, type, skey), authority, type, skey };
+	const ref = {
+		uri: formatSpaceUri(authority, type, skey),
+		authority,
+		type,
+		skey,
+	};
 	// Round-trip requirement mirrors the reference's SpaceRef.parse.
 	if (ref.uri !== uri) return null;
 	return ref;

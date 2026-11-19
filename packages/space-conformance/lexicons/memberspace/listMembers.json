@@ -1,25 +1,23 @@
 {
   "lexicon": 1,
-  "id": "com.atproto.simplespace.listMembers",
+  "id": "com.atproto.memberspace.listMembers",
   "defs": {
     "main": {
       "type": "query",
-      "description": "List the members in a space's host-internal member list. Must be called on the space authority's PDS. Requires OAuth with a covering read grant; a space credential is not sufficient, so members hosted elsewhere cannot enumerate the list. This reflects the simplespace member list, not a protocol-level reader set.",
+      "description": "List the members of a space with a memberspace policy. Requires auth as the space authority, implemented by PDS.",
       "parameters": {
         "type": "params",
         "required": ["space"],
         "properties": {
           "space": {
             "type": "string",
-            "format": "space-ref",
-            "description": "Reference to the space."
+            "format": "space-ref"
           },
           "limit": {
             "type": "integer",
             "minimum": 1,
             "maximum": 1000,
-            "default": 100,
-            "description": "Maximum number of members to return."
+            "default": 100
           },
           "cursor": {
             "type": "string"
@@ -39,7 +37,7 @@
               "type": "array",
               "items": {
                 "type": "ref",
-                "ref": "#member"
+                "ref": "com.atproto.memberspace.defs#member"
               }
             }
           }
@@ -48,18 +46,18 @@
       "errors": [
         {
           "name": "SpaceNotFound"
+        },
+        {
+          "name": "NotAuthorized"
+        },
+        {
+          "name": "PolicyMismatch",
+          "description": "The space does not have a memberspace policy."
+        },
+        {
+          "name": "InvalidCursor"
         }
       ]
-    },
-    "member": {
-      "type": "object",
-      "required": ["did"],
-      "properties": {
-        "did": {
-          "type": "string",
-          "format": "did"
-        }
-      }
     }
   }
 }

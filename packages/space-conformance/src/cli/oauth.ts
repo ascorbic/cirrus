@@ -2,13 +2,14 @@
  * OAuth loopback sign-in for the CLI — the `gh auth login` shape: start an
  * ephemeral 127.0.0.1 callback server, register as an atproto loopback
  * client, open the authorization URL in the user's browser, and exchange
- * the callback for a DPoP-bound session.
+ * the callback for a session.
  *
  * This is the auth path that involves no password at all and works against
- * any PDS with an atproto OAuth server. The session's tokens are DPoP-bound
- * — unusable as a plain bearer — so the run authenticates through
- * `operator.fetch`, with the client library signing every request (and
- * handling nonce challenges) rather than a static header.
+ * any PDS with an atproto OAuth server. OAuth access tokens are DPoP-bound
+ * (RFC 9449 — unrelated to space credentials, which carry their own HTTP
+ * message signature), so the run authenticates through `operator.fetch`,
+ * with the client library signing every request (and handling nonce
+ * challenges) rather than a static header.
  */
 
 import { createServer } from "node:http";
@@ -22,11 +23,15 @@ import {
 
 /**
  * The scope the conformance run signs in with: generic repo access (for
- * uploadBlob) plus full record actions and space management on the probe
- * space type under the user's own authority. Mirrors the web checker.
+ * uploadBlob) plus every space action and management op on the probe space
+ * type. `authority=*` because the suite deliberately addresses spaces it
+ * does not own — NotSpaceOwner refusals, and writes into a foreign
+ * authority's space — and a `self`-only grant would turn those into scope
+ * refusals before the host's own check is reached. The grant is still
+ * confined to the probe type. Mirrors the web checker.
  */
-const OAUTH_SCOPE =
-	"atproto transition:generic space:earth.cirrus.check.space?collection=*&manage=create&manage=update&manage=delete";
+export const OAUTH_SCOPE =
+	"atproto transition:generic space:earth.cirrus.check.space?authority=*&collection=*&manage=create&manage=update&manage=delete";
 
 /** How long to wait for the user to complete the browser flow. */
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;

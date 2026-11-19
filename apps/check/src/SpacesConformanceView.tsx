@@ -2,27 +2,34 @@
  * Runner #3: the browser adapter for the spaces conformance suite.
  *
  * Signed in (the landing-page flow), the run carries the operator, blob
- * and delegation capabilities: probe spaces, record writes, applyWrites
- * atomicity, blob isolation and the operator's own delegation → credential
- * → read flow all execute for real against the user's PDS, authenticated
- * through the DPoP-bound OAuth session. Results stream into the table as
- * each check lands.
+ * and delegation capabilities: space management and the baseline
+ * policies, record writes, blob isolation, credential issuance through
+ * authorizeSpaceSync, and credential presentation — HTTP-signed reads with
+ * an Accept-Signature MAC request keyed by an HPKE-exported secret — all
+ * execute for real against the user's PDS.
+ * Operator calls go through the OAuth session; credential-presenting calls
+ * carry their own WebCrypto P-256 signatures. Results stream into the
+ * table as each check lands.
  *
  * The checks a browser genuinely cannot run — harness-held foreign
- * identities, the alpha crypto libs — are not shown at all: a row (or a
- * count) implies a way they could have run here, and there isn't one.
- * They are covered by the CLI and vitest runners.
+ * identities, a syncer inbox, MAC verification with the alpha crypto libs
+ * — are not shown at all: a row (or a count) implies a way they could have
+ * run here, and there isn't one. They are covered by the CLI and vitest
+ * runners.
  *
  * Without a session it degrades to the anonymous slice (discovery and
- * unauthenticated request shapes) against any host the user names.
+ * unauthenticated request shapes) against any host or DID the user names.
  */
 
 import { createSignal, For, onMount, Show } from "solid-js";
 import {
+	ALPHA_BUILD,
 	browserCatalog,
 	filterCatalog,
 	operatorChecks,
+	resolveDidDocument,
 	runChecks,
+	serviceEndpoint,
 	type CheckContext,
 	type CheckResult,
 	type RunReport,
@@ -45,10 +52,37 @@ async function resolveDid(origin: string): Promise<string> {
 }
 
 /**
+ * Resolve what the user typed to a target: a DID resolves through its
+ * method (did:plc via plc.directory) to its #atproto_pds — the space host
+ * for that authority — which also covers multi-tenant did:plc hosts with
+ * no did.json at their origin; a hostname resolves through did.json.
+ */
+async function resolveTarget(
+	input: string,
+): Promise<{ origin: string; did: string }> {
+	const trimmed = input.trim();
+	if (trimmed.startsWith("did:")) {
+		const doc = await resolveDidDocument(
+			{
+				fetch: window.fetch.bind(window),
+				target: { origin: "", did: trimmed },
+			},
+			trimmed,
+		);
+		const pds = serviceEndpoint(doc, "atproto_pds");
+		if (!pds) throw new Error(`${trimmed} has no #atproto_pds service`);
+		return { origin: normalizeOrigin(pds), did: trimmed };
+	}
+	const origin = normalizeOrigin(trimmed);
+	return { origin, did: await resolveDid(origin) };
+}
+
+/**
  * A fetch that routes same-origin requests through the OAuth agent (which
- * signs each one with the session's DPoP key) and everything else through
- * the plain window fetch. The conformance context keeps its bare `fetch`
- * for the requests that must stay anonymous.
+ * attaches the session's DPoP-bound access token) and everything else
+ * through the plain window fetch. The conformance context keeps its bare
+ * `fetch` for the requests that must stay anonymous — and for those that
+ * present a space credential, which carry their own signature.
  */
 function agentFetch(agent: OAuthUserAgent, origin: string): typeof fetch {
 	return (input, init) => {
@@ -101,7 +135,7 @@ export function SpacesConformanceView(props: { onExit: () => void }) {
 				catalog: filtered,
 				context,
 				suiteVersion: "web",
-				alphaBuild: "0.0.0-spaces-alpha-20260818163953",
+				alphaBuild: ALPHA_BUILD,
 				// Stream rows into the table as checks land. Skipped results
 				// are checks this transport can never run — not listing them
 				// avoids implying they could have; the footer counts them.
@@ -149,8 +183,7 @@ export function SpacesConformanceView(props: { onExit: () => void }) {
 		if (!raw) return;
 		setAuthedRun(false);
 		try {
-			const origin = normalizeOrigin(raw);
-			const did = await resolveDid(origin);
+			const { origin, did } = await resolveTarget(raw);
 			await runCatalog(
 				{
 					target: { origin, did, implementation: origin },
@@ -173,13 +206,20 @@ export function SpacesConformanceView(props: { onExit: () => void }) {
 	});
 
 	// In an anonymous run, the operator checks were skipped but WOULD run
-	// with a sign-in — worth a pointer. (The alpha-lib/identity checks are
-	// deliberately not mentioned at all: they never run in a browser.)
-	const operatorIds = new Set(operatorChecks.map((c) => c.id));
+	// with a sign-in — worth a pointer. (The alpha-lib, identity and inbox
+	// checks are deliberately not mentioned at all: they never run in a
+	// browser, signed in or not.)
+	const signInIds = new Set(
+		operatorChecks
+			.filter((c) => !c.needs.includes("syncer-inbox"))
+			.map((c) => c.id),
+	);
 	const signInWouldRun = () =>
-		(report()?.results ?? []).filter(
-			(r) => r.status === "skipped" && operatorIds.has(r.id),
-		).length;
+		authedRun()
+			? 0
+			: (report()?.results ?? []).filter(
+					(r) => r.status === "skipped" && signInIds.has(r.id),
+				).length;
 
 	return (
 		<div class="min-h-dvh flex flex-col">
@@ -202,15 +242,17 @@ export function SpacesConformanceView(props: { onExit: () => void }) {
 						when={authedRun()}
 						fallback={
 							<>
-								Discovery and request-shape checks against a live spaces host.
-								Sign in from the landing page to run the write, blob and
-								credential checks against your own PDS.
+								Discovery and request-shape checks against a live spaces host (a
+								hostname, or a DID to check its space host). Sign in from the
+								landing page to run the space, write, blob and credential checks
+								against your own PDS.
 							</>
 						}
 					>
 						Running the operator checks against{" "}
-						<span class="text-ink">{target()}</span>: probe spaces, record
-						writes, blob isolation and the delegation → credential → read flow.
+						<span class="text-ink">{target()}</span>: probe spaces and their
+						policies, record writes, blob isolation, and credentials — issued,
+						then presented with HTTP signatures and MAC requests.
 					</Show>
 				</p>
 
@@ -218,7 +260,7 @@ export function SpacesConformanceView(props: { onExit: () => void }) {
 					<form onSubmit={onRunAnonymous} class="mt-6 flex gap-2">
 						<input
 							type="text"
-							placeholder="pds.example.com"
+							placeholder="pds.example.com or did:plc:…"
 							value={target()}
 							onInput={(e) => setTarget(e.currentTarget.value)}
 							class="flex-1 rounded border border-faint bg-transparent px-3 py-2 text-sm"

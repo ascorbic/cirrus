@@ -15,15 +15,17 @@ import { actorResolver } from "./resolvers";
 const SCOPE = "atproto transition:generic";
 
 /**
- * The extra grant the spaces conformance run signs in with: full record
- * actions on any collection plus space create/update/delete management,
- * scoped to the probe space type under the user's own authority
- * (`authority` defaults to `self`). A PDS without the spaces alpha
- * rejects the unknown scope at sign-in, which is the right failure — the
- * suite is meaningless there.
+ * The extra grant the spaces conformance run signs in with: every space
+ * action on any collection plus create/update/delete management, scoped to
+ * the probe space type. `authority=*` because the suite deliberately
+ * addresses spaces the user does not own (NotSpaceOwner refusals); with the
+ * default `self` those would be scope refusals before the host's own check
+ * is reached. A PDS without the spaces alpha rejects the unknown scope at
+ * sign-in, which is the right failure — the suite is meaningless there.
+ * Keep in sync with the CLI's OAUTH_SCOPE and the worker's registration.
  */
 const SPACE_SCOPE =
-	"space:earth.cirrus.check.space?collection=*&manage=create&manage=update&manage=delete";
+	"space:earth.cirrus.check.space?authority=*&collection=*&manage=create&manage=update&manage=delete";
 export const SPACES_SCOPE = `${SCOPE} ${SPACE_SCOPE}`;
 
 const CALLBACK_PATH = "/oauth/callback";
