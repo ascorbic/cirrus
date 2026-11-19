@@ -1,6 +1,6 @@
 # PLC Rotation Keys and Recovery Keys
 
-**Status:** 🧪 Implemented, awaiting a live test on a new account
+**Status:** ✅ Implemented and tested live on two throwaway bsky.social accounts (19 Nov 2026); awaiting merge
 **Priority:** P1 (affects every did:plc account migrated to Cirrus)
 
 ## Problem
@@ -147,14 +147,21 @@ PLC operations are permanent, so manual testing uses throwaway did:plc accounts,
 - `pds status` for each state.
 - The README's goat emergency commands with a generated recovery key, moving the DID to a new PDS.
 
-**Still to do, live:**
+**Done, live (19 Nov 2026):** two throwaway bsky.social accounts, each on its own Cirrus deployment under mk.gg. Every PLC log was checked with goat's `VerifyOpLog`, and the signer of each operation was identified from its signature.
 
-- Migrate a fresh bsky.social test account with the updated `pds identity`, with and without generating a recovery key. Check the audit log shows the expected rotation keys and Bluesky's key is gone.
-- Run `pds rotation-keys` on an account migrated with the previous version of the CLI, signing through the old PDS.
-- Repeat with the old account deleted and a pre-existing recovery key.
-- Change the handle through PR #250's `updateHandle` on a fixed account; the PLC step should succeed.
-- Migrate the fixed account out of Cirrus to another PDS.
-- Use the generated recovery key with `goat` to sign an operation, confirming the export format works.
+- `rotationtest.bsky.social`, migrated with this branch: bsky.social's two keys (its recovery key and PDS key) were both recognised and removed without a prompt. Result `[recovery, cirrus]`, handle moved to `rotationtest.mk.gg` in the same operation, and the AppView picked up the handle after `pds activate`. `pds status` reported the PDS can update the identity.
+- The generated recovery key signed an operation with goat (adding a throwaway rotation key), which plc.directory accepted.
+- `pds rotation-keys`, signed by the PDS, removed the throwaway key.
+- An app-password session was refused by `getMigrationToken` with 403 `InsufficientScope`.
+- Migrating out to npmx.social: the operation was signed by the Cirrus key and kept the user's recovery key.
+- `rotationtest2.bsky.social`, migrated with the released 0.19.0 CLI, kept only bsky.social's keys (the bug). `pds rotation-keys` with "My previous PDS" (found from the audit log) fixed it to `[recovery, cirrus]`, signed by bsky.social's key while the old account was still active.
+
+Found along the way, outside this work: `create-pds` 0.1.0 doesn't export the Spaces Durable Objects (fixed on main in #248, unreleased), fresh installs of 0.19.0 float the `@atproto` spaces alphas to the 2026-11-17 builds and fail to build, and preview publishing had stopped (Node 27 alpha) and didn't publish `@getcirrus/spaces`.
+
+**Not tested live:**
+
+- `pds rotation-keys` via the previous PDS when the old account is deactivated or deleted.
+- Changing the handle through PR #250's `updateHandle` on a fixed account.
 
 ## Risks
 
