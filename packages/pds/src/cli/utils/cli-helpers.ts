@@ -194,7 +194,7 @@ const KEY_BACKUP_TEXT: Record<
  * Save a key to 1Password using the CLI
  * Creates a secure note with the key and any extra details
  */
-export async function saveTo1Password(
+async function saveTo1Password(
 	key: string,
 	handle: string,
 	kind: BackupKeyKind = "signing",
