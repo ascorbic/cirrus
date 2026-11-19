@@ -77,6 +77,8 @@ Your signing key controls your identity. Cloudflare secrets cannot be retrieved 
 
 When you run `pds init`, you'll be prompted to back up your signing key. Store it somewhere safe – a password manager, encrypted backup, or similar.
 
+When you migrate a `did:plc` account with `pds identity`, you'll also be offered a recovery key. It lets you take back your identity if your PDS is lost or compromised. Keep it offline, separate from your signing key.
+
 ### Key Recovery
 
 If you've cloned to a new machine and see the "Key Recovery Required" error:
@@ -97,9 +99,9 @@ If you've cloned to a new machine and see the "Key Recovery Required" error:
 
 **For did:plc users:**
 
-- If you have a recovery key registered with PLC, you can rotate to a new signing key
-- Without a recovery key, you'll need to start a new identity
-- See the [AT Protocol PLC documentation](https://github.com/did-method-plc/did-method-plc) for recovery operations
+- Your signing key is also one of your DID's rotation keys, so while your deployed PDS is still running it can update your identity. Run `pds rotation-keys` to add a recovery key if you don't have one
+- If you have a recovery key, you can use it to point your DID at a new signing key. See [Rotation and Recovery Keys](./packages/pds/README.md#rotation-and-recovery-keys)
+- Without a recovery key or a running PDS, you'll need to start a new identity
 
 ## Requirements
 
