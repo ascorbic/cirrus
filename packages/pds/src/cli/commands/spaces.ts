@@ -606,8 +606,8 @@ const kemCommand = defineCommand({
 					"  pds spaces kem --publish",
 					"",
 					"That asks your PDS to sign the PLC operation, which works when its",
-					"signing key is one of your DID's rotation keys (true after migrating",
-					"with Cirrus). Otherwise, add it with whoever holds your rotation key.",
+					"signing key is one of your DID's rotation keys. If it isn't, run",
+					"'pds rotation-keys' first, or add it with whoever holds your rotation key.",
 				].join("\n"),
 				"Publish the key",
 			);
@@ -620,8 +620,9 @@ const kemCommand = defineCommand({
 		spinner.start("Fetching the current PLC operation...");
 		const log = await new PlcDirectoryClient().getAuditLog(did);
 		const current = log.filter((entry) => !entry.nullified).pop();
-		if (!current) {
-			spinner.stop("Could not read the PLC audit log");
+		if (!current || current.operation.type !== "plc_operation") {
+			// A tombstoned DID, or one still on a legacy create operation.
+			spinner.stop("Could not read a current PLC operation for this DID");
 			process.exit(1);
 		}
 		const verificationMethods = {
@@ -649,7 +650,7 @@ const kemCommand = defineCommand({
 			spinner.stop("The PLC directory refused the operation");
 			p.log.error(err instanceof Error ? err.message : String(err));
 			p.log.info(
-				"This PDS's signing key is probably not a rotation key for your DID. Add the atproto_kem verification method with whoever holds it.",
+				"If this PDS's signing key is not a rotation key for your DID, run 'pds rotation-keys' to give it control, or add the atproto_kem verification method with whoever holds a rotation key.",
 			);
 			process.exit(1);
 		}

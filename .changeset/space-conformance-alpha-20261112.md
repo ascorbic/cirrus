@@ -10,3 +10,4 @@ Port the conformance suite to the 2026-11-12 spaces protocol, pinned to the 2026
 - New checks cover `RegistrationNotConfirmed`, the `spaceRev` returned on authorisation, announced writer removals, `listRepoOps` commits on every page, the STAR content type, `InvalidRepoFile`, `RepoMismatch` and `InvalidSpaceMeta`. A slow check covers `registrationExpired`.
 - Proposal 0016 citations are checked against its section anchors. The read methods' `SpaceNotFound` and every `InvalidCursor` are exempted from coverage with reasons, since nothing in the spec defines them.
 - The probe space type declaration uses `title` in place of `name`.
+- `request.garbage-cursor-rejected` filters its `listSpaces` call to the probe type, so it runs under an OAuth session scoped to that type instead of failing with `InsufficientScope`.

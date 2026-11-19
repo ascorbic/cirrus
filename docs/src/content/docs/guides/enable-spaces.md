@@ -75,7 +75,9 @@ pds spaces kem
 This stores the private key as the `SPACES_KEM_KEY` secret and its public half as the `SPACES_KEM_KEY_PUBLIC` var in `wrangler.jsonc`. Then:
 
 - **did:web**: redeploy. Your PDS serves your DID document, which now includes `#atproto_kem`.
-- **did:plc**: redeploy, then run `pds spaces kem --publish`. It asks your PDS to sign a PLC operation adding the key, which works when the PDS's signing key is one of your DID's rotation keys (true if you migrated with Cirrus). Otherwise, add the `atproto_kem` verification method with whoever holds your rotation key.
+- **did:plc**: redeploy, then run `pds spaces kem --publish`. It asks your PDS to sign a PLC operation adding the key, which works when the PDS's signing key is one of your DID's rotation keys. If it isn't, run `pds rotation-keys` first, or add the `atproto_kem` verification method with whoever holds your rotation key.
+
+Until the key is configured, credentialed reads that need a MAC fail with `503 KemKeyUnavailable`, so other apps and syncers can't read your spaces.
 
 `pds spaces status` checks that the key your PDS holds is the one your DID document publishes.
 
