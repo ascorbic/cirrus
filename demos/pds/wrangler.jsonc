@@ -59,7 +59,8 @@
 		// Atproto spaces (ALPHA). Breaking upstream changes are absorbed by
 		// `pds spaces reset`, which wipes space data and nothing else.
 		// `pds spaces kem` sets SPACES_KEM_KEY and SPACES_KEM_KEY_PUBLIC.
-		"SPACES_ENABLED": "true"
+		"SPACES_ENABLED": "true",
+		"SPACES_KEM_KEY_PUBLIC": "zDnaeYeM75iQkR6hidmbVWhwdZ42hoyk7iaXrQJ1oZYJqBTSn"
 	},
 	// Secrets (set via `pds init` or `pds secret <name>`):
 	// - AUTH_TOKEN: Bearer token for API write operations
