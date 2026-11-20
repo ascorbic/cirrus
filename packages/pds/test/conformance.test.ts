@@ -25,10 +25,9 @@ describe("conformance suite vs the integrated PDS", () => {
 	it(
 		"passes the operator-tier and discovery checks, blobs included",
 		{
-			// ~10s alone, but ~25s after the rest of the suite has run in the
-			// same isolate (isolate: false), and CI is ~2.5x slower again:
-			// 60s was routinely hit (58.7s on #257). Matches the spaces runner.
-			timeout: 180_000,
+			// ~3s; the catalogue makes ~1000 requests, so allow for a slow
+			// machine.
+			timeout: 60_000,
 		},
 		async () => {
 			const fetchAdapter: typeof fetch = (input, init) =>
