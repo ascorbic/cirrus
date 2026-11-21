@@ -87,6 +87,8 @@ describe("conformance suite vs the integrated PDS", () => {
 			// P-256 key, and serves the signed, MAC'd read. This is the
 			// interop-critical path the reference matrix also exercises.
 			expect(byId["credential.self-round-trip"]).toBe("pass");
+			// The same self-flow admits the authority to its own personalspace.
+			expect(byId["policy.personalspace-owner-admitted"]).toBe("pass");
 			// Identity-requiring checks skip here (no foreign resolution).
 			expect(byId["credential.member-gate"]).toBe("skipped");
 		},

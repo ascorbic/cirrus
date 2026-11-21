@@ -47,7 +47,9 @@ check:
   `authorizeSpaceSync`, so it answers the reference's `confirmRegistration`
   challenges and records its `notifySpaceUpdate` webhooks; and
   `<syncer did>#atproto_pds` names it as a `managedspace` managing app
-  answering `checkAccess`;
+  answering `checkAccess`. It also serves `client-metadata.json` with an
+  ES256 `jwks`, so the reference verifies a real client attestation
+  (`credential.valid-attestation-*`) against an `http://localhost` client_id;
 - the dev-env PLC as `target.plcDirectory`, so the operator's did:plc
   document (and its `#atproto_kem` key) resolves.
 

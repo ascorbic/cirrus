@@ -391,6 +391,19 @@ const notifyRenewal = defineCheck({
 			const first = await register(ctx, inbox, space.uri);
 			if (!first.credential)
 				return fail(`authorizeSpaceSync ${describe(first.result)}`);
+			// The absence of a second confirmation means something only if the
+			// first registration was confirmed at all.
+			const confirmed = await inbox.waitFor(
+				(d) =>
+					d.lxm === "com.atproto.space.confirmRegistration" &&
+					d.receivedAt >= first.since &&
+					(d.body as { token?: string })?.token === first.token,
+				1_000,
+			);
+			if (!confirmed)
+				return fail(
+					"the first registration was never confirmed, so the renewal's lack of one proves nothing",
+				);
 			const since = Date.now();
 			const again = await requestCredential(ctx, space.uri, {
 				notify: { endpoint: inbox.endpoint, token: first.token },
@@ -406,7 +419,9 @@ const notifyRenewal = defineCheck({
 			);
 			return reconfirmed
 				? fail("the renewal was confirmed again")
-				: pass("renewed without a second confirmation");
+				: pass(
+						"the first registration was confirmed; the renewal was not confirmed again",
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -692,6 +707,57 @@ const managedTokenless = defineCheck({
 	},
 });
 
+/** A managing app no host can resolve, let alone reach. */
+const UNREACHABLE_APP = "did:web:app.space-conformance.invalid#managing_app";
+
+/**
+ * Ask for a tokenless credential from a managedspace whose managing app
+ * cannot answer, two ways — unresolvable, and the inbox answering
+ * checkAccess with an error — after a same-run control: the inbox, answering
+ * `{read: true}`, gets one issued. Without the control a host that refuses
+ * every managedspace would pass for failing closed.
+ */
+async function unansweredManagingApp(
+	ctx: CheckContext,
+): Promise<
+	| { failure: ReturnType<typeof fail> }
+	| { results: Array<[string, Awaited<ReturnType<typeof requestCredential>>]> }
+> {
+	const inbox = ctx.syncerInbox!;
+	const reachable = await createProbeSpace(ctx, managedspace(inbox.service));
+	const erroring = await createProbeSpace(ctx, managedspace(inbox.service));
+	const unreachable = await createProbeSpace(
+		ctx,
+		managedspace(UNREACHABLE_APP),
+	);
+	try {
+		inbox.respond(CHECK_ACCESS, () => ({ read: true, write: false }));
+		const ok = await requestCredential(ctx, reachable.uri);
+		if (!ok.credential)
+			return {
+				failure: fail(
+					`positive control failed: a managing app answering read:true got no credential issued (${describe(ok.result)})`,
+					ok.result.json,
+				),
+			};
+		// With no responder the inbox answers checkAccess 501.
+		inbox.respond(CHECK_ACCESS, undefined);
+		return {
+			results: [
+				["unresolvable app", await requestCredential(ctx, unreachable.uri)],
+				[
+					"app answering with an error",
+					await requestCredential(ctx, erroring.uri),
+				],
+			],
+		};
+	} finally {
+		inbox.respond(CHECK_ACCESS, undefined);
+		for (const s of [reachable, erroring, unreachable])
+			await deleteProbeSpace(ctx, s.uri);
+	}
+}
+
 const managedFailsClosed = defineCheck({
 	id: "managedspace.unreachable-app-fails-closed",
 	title:
@@ -702,23 +768,24 @@ const managedFailsClosed = defineCheck({
 		P("0016#managedspace"),
 		{ source: "changeset", ref: "patient-managers-answer" },
 	],
-	needs: ["operator"],
+	needs: ["operator", "syncer-inbox"],
 	destructive: true,
 	async run(ctx) {
-		const space = await createProbeSpace(
-			ctx,
-			managedspace("did:web:app.space-conformance.invalid#managing_app"),
-		);
-		try {
-			const res = await requestCredential(ctx, space.uri);
-			if (res.credential)
-				return fail(
-					"issued a credential without an answer from the managing app",
+		// authorizeSpaceSync declares no error for this, so any error response
+		// fails closed here; managedspace.unreachable-app-upstream-failure
+		// asks for the changeset's UpstreamFailure.
+		const outcome = await unansweredManagingApp(ctx);
+		if ("failure" in outcome) return outcome.failure;
+		const misses = outcome.results
+			.filter(([, r]) => r.credential || r.result.status < 400)
+			.map(([label, r]) =>
+				r.credential ? `${label} → issued` : `${label} → ${describe(r.result)}`,
+			);
+		return misses.length
+			? fail(`did not fail closed: ${misses.join("; ")}`)
+			: pass(
+					`a managing app answering read:true issued; without an answer refused (${outcome.results.map(([l, r]) => `${l}: ${describe(r.result)}`).join(", ")})`,
 				);
-			return pass(`refused (${describe(res.result)})`);
-		} finally {
-			await deleteProbeSpace(ctx, space.uri);
-		}
 	},
 });
 
@@ -728,23 +795,21 @@ const managedUpstreamFailure = defineCheck({
 		"An unreachable managing app is reported as UpstreamFailure, not a refusal",
 	tier: "should",
 	citations: [{ source: "changeset", ref: "patient-managers-answer" }],
-	needs: ["operator"],
+	needs: ["operator", "syncer-inbox"],
 	destructive: true,
 	async run(ctx) {
 		// Distinct from a denial: a syncer keeps its registration and a repo
 		// host retries, rather than reading the failure as lost access.
-		const space = await createProbeSpace(
-			ctx,
-			managedspace("did:web:app.space-conformance.invalid#managing_app"),
-		);
-		try {
-			const res = await requestCredential(ctx, space.uri);
-			return res.result.error === "UpstreamFailure"
-				? pass("answered UpstreamFailure")
-				: fail(`answered ${describe(res.result)}`);
-		} finally {
-			await deleteProbeSpace(ctx, space.uri);
-		}
+		const outcome = await unansweredManagingApp(ctx);
+		if ("failure" in outcome) return outcome.failure;
+		const misses = outcome.results
+			.filter(([, r]) => r.result.error !== "UpstreamFailure")
+			.map(([label, r]) => `${label} → ${describe(r.result)}`);
+		return misses.length
+			? fail(`expected UpstreamFailure: ${misses.join("; ")}`)
+			: pass(
+					"a managing app answering read:true issued; unresolvable and erroring apps answered UpstreamFailure",
+				);
 	},
 });
 

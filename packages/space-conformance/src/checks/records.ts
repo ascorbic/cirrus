@@ -26,6 +26,7 @@ import {
 	operatorCreateRecord,
 	operatorGetRecord,
 	personalspace,
+	probeSkey,
 	unknownSpaceUri,
 } from "./probe.js";
 
@@ -315,27 +316,51 @@ const writesApplyWritesMissing = defineCheck({
 	id: "writes.applywrites-update-missing",
 	title: "An applyWrites update of an absent record answers RecordNotFound",
 	tier: "must",
-	citations: [L("com.atproto.space.applyWrites@error:RecordNotFound")],
+	citations: [
+		L("com.atproto.space.applyWrites"),
+		L("com.atproto.space.applyWrites@error:RecordNotFound"),
+	],
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
 		const space = await createProbeSpace(ctx);
-		try {
-			await mustCreateRecord(ctx, space.uri, "present");
-			const res = await xrpcPost(op(ctx), "com.atproto.space.applyWrites", {
+		const update = (rkey: string, text: string) =>
+			xrpcPost(op(ctx), "com.atproto.space.applyWrites", {
 				space: space.uri,
 				repo: ctx.target.did,
 				writes: [
 					{
 						$type: "com.atproto.space.applyWrites#update",
 						collection: POST,
-						rkey: "absent",
-						value: note("nope"),
+						rkey,
+						value: note(text),
 					},
 				],
 			});
+		try {
+			await mustCreateRecord(ctx, space.uri, "present");
+			// Control: an update of a record that exists succeeds and takes
+			// effect, so the refusal below is of the absent record, not of
+			// #update itself.
+			const ok = await update("present", "updated");
+			if (ok.status !== 200)
+				return fail(
+					`positive control failed: updating an existing record answered ${describe(ok)}`,
+					ok.json,
+				);
+			const read = await operatorGetRecord(ctx, space.uri, "present");
+			const text = (read.json as { value?: { text?: unknown } } | undefined)
+				?.value?.text;
+			if (text !== "updated")
+				return fail(
+					`the update of an existing record answered 200 but the record reads ${JSON.stringify(text)}`,
+					read.json,
+				);
+			const res = await update("absent", "nope");
 			return res.error === "RecordNotFound"
-				? pass("refused with RecordNotFound")
+				? pass(
+						"an existing record updated; an absent one refused with RecordNotFound",
+					)
 				: fail(`answered ${describe(res)}, expected RecordNotFound`, res.json);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
@@ -504,6 +529,7 @@ const writesPublishedRefused = defineCheck({
 				],
 			];
 			const accepted: string[] = [];
+			const misanswered: string[] = [];
 			for (const [collection, rkey, record] of attempts) {
 				for (const nsid of ["createRecord", "putRecord"]) {
 					const res = await xrpcPost(op(ctx), `com.atproto.space.${nsid}`, {
@@ -514,11 +540,17 @@ const writesPublishedRefused = defineCheck({
 						record,
 					});
 					if (res.status === 200) accepted.push(`${nsid} ${collection}`);
+					// No declared error names this; a refusal is a 4xx, not a 5xx.
+					else if (res.status < 400 || res.status >= 500)
+						misanswered.push(`${nsid} ${collection} → ${describe(res)}`);
 				}
 			}
-			return accepted.length
-				? fail(`accepted: ${accepted.join(", ")}`)
-				: pass("createRecord and putRecord refused both published collections");
+			if (accepted.length) return fail(`accepted: ${accepted.join(", ")}`);
+			return misanswered.length
+				? fail(`expected a 4xx refusal: ${misanswered.join(", ")}`)
+				: pass(
+						"createRecord and putRecord refused both published collections with a 4xx",
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -811,15 +843,46 @@ const blobsSpaceNotPublic = defineCheck({
 	destructive: true,
 	async run(ctx) {
 		// A blob must never be publicly addressable until a *public* record
-		// references it. Probe both slices: freshly uploaded (unreferenced),
-		// then referenced only from a space.
+		// references it. Control first: one a public record references IS
+		// served, so the refusals below are not just a getBlob that serves
+		// nothing. Then both slices: freshly uploaded (unreferenced), then
+		// referenced only from a space.
+		const blobUrl = (cid: string) =>
+			`${ctx.target.origin}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(ctx.target.did)}&cid=${cid}`;
+		const publicBytes = crypto.getRandomValues(new Uint8Array(16));
+		const publicBlob = await uploadBlob(ctx, publicBytes);
+		const publicRkey = probeSkey();
+		const publicWrite = await xrpcPost(
+			op(ctx),
+			"com.atproto.repo.createRecord",
+			{
+				repo: ctx.target.did,
+				collection: "earth.cirrus.check.withblob",
+				rkey: publicRkey,
+				record: { $type: "earth.cirrus.check.withblob", file: publicBlob },
+			},
+		);
 		const space = await createProbeSpace(ctx);
 		try {
+			if (publicWrite.status !== 200)
+				return fail(
+					`public referencing write (repo.createRecord) ${describe(publicWrite)}`,
+					publicWrite.json,
+				);
+			const served = await ctx.fetch(blobUrl(publicBlob.ref.$link));
+			if (served.status !== 200)
+				return fail(
+					`positive control failed: a blob a public record references was not served by sync.getBlob (${served.status})`,
+				);
+			if (!bytesEqual(new Uint8Array(await served.arrayBuffer()), publicBytes))
+				return fail(
+					"sync.getBlob served a publicly referenced blob's bytes wrong",
+				);
 			const blob = await uploadBlob(
 				ctx,
 				crypto.getRandomValues(new Uint8Array(16)),
 			);
-			const publicUrl = `${ctx.target.origin}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(ctx.target.did)}&cid=${blob.ref.$link}`;
+			const publicUrl = blobUrl(blob.ref.$link);
 			const stagedGet = await ctx.fetch(publicUrl);
 			if (stagedGet.status === 200) {
 				return fail(
@@ -842,10 +905,16 @@ const blobsSpaceNotPublic = defineCheck({
 			return publicGet.status === 200
 				? fail("a space blob was served by the public sync.getBlob")
 				: pass(
-						`public sync.getBlob refused the blob unreferenced (${stagedGet.status}) and space-referenced (${publicGet.status})`,
+						`public sync.getBlob served a publicly referenced blob, and refused one unreferenced (${stagedGet.status}) and one space-referenced (${publicGet.status})`,
 					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
+			if (publicWrite.status === 200)
+				await xrpcPost(op(ctx), "com.atproto.repo.deleteRecord", {
+					repo: ctx.target.did,
+					collection: "earth.cirrus.check.withblob",
+					rkey: publicRkey,
+				}).catch(() => {});
 		}
 	},
 });
@@ -924,6 +993,32 @@ const blobsNotFound = defineCheck({
 	},
 });
 
+const requestInvalidSpaceUri = defineCheck({
+	id: "request.invalid-space-uri-rejected",
+	title:
+		"A malformed space reference is rejected as a bad request, not misread",
+	tier: "must",
+	citations: [L("com.atproto.space.getLatestCommit")],
+	needs: ["operator"],
+	async run(ctx) {
+		// Authenticated as the repo's own account, so an auth refusal can't
+		// stand in for the parameter check: `space` fails its space-ref
+		// format, which is a 400 with an XRPC error. The method declares no
+		// error for it, so the name is reported, not required (the reference
+		// answers XRPC's generic InvalidRequest).
+		const res = await xrpcGet(op(ctx), "com.atproto.space.getLatestCommit", {
+			space: "not-a-space-uri",
+			repo: ctx.target.did,
+		});
+		return res.status === 400 && res.error
+			? pass(`rejected the authenticated request with ${describe(res)}`)
+			: fail(
+					`answered ${describe(res)} to an authenticated request with a malformed space uri, expected a 400 XRPC error`,
+					res.json,
+				);
+	},
+});
+
 export const recordChecks: Check[] = [
 	writesCreateRead,
 	writesUnauthReadRefused,
@@ -941,6 +1036,7 @@ export const recordChecks: Check[] = [
 	syncListRecords,
 	syncListRecordsDescending,
 	garbageCursor,
+	requestInvalidSpaceUri,
 	blobsSpaceNotPublic,
 	blobsListAndGet,
 	blobsNotFound,

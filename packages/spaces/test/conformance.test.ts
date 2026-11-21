@@ -237,6 +237,8 @@ describe("conformance suite vs Cirrus space routes", () => {
 					"delegation.signed-by-user",
 					"delegation.token-claims",
 					"delegation.wrong-space-refused",
+					// Needs getDelegationToken (the operator's own token).
+					"policy.personalspace-owner-admitted",
 					// Slow: waits out the real credential lifetime.
 					"notify.registration-expired",
 				].sort(),
@@ -252,7 +254,13 @@ describe("conformance suite vs Cirrus space routes", () => {
 				"notify.repo-removed-delivered",
 				"notify.space-deleted-delivered",
 				"managedspace.check-access-account",
+				"managedspace.unreachable-app-fails-closed",
 				"managedspace.unreachable-app-upstream-failure",
+				// A client attestation the routes verify against the inbox's
+				// published client metadata (served through routedFetch).
+				"credential.valid-attestation-issues",
+				"credential.valid-attestation-unlisted-refused",
+				"credential.unconfirmed-registration-refused",
 			]) {
 				expect(byId[id], id).toBe("pass");
 			}

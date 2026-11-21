@@ -749,8 +749,13 @@ const personalOnly = crypto$("policy.personalspace-owner-only", async (ctx) => {
 		const res = await obtainCredential(ctx, reader, space.uri);
 		if (res.credential)
 			return fail("a personalspace issued a credential to another account");
+		// The authority's own admission is policy.personalspace-owner-admitted:
+		// a harness identity cannot be the authority, the target's own
+		// delegation tokens can.
 		return isAccountRefusal(res.result.error)
-			? pass(`refused with ${res.result.error}`)
+			? pass(
+					`refused another account with ${res.result.error} (the authority's admission is policy.personalspace-owner-admitted)`,
+				)
 			: fail(
 					`refused with ${describe(res.result)}; expected ${ACCOUNT_REFUSALS.join(" / ")}`,
 				);
@@ -1051,6 +1056,12 @@ const revocationStranger = crypto$(
 		if (flow.revoke!.status === 200)
 			return fail(
 				"accepted a revocation signed by someone other than the authority",
+			);
+		// The method declares no error: the refusal is of the caller's
+		// authority, an auth refusal — not a 5xx or a malformed-input 400.
+		if (flow.revoke!.status !== 401 && flow.revoke!.status !== 403)
+			return fail(
+				`refused the stranger's revocation with ${flow.revoke!.status} ${flow.revoke!.error ?? ""}, expected 401/403`,
 			);
 		return flow.after!.status === 200
 			? pass(

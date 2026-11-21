@@ -240,7 +240,10 @@ type ScopeResult = Response | null;
 
 export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 	const app = new Hono();
-	const doFetch: typeof fetch = host.outboundFetch ?? fetch;
+	// Looked up per call rather than bound here, so a host's tests can stub
+	// the global fetch after the routes are built.
+	const doFetch: typeof fetch =
+		host.outboundFetch ?? ((input, init) => globalThis.fetch(input, init));
 
 	let kemKeypair: Promise<P256Keypair | null> | null = null;
 	function getKemKeypair(): Promise<P256Keypair | null> {
@@ -443,8 +446,11 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			url.searchParams.set("space", ref.uri);
 			if (repo) url.searchParams.set("repo", repo);
 			if (clientId) url.searchParams.set("clientId", clientId);
+			// No redirects: the endpoint comes from a DID document, and a
+			// 3xx answer is a failure like any other.
 			const res = await doFetch(url.toString(), {
 				headers: { Authorization: `Bearer ${token}` },
+				redirect: "manual",
 				signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
 			});
 			if (!res.ok) throw new Error(`checkAccess answered ${res.status}`);
@@ -571,6 +577,8 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 					Authorization: `Bearer ${token}`,
 				},
 				body: JSON.stringify(body),
+				// Not re-POSTed elsewhere with service auth: a 3xx is refused.
+				redirect: "manual",
 				signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
 			});
 			if (res.ok || !isRetryableStatus(res.status)) {

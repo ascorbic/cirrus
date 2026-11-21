@@ -73,6 +73,22 @@ function makeHost(overrides: Partial<SpaceRoutesHost> = {}): {
 	const outbound: OutboundCall[] = [];
 	let responder: (url: string, init?: RequestInit) => Response | null = () =>
 		null;
+	const answer = (url: string, init?: RequestInit): Response => {
+		const custom = responder(url, init);
+		if (custom) return custom;
+		// The test syncer: confirms registrations for tokens it issued.
+		if (url === `${SYNCER}/xrpc/com.atproto.space.confirmRegistration`) {
+			const body = JSON.parse(String(init?.body)) as {
+				space: string;
+				token: string;
+				challenge: string;
+			};
+			return syncerTokens.get(body.space) === body.token
+				? Response.json({ challenge: body.challenge })
+				: Response.json({ error: "UnknownToken" }, { status: 400 });
+		}
+		return new Response("{}", { status: 200 });
+	};
 	const host: SpaceRoutesHost = {
 		operatorDid: OPERATOR,
 		blobs: env.BLOBS,
@@ -126,7 +142,16 @@ function makeHost(overrides: Partial<SpaceRoutesHost> = {}): {
 		getSpaceDO: (uri) => env.SPACES.get(env.SPACES.idFromName(uri)) as never,
 		getIndexDO: () =>
 			env.SPACES_INDEX.get(env.SPACES_INDEX.idFromName("spaces")) as never,
-		outboundFetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+		// Behaves like workerd's fetch where it matters to the code under test:
+		// init is validated by building a Request (so redirect: "error" throws,
+		// as pinned by the "platform assumptions" test), and a 3xx is followed
+		// unless redirect is "manual".
+		outboundFetch: (async function stubFetch(
+			input: RequestInfo | URL,
+			init?: RequestInit,
+			hops = 0,
+		): Promise<Response> {
+			const request = new Request(input as RequestInfo, init);
 			const url = String(input);
 			// As workerd does (pinned by the "platform assumptions" test).
 			if (init?.redirect === "error") {
@@ -135,20 +160,18 @@ function makeHost(overrides: Partial<SpaceRoutesHost> = {}): {
 				);
 			}
 			outbound.push({ url, init });
-			const custom = responder(url, init);
-			if (custom) return custom;
-			// The test syncer: confirms registrations for tokens it issued.
-			if (url === `${SYNCER}/xrpc/com.atproto.space.confirmRegistration`) {
-				const body = JSON.parse(String(init?.body)) as {
-					space: string;
-					token: string;
-					challenge: string;
-				};
-				return syncerTokens.get(body.space) === body.token
-					? Response.json({ challenge: body.challenge })
-					: Response.json({ error: "UnknownToken" }, { status: 400 });
+			const res = answer(url, init);
+			const location = res.headers.get("location");
+			if (
+				res.status >= 300 &&
+				res.status < 400 &&
+				location &&
+				request.redirect === "follow" &&
+				hops < 5
+			) {
+				return stubFetch(new URL(location, url).toString(), init, hops + 1);
 			}
-			return new Response("{}", { status: 200 });
+			return res;
 		}) as typeof fetch,
 		...overrides,
 	};
@@ -204,6 +227,13 @@ function get(
 async function errorOf(res: Response): Promise<string> {
 	return ((await res.json()) as { error: string }).error;
 }
+
+/** A 403 from a specific guard: the status alone can't tell them apart. */
+async function expectForbidden(res: Response, message: RegExp) {
+	expect(res.status).toBe(403);
+	expect(((await res.json()) as { message?: string }).message).toMatch(message);
+}
+const NOT_AUTHORIZED = /not authorized to write/;
 
 const q = encodeURIComponent;
 
@@ -843,7 +873,7 @@ describe("space routes: credentials (S5)", () => {
 			{ space, credentials: [jti] },
 			{ Authorization: `Bearer ${forged}` },
 		);
-		expect(forgedRes.status).toBe(403);
+		await expectForbidden(forgedRes, /not the space authority/);
 		const token = await serviceJwt(OPERATOR, OPERATOR, lxm, operatorKeypair);
 		const revoke = await post(
 			`/xrpc/${lxm}`,
@@ -1096,6 +1126,139 @@ describe("space routes: notification registration", () => {
 	});
 });
 
+describe("space routes: outbound calls don't follow redirects", () => {
+	// Each 3xx points at a URL that would answer successfully, so following
+	// it would turn the expected refusal into a pass.
+	const ELSEWHERE = "https://elsewhere.test/target";
+	const redirect = (status = 302) =>
+		new Response(null, { status, headers: { Location: ELSEWHERE } });
+	const followed = (since: number) =>
+		outbound.slice(since).some((call) => call.url === ELSEWHERE);
+
+	it("confirmRegistration", async () => {
+		const space = await createSpace({ ...MEMBERSPACE, publicRead: true });
+		const token = `redir-${spaceN}`;
+		syncerTokens.set(space, token);
+		const since = outbound.length;
+		setOutboundResponse((url, init) => {
+			if (url.endsWith("/xrpc/com.atproto.space.confirmRegistration")) {
+				return redirect(307);
+			}
+			if (url === ELSEWHERE) {
+				const body = JSON.parse(String(init?.body)) as { challenge: string };
+				return Response.json({ challenge: body.challenge });
+			}
+			return null;
+		});
+		try {
+			const res = await obtainCredential(space, {
+				notify: { endpoint: SYNCER, token },
+			});
+			expect(res.body.error).toBe("RegistrationNotConfirmed");
+			expect(followed(since)).toBe(false);
+		} finally {
+			setOutboundResponse(() => null);
+		}
+	});
+
+	it("checkAccess", async () => {
+		const space = await createSpace({
+			$type: "com.atproto.managedspace.policy",
+			managingApp: "did:web:manager.test#forum",
+		});
+		const since = outbound.length;
+		setOutboundResponse((url) => {
+			if (url.includes("checkAccess")) return redirect();
+			if (url === ELSEWHERE) return Response.json({ read: true, write: true });
+			return null;
+		});
+		try {
+			const res = await obtainCredential(space, {
+				user: { did: BOB, keypair: bobKeypair },
+			});
+			expect(res.status).toBe(502);
+			expect(res.body.error).toBe("UpstreamFailure");
+			expect(followed(since)).toBe(false);
+		} finally {
+			setOutboundResponse(() => null);
+		}
+	});
+
+	it("client attestation metadata", async () => {
+		const clientId = "https://app.example/client-metadata.json";
+		const jwk = await JoseKey.generate(["ES256"], "redir-key");
+		const space = await createSpace({
+			...MEMBERSPACE,
+			publicRead: true,
+			allowedApps: [clientId],
+		});
+		const { host: attestHost, outbound: calls, setOutboundResponse: respond } =
+			makeHost();
+		const clientJwk = { ...jwk.bareJwk, kid: jwk.kid, alg: "ES256" };
+		respond((url) =>
+			url === clientId
+				? redirect()
+				: url === ELSEWHERE
+					? Response.json({ jwks: { keys: [clientJwk] } })
+					: null,
+		);
+		const iat = Math.floor(Date.now() / 1000);
+		const attestation = await jwk.createJwt(
+			{ alg: "ES256", typ: "atproto-client-attestation+jwt", kid: jwk.kid },
+			{
+				iss: clientId,
+				sub: clientId,
+				aud: spaceHostAud(OPERATOR),
+				iat,
+				exp: iat + 60,
+				jti: crypto.randomUUID(),
+			},
+		);
+		const res = await obtainCredential(space, {
+			clientAttestation: attestation,
+			via: createSpaceRoutes(attestHost),
+		});
+		expect(res.body.error).toBe("InvalidClientAttestation");
+		expect(calls.some((call) => call.url === ELSEWHERE)).toBe(false);
+	});
+
+	it("notifyRepoUpdate to a foreign authority", async () => {
+		const foreignSpace = `at://${BOB}/space/app.bsky.group/redir${spaceN++}`;
+		const stub = env.SPACES.get(env.SPACES.idFromName(foreignSpace));
+		const since = outbound.length;
+		setOutboundResponse((url) =>
+			url.endsWith("/xrpc/com.atproto.space.notifyRepoUpdate")
+				? redirect(307)
+				: url === ELSEWHERE
+					? Response.json({})
+					: null,
+		);
+		try {
+			await post("/xrpc/com.atproto.space.createRecord", {
+				space: foreignSpace,
+				repo: OPERATOR,
+				collection: "app.bsky.feed.post",
+				rkey: "r",
+				record: { $type: "app.bsky.feed.post", text: "x" },
+			});
+			await vi.waitFor(() =>
+				expect(
+					outbound
+						.slice(since)
+						.some((call) => call.url.endsWith("notifyRepoUpdate")),
+				).toBe(true),
+			);
+			// Refused, not retried, and never re-POSTed with service auth.
+			await vi.waitFor(async () =>
+				expect((await stub.rpcStatus()).queuedNotifications).toBe(0),
+			);
+			expect(followed(since)).toBe(false);
+		} finally {
+			setOutboundResponse(() => null);
+		}
+	});
+});
+
 describe("space routes: sync (S2-S4)", () => {
 	async function syncerCredential(space: string) {
 		await putMember(space, BOB);
@@ -1298,18 +1461,19 @@ describe("space routes: sync (S2-S4)", () => {
 		const space = await createSpace();
 		const now = Date.now();
 		const stranger = await notifyRepoUpdate(space, BOB, bobKeypair, tidAt(now), repoData(1));
-		expect(stranger.status).toBe(403);
+		await expectForbidden(stranger, NOT_AUTHORIZED);
 
 		await putMember(space, BOB, true, false);
 		const readOnly = await notifyRepoUpdate(space, BOB, bobKeypair, tidAt(now), repoData(1));
-		expect(readOnly.status).toBe(403);
+		await expectForbidden(readOnly, NOT_AUTHORIZED);
 
 		// Under publicWrite, a member denied write stays excluded.
 		const open = await createSpace({ ...MEMBERSPACE, publicWrite: true });
 		await putMember(open, CAROL, true, false);
-		expect(
-			(await notifyRepoUpdate(open, CAROL, carolKeypair, tidAt(now), repoData(1))).status,
-		).toBe(403);
+		await expectForbidden(
+			await notifyRepoUpdate(open, CAROL, carolKeypair, tidAt(now), repoData(1)),
+			NOT_AUTHORIZED,
+		);
 		expect(
 			(await notifyRepoUpdate(open, BOB, bobKeypair, tidAt(now), repoData(1))).status,
 		).toBe(200);
@@ -1330,7 +1494,7 @@ describe("space routes: sync (S2-S4)", () => {
 			repoData(1),
 			BOB,
 		);
-		expect(wrongAud.status).toBe(403);
+		await expectForbidden(wrongAud, /aud does not match/);
 
 		const token = await serviceJwt(
 			CAROL,
@@ -1343,7 +1507,7 @@ describe("space routes: sync (S2-S4)", () => {
 			{ space: open, repo: BOB, repoRev: tidAt(now + 2), data: { $bytes: "AA==" } },
 			{ Authorization: `Bearer ${token}` },
 		);
-		expect(impersonation.status).toBe(403);
+		await expectForbidden(impersonation, /iss does not match the repo/);
 
 		const unknown = await notifyRepoUpdate(
 			`at://${OPERATOR}/space/app.bsky.group/notreal`,
