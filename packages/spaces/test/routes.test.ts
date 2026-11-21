@@ -153,6 +153,12 @@ function makeHost(overrides: Partial<SpaceRoutesHost> = {}): {
 		): Promise<Response> {
 			const request = new Request(input as RequestInfo, init);
 			const url = String(input);
+			// As workerd does (pinned by the "platform assumptions" test).
+			if (init?.redirect === "error") {
+				throw new TypeError(
+					'Invalid redirect value, must be one of "follow" or "manual"',
+				);
+			}
 			outbound.push({ url, init });
 			const res = answer(url, init);
 			const location = res.headers.get("location");
