@@ -76,7 +76,6 @@ describe("runConformance (CLI core)", () => {
 			"discovery.kem-key",
 			"auth.getrecord-unauthenticated-refused",
 			"credential.tokenless-unknown-space",
-			"request.invalid-space-uri-rejected",
 		]) {
 			expect(byId[id]!.status, id).toBe("pass");
 		}
@@ -84,6 +83,8 @@ describe("runConformance (CLI core)", () => {
 		// not silently passed.
 		expect(byId["credential.member-gate"]!.status).toBe("skipped");
 		expect(byId["writes.create-and-read"]!.status).toBe("skipped");
+		// Sent as the operator, so an auth refusal can't pass for it.
+		expect(byId["request.invalid-space-uri-rejected"]!.status).toBe("skipped");
 		expect(report.summary.mustFail).toBe(0);
 		expect(report.summary.skipped).toBeGreaterThan(0);
 	});

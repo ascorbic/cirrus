@@ -4,12 +4,18 @@
  * `handle` at `endpoint` however suits it — a node HTTP server, a route in
  * an in-process fixture — and passes `inbox` as `ctx.syncerInbox`.
  *
+ * It also plays an OAuth client: `GET {endpoint}/client-metadata.json` is
+ * a client-metadata document (client_id = that URL) publishing one ES256
+ * key, and `inbox.attest()` mints client attestations signed by it — so
+ * the attestation checks can send one a space host can actually verify.
+ *
  * Browser-safe (Request/Response only), though no browser can be reached
  * by a remote host, so the web checker never offers it.
  */
 
 import type { InboxDelivery, SyncerInbox } from "./model.js";
 import { toBase64Url } from "./encoding.js";
+import { signClientAttestation } from "./space-auth.js";
 
 export interface SyncerInboxHandle {
 	inbox: SyncerInbox;
@@ -36,6 +42,37 @@ export function createSyncerInbox(opts: {
 	const responders = new Map<string, (d: InboxDelivery) => unknown>();
 	const tokens = new Map<string, string>(); // token → space
 
+	// The OAuth client the inbox publishes, for client attestations.
+	const base = new URL(opts.endpoint);
+	const metadataPath = `${base.pathname.replace(/\/$/, "")}/client-metadata.json`;
+	const clientId = `${base.origin}${metadataPath}`;
+	const kid = "space-conformance-1";
+	const keyPair = crypto.subtle.generateKey(
+		{ name: "ECDSA", namedCurve: "P-256" },
+		true,
+		["sign", "verify"],
+	) as Promise<CryptoKeyPair>;
+	async function clientMetadata() {
+		const { kty, crv, x, y } = await crypto.subtle.exportKey(
+			"jwk",
+			(await keyPair).publicKey,
+		);
+		return {
+			client_id: clientId,
+			client_name: "space-conformance",
+			application_type: "web",
+			grant_types: ["authorization_code"],
+			response_types: ["code"],
+			// Never used: the client exists only to be attested.
+			redirect_uris: ["http://127.0.0.1/callback"],
+			scope: "atproto",
+			dpop_bound_access_tokens: true,
+			token_endpoint_auth_method: "private_key_jwt",
+			token_endpoint_auth_signing_alg: "ES256",
+			jwks: { keys: [{ kty, crv, x, y, kid, alg: "ES256", use: "sig" }] },
+		};
+	}
+
 	const known = (body: unknown) => {
 		const b = body as { space?: unknown; token?: unknown } | undefined;
 		return (
@@ -47,6 +84,9 @@ export function createSyncerInbox(opts: {
 
 	async function handle(request: Request): Promise<Response> {
 		const url = new URL(request.url);
+		if (request.method === "GET" && url.pathname === metadataPath) {
+			return json(200, await clientMetadata());
+		}
 		const lxm = url.pathname.replace(/^\/xrpc\//, "");
 		const raw = request.method === "POST" ? await request.text() : "";
 		let body: unknown;
@@ -122,6 +162,23 @@ export function createSyncerInbox(opts: {
 		respond(lxm, handler) {
 			if (handler) responders.set(lxm, handler);
 			else responders.delete(lxm);
+		},
+		clientId,
+		async attest(aud) {
+			const { privateKey } = await keyPair;
+			return signClientAttestation({
+				clientId,
+				aud,
+				kid,
+				sign: async (bytes) =>
+					new Uint8Array(
+						await crypto.subtle.sign(
+							{ name: "ECDSA", hash: "SHA-256" },
+							privateKey,
+							bytes as BufferSource,
+						),
+					),
+			});
 		},
 	};
 

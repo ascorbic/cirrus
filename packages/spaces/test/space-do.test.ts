@@ -724,37 +724,55 @@ describe("SpaceDurableObject", () => {
 		expect((await stub.rpcGetMeta())?.uri).toBe(uri);
 	});
 
+	/**
+	 * Stub the global fetch the DO's alarm delivers with, for the duration of
+	 * `run`. The fake receives a real Request, so init is validated as
+	 * workerd validates it, and the original fetch is always restored: with
+	 * isolate: false a leaked stub would serve later test files.
+	 */
+	async function withFetch<T>(
+		fake: (req: Request) => Response | Promise<Response>,
+		run: () => Promise<T>,
+	): Promise<T> {
+		const original = globalThis.fetch;
+		globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+			fake(new Request(input as RequestInfo, init))) as typeof fetch;
+		try {
+			return await run();
+		} finally {
+			globalThis.fetch = original;
+		}
+	}
+
 	it("enqueues notifications and delivers them from the alarm", async () => {
 		const { uri, stub } = freshSpace();
 		await initSpace(stub, uri);
 
 		const delivered: Array<{ url: string; auth: string | null; body: string }> =
 			[];
-		await runInDurableObject(stub, async (instance) => {
-			// Intercept outbound fetch from the DO.
-			(globalThis as { fetch: typeof fetch }).fetch = (async (
-				input: RequestInfo | URL,
-				init?: RequestInit,
-			) => {
-				const headers = new Headers(init?.headers);
-				delivered.push({
-					url: String(input),
-					auth: headers.get("Authorization"),
-					body: String(init?.body),
-				});
-				return new Response("{}", { status: 200 });
-			}) as typeof fetch;
-
-			await instance.rpcEnqueueNotify([
-				{
-					service: "did:web:syncer.test",
-					endpoint: "https://syncer.test",
-					lxm: "com.atproto.space.notifyWrite",
-					body: { space: uri, repo: AUTHORITY, rev: "3kaaaaaaaaaa2" },
+		await runInDurableObject(stub, (instance) =>
+			withFetch(
+				async (req) => {
+					delivered.push({
+						url: req.url,
+						auth: req.headers.get("Authorization"),
+						body: await req.text(),
+					});
+					return new Response("{}", { status: 200 });
 				},
-			]);
-			await instance.alarm();
-		});
+				async () => {
+					await instance.rpcEnqueueNotify([
+						{
+							service: "did:web:syncer.test",
+							endpoint: "https://syncer.test",
+							lxm: "com.atproto.space.notifyWrite",
+							body: { space: uri, repo: AUTHORITY, rev: "3kaaaaaaaaaa2" },
+						},
+					]);
+					await instance.alarm();
+				},
+			),
+		);
 
 		expect(delivered).toHaveLength(1);
 		expect(delivered[0]!.url).toBe(
@@ -768,45 +786,90 @@ describe("SpaceDurableObject", () => {
 		expect(status.queuedNotifications).toBe(0);
 	});
 
+	it("delivers a registered syncer's update with its token, no service auth and no redirects", async () => {
+		const { uri, stub } = freshSpace();
+		await initSpace(stub, uri);
+		const syncer = { endpoint: "https://webhook.test", token: "tok-1" };
+		await stub.rpcPutNotifyRegistration(syncer, Date.now() + 600_000);
+		await stub.rpcRecordWriter(
+			"did:web:bob.test",
+			"3kzzzzzzzzzzz",
+			new Uint8Array(32),
+		);
+
+		const delivered: Request[] = [];
+		const bodies: Array<Record<string, unknown>> = [];
+		await runInDurableObject(stub, (instance) =>
+			withFetch(
+				async (req) => {
+					delivered.push(req);
+					bodies.push((await req.json()) as Record<string, unknown>);
+					return new Response("{}", { status: 200 });
+				},
+				() => instance.alarm(),
+			),
+		);
+
+		expect(delivered.map((req) => req.url)).toEqual([
+			"https://webhook.test/xrpc/com.atproto.space.notifySpaceUpdate",
+		]);
+		expect(delivered[0]!.headers.get("Authorization")).toBeNull();
+		expect(delivered[0]!.redirect).toBe("manual");
+		expect(bodies[0]).toMatchObject({
+			space: uri,
+			token: "tok-1",
+			update: {
+				$type: "com.atproto.space.defs#repoWrite",
+				repo: "did:web:bob.test",
+			},
+		});
+		// Delivered, so settled: nothing left to retry.
+		expect((await stub.rpcStatus()).queuedNotifications).toBe(0);
+	});
+
 	it("coalesces keyed notifications and stops on deadlines and permanent refusals", async () => {
 		const { uri, stub } = freshSpace();
 		await initSpace(stub, uri);
 		const statuses: number[] = [];
-		await runInDurableObject(stub, async (instance) => {
-			let next = 503;
-			(globalThis as { fetch: typeof fetch }).fetch = (async () => {
-				statuses.push(next);
-				return new Response("{}", { status: next });
-			}) as typeof fetch;
-			const item = (rev: string) => ({
-				service: "did:web:authority.test",
-				endpoint: "https://authority.test",
-				lxm: "com.atproto.space.notifyWrite",
-				body: { repoRev: rev },
-				coalesceKey: "notifyWrite:authority",
-				deadline: Date.now() + 60_000,
-			});
-			await instance.rpcEnqueueNotify([item("1")]);
-			await instance.rpcEnqueueNotify([item("2")]);
-			expect((await instance.rpcStatus()).queuedNotifications).toBe(1);
+		let next = 503;
+		await runInDurableObject(stub, (instance) =>
+			withFetch(
+				() => {
+					statuses.push(next);
+					return new Response("{}", { status: next });
+				},
+				async () => {
+					const item = (rev: string) => ({
+						service: "did:web:authority.test",
+						endpoint: "https://authority.test",
+						lxm: "com.atproto.space.notifyWrite",
+						body: { repoRev: rev },
+						coalesceKey: "notifyWrite:authority",
+						deadline: Date.now() + 60_000,
+					});
+					await instance.rpcEnqueueNotify([item("1")]);
+					await instance.rpcEnqueueNotify([item("2")]);
+					expect((await instance.rpcStatus()).queuedNotifications).toBe(1);
 
-			// Retryable: kept, with backoff.
-			await instance.alarm();
-			expect((await instance.rpcStatus()).queuedNotifications).toBe(1);
+					// Retryable: kept, with backoff.
+					await instance.alarm();
+					expect((await instance.rpcStatus()).queuedNotifications).toBe(1);
 
-			// A permanent refusal is not retried.
-			next = 400;
-			await instance.rpcEnqueueNotify([item("3")]);
-			await instance.alarm();
-			expect((await instance.rpcStatus()).queuedNotifications).toBe(0);
+					// A permanent refusal is not retried.
+					next = 400;
+					await instance.rpcEnqueueNotify([item("3")]);
+					await instance.alarm();
+					expect((await instance.rpcStatus()).queuedNotifications).toBe(0);
 
-			// A passed deadline drops the item undelivered.
-			await instance.rpcEnqueueNotify([
-				{ ...item("4"), deadline: Date.now() - 1 },
-			]);
-			await instance.alarm();
-			expect((await instance.rpcStatus()).queuedNotifications).toBe(0);
-		});
+					// A passed deadline drops the item undelivered.
+					await instance.rpcEnqueueNotify([
+						{ ...item("4"), deadline: Date.now() - 1 },
+					]);
+					await instance.alarm();
+					expect((await instance.rpcStatus()).queuedNotifications).toBe(0);
+				},
+			),
+		);
 		expect(statuses).toEqual([503, 400]);
 	});
 
@@ -825,16 +888,18 @@ describe("SpaceDurableObject", () => {
 		// The renewing syncer reauthorises before its notice goes out.
 		await stub.rpcPutNotifyRegistration(renewing, Date.now() + 600_000);
 		const delivered: string[] = [];
-		await runInDurableObject(stub, async (instance, state) => {
-			(globalThis as { fetch: typeof fetch }).fetch = (async (
-				input: RequestInfo | URL,
-			) => {
-				delivered.push(new URL(String(input)).origin);
-				return new Response("{}", { status: 400 });
-			}) as typeof fetch;
-			state.storage.sql.exec("UPDATE notify_queue SET next_at = 0");
-			await instance.alarm();
-		});
+		await runInDurableObject(stub, (instance, state) =>
+			withFetch(
+				(req) => {
+					delivered.push(new URL(req.url).origin);
+					return new Response("{}", { status: 400 });
+				},
+				async () => {
+					state.storage.sql.exec("UPDATE notify_queue SET next_at = 0");
+					await instance.alarm();
+				},
+			),
+		);
 		// Only the still-lapsed one was sent its notice; its rejection
 		// unregistered it.
 		expect(delivered).toEqual(["https://reject.test"]);

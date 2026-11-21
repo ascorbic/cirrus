@@ -49,11 +49,7 @@ export const putMembers = (
 ) =>
 	xrpcPost(op(ctx), "com.atproto.memberspace.putMembers", { space, members });
 
-const removeMembers = (
-	ctx: CheckContext,
-	space: string,
-	dids: string[],
-) =>
+const removeMembers = (ctx: CheckContext, space: string, dids: string[]) =>
 	xrpcPost(op(ctx), "com.atproto.memberspace.removeMembers", { space, dids });
 
 async function listMembers(
@@ -601,26 +597,28 @@ const spaceOwnerStateNotByCredential = defineCheck({
 					params: { space: space.uri },
 					audience: ctx.target.did,
 				});
+			// A refusal, not a 5xx. Each declares NotAuthorized for a caller who
+			// is not the authority, but a credential is no account session at
+			// all, so the auth layer may refuse it first — the reference answers
+			// 400 InvalidToken — and a must can't insist on the error name.
+			const isRefusal = (r: { status: number }) =>
+				r.status >= 400 && r.status < 500;
 			const result = await expectEach([
-				[
-					"getSpace",
-					() => call("com.atproto.space.getSpace"),
-					(r) => r.status !== 200,
-				],
+				["getSpace", () => call("com.atproto.space.getSpace"), isRefusal],
 				[
 					"listMembers",
 					() => call("com.atproto.memberspace.listMembers"),
-					(r) => r.status !== 200,
+					isRefusal,
 				],
 				[
 					"exportSpaceMeta",
 					() => call("com.atproto.space.exportSpaceMeta"),
-					(r) => r.status !== 200,
+					isRefusal,
 				],
 			]);
 			return result.ok
 				? pass(`all refused (${Object.values(result.evidence).join(", ")})`)
-				: fail(`served to a credential: ${result.detail}`, result.evidence);
+				: fail(`expected a 4xx refusal: ${result.detail}`, result.evidence);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -636,18 +634,36 @@ const managedBareDid = defineCheck({
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
-		const res = await xrpcPost(op(ctx), "com.atproto.space.createSpace", {
-			spaceType: PROBE_TYPE,
-			skey: probeSkey(),
-			policy: managedspace(FOREIGN_DID),
-		});
+		const create = (managingApp: string) =>
+			xrpcPost(op(ctx), "com.atproto.space.createSpace", {
+				spaceType: PROBE_TYPE,
+				skey: probeSkey(),
+				policy: managedspace(managingApp),
+			});
+		// Control: the same policy naming a did#serviceId is accepted, so the
+		// refusal is of the bare DID, not of managedspaces.
+		const ok = await create(`${FOREIGN_DID}#managing_app`);
+		if (ok.status !== 200)
+			return fail(
+				`positive control failed: a managedspace naming a did#serviceId was refused (${describe(ok)})`,
+				ok.json,
+			);
+		await deleteProbeSpace(ctx, (ok.json as { space: string }).space);
+		const res = await create(FOREIGN_DID);
 		if (res.status === 200) {
 			await deleteProbeSpace(ctx, (res.json as { space: string }).space);
 			return fail("created a managedspace whose managingApp is a bare DID");
 		}
-		return res.status >= 400 && res.status < 500
-			? pass(`refused (${describe(res)})`)
-			: fail(`answered ${describe(res)}`, res.json);
+		// createSpace declares no error for it: a malformed input is XRPC's
+		// generic InvalidRequest.
+		return res.status === 400 && res.error === "InvalidRequest"
+			? pass(
+					"a did#serviceId was accepted; a bare DID refused with InvalidRequest",
+				)
+			: fail(
+					`answered ${describe(res)}, expected 400 InvalidRequest`,
+					res.json,
+				);
 	},
 });
 

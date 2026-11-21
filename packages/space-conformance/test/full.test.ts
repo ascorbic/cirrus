@@ -9,9 +9,12 @@ import {
 	multibaseToBytes,
 } from "@atproto/crypto";
 import {
+	CLIENT_ATTESTATION_TYP as REF_CLIENT_ATTESTATION_TYP,
 	COMMIT_MAC_PROFILE as REF_COMMIT_MAC_PROFILE,
 	RECORD_MAC_PROFILE as REF_RECORD_MAC_PROFILE,
 	createSpaceSigHeaders,
+	parseSpaceToken,
+	spaceHostAud as refSpaceHostAud,
 	decapsulate,
 	formatMacRequest as refFormatMacRequest,
 	parseMacRequest,
@@ -35,12 +38,14 @@ import {
 	fullCatalog,
 } from "../src/full";
 import {
+	CLIENT_ATTESTATION_TYP,
 	COMMIT_MAC_PROFILE,
 	RECORD_MAC_PROFILE,
 	compressP256,
 	decompressP256,
 	encapsulate,
 	formatMacRequest,
+	spaceHostAud,
 	spaceSigHeaders,
 } from "../src/space-auth";
 import { createSyncerInbox } from "../src/inbox";
@@ -177,8 +182,12 @@ describe("full catalog", () => {
 			if (source.includes("ctx.identities")) {
 				expect(check.needs, check.id).toContain("identities");
 			}
+			// Needed, or — for a check that still proves something without it
+			// and says what it skipped — declared as used.
 			if (source.includes("ctx.syncerInbox")) {
-				expect(check.needs, check.id).toContain("syncer-inbox");
+				expect([...check.needs, ...(check.uses ?? [])], check.id).toContain(
+					"syncer-inbox",
+				);
 			}
 		}
 	});
@@ -393,6 +402,66 @@ describe("syncer inbox", () => {
 			10,
 		);
 		expect(seen?.params?.space).toBe(space);
+	});
+});
+
+describe("syncer inbox as an OAuth client", () => {
+	it("serves client metadata whose jwks verifies the attestations it mints", async () => {
+		const { inbox, handle } = createSyncerInbox({
+			endpoint: "https://inbox.test",
+			service: "did:web:inbox.test#atproto_pds",
+		});
+		expect(inbox.clientId).toBe("https://inbox.test/client-metadata.json");
+		const res = await handle(new Request(inbox.clientId));
+		expect(res.status).toBe(200);
+		const metadata = (await res.json()) as {
+			client_id: string;
+			redirect_uris: string[];
+			jwks: { keys: Array<JsonWebKey & { kid: string }> };
+		};
+		expect(metadata.client_id).toBe(inbox.clientId);
+		expect(metadata.redirect_uris.length).toBeGreaterThan(0);
+		const [jwk] = metadata.jwks.keys;
+		expect(jwk).toMatchObject({ kty: "EC", crv: "P-256", alg: "ES256" });
+		expect(jwk).not.toHaveProperty("d");
+
+		const authority = "did:plc:abcdefghijklmnopqrstuvwx";
+		const aud = spaceHostAud(authority);
+		expect(aud).toBe(refSpaceHostAud(authority));
+		expect(CLIENT_ATTESTATION_TYP).toBe(REF_CLIENT_ATTESTATION_TYP);
+		const attestation = await inbox.attest(aud);
+		// Structurally what the reference requires of an attestation.
+		const { header, payload } = parseSpaceToken(
+			"clientAttestation",
+			attestation,
+		);
+		expect(header).toMatchObject({ alg: "ES256", kid: jwk!.kid });
+		expect(payload).toMatchObject({
+			iss: inbox.clientId,
+			sub: inbox.clientId,
+			aud,
+		});
+		expect(Number(payload.exp)).toBeGreaterThan(Date.now() / 1000);
+		// And signed by the published key.
+		const key = await crypto.subtle.importKey(
+			"jwk",
+			jwk!,
+			{ name: "ECDSA", namedCurve: "P-256" },
+			false,
+			["verify"],
+		);
+		const [h, p, sig] = attestation.split(".") as [string, string, string];
+		const b64 = sig.replace(/-/g, "+").replace(/_/g, "/");
+		const valid = await crypto.subtle.verify(
+			{ name: "ECDSA", hash: "SHA-256" },
+			key,
+			Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)),
+			new TextEncoder().encode(`${h}.${p}`),
+		);
+		expect(valid).toBe(true);
+		// Each attestation is single-use, so each gets its own jti.
+		const again = parseSpaceToken("clientAttestation", await inbox.attest(aud));
+		expect(again.payload.jti).not.toBe(payload.jti);
 	});
 });
 
