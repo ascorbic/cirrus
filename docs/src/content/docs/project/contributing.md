@@ -60,7 +60,7 @@ Run every test in the workspace:
 pnpm test
 ```
 
-The PDS package uses `vitest 4` with `@cloudflare/vitest-pool-workers`. Tests run inside a real Cloudflare Workers runtime via `workerd`, including SQLite-backed Durable Objects. No mocks.
+The PDS and spaces packages use `vitest 4` with `@cloudflare/vitest-plugin`. Tests run inside a real Cloudflare Workers runtime via `workerd`, including SQLite-backed Durable Objects. No mocks.
 
 Run only the PDS unit tests:
 

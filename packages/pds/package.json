@@ -52,7 +52,7 @@
 		"@atproto/api": "^0.18.9",
 		"@atproto/space": "0.0.0-spaces-alpha-20261117141222",
 		"@cloudflare/vite-plugin": "^1.17.0",
-		"@cloudflare/vitest-pool-workers": "^0.16.9",
+		"@cloudflare/vitest-plugin": "^1.8.5",
 		"@cloudflare/workers-types": "^4.20260524.1",
 		"@getcirrus/space-conformance": "workspace:*",
 		"@ipld/car": "^5.4.2",
@@ -63,7 +63,7 @@
 		"tsx": "^4.21.0",
 		"typescript": "^5.9.3",
 		"vite": "^6.4.1",
-		"vitest": "4.1.0-beta.1",
+		"vitest": "^4.1.12",
 		"wrangler": "^4.93.0",
 		"ws": "^8.18.3"
 	},
