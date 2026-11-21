@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { defineConfig } from "vitest/config";
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 
 const require = createRequire(import.meta.url);
 // The vitest pool resolves `jose` to its Node build, whose KeyObject-based

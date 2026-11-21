@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { defineConfig } from "vitest/config";
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 
 // @atproto/space (and @atproto/jwk-jose) depend on jose@5, whose Node build
 // cannot sign or verify under workerd's nodejs_compat in the vitest pool;
