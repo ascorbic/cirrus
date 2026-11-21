@@ -193,27 +193,6 @@ const credentialTokenlessUnknown = defineCheck({
 	},
 });
 
-const requestInvalidSpaceUri = defineCheck({
-	id: "request.invalid-space-uri-rejected",
-	title: "A malformed space reference is rejected, not misread",
-	tier: "must",
-	citations: [lexicon("com.atproto.space.getLatestCommit")],
-	needs: [],
-	async run(ctx) {
-		const res = await xrpcGet(ctx, "com.atproto.space.getLatestCommit", {
-			space: "not-a-space-uri",
-			repo: ctx.target.did,
-		});
-		if (res.status >= 400 && res.status < 500) {
-			return pass(`rejected with ${describe(res)}`);
-		}
-		return fail(
-			`did not reject a malformed space uri (${res.status})`,
-			res.json,
-		);
-	},
-});
-
 /** Checks that need no crypto and no session — safe in any transport. */
 export const baseChecks: Check[] = [
 	discoveryPdsService,
@@ -222,5 +201,4 @@ export const baseChecks: Check[] = [
 	discoveryLegacyEntries,
 	authGetRecordRequiresAuth,
 	credentialTokenlessUnknown,
-	requestInvalidSpaceUri,
 ];

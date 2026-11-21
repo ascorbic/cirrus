@@ -159,6 +159,20 @@ export interface SyncerInbox {
 		lxm: string,
 		handler: ((delivery: InboxDelivery) => unknown) | undefined,
 	): void;
+	/**
+	 * The client_id of an OAuth client the inbox publishes:
+	 * `{endpoint}/client-metadata.json`, a client-metadata document (served
+	 * by the inbox) whose `jwks` holds one ES256 key — what a space host
+	 * fetches to verify a client attestation.
+	 */
+	clientId: string;
+	/**
+	 * Mint a client attestation for {@link clientId} addressed to `aud`
+	 * (`spaceHostAud(authority)`), signed by the published key: typ
+	 * `atproto-client-attestation+jwt`, iss = sub = client_id, a fresh jti,
+	 * 60 seconds of life.
+	 */
+	attest(aud: string): Promise<string>;
 }
 
 export interface InboxDelivery {
@@ -232,6 +246,14 @@ export interface Check {
 	tier: Tier;
 	citations: Citation[];
 	needs: Capability[];
+	/**
+	 * Capabilities the check exercises when the harness supplies them but
+	 * does not need: without one it still runs, and its detail says which
+	 * side of the behaviour it could not check (e.g. a refusal whose success
+	 * path needs a syncer inbox). Never a substitute for `needs` when the
+	 * check proves nothing without the capability.
+	 */
+	uses?: Capability[];
 	/** Creates or deletes state on the target (probe spaces, records). */
 	destructive?: boolean;
 	/** Depends on real time passing (expiry windows); excluded by default. */

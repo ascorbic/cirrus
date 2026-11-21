@@ -22,6 +22,7 @@ import {
 	fromBase58,
 	toBase58,
 	toBase64,
+	toBase64Url,
 	utf8,
 } from "./encoding.js";
 
@@ -169,6 +170,47 @@ export async function createCredentialKey(): Promise<CredentialKey> {
 			return sig;
 		},
 	};
+}
+
+// --- client attestations ---------------------------------------------------
+
+/** `CLIENT_ATTESTATION_TYP` of `@atproto/space`. */
+export const CLIENT_ATTESTATION_TYP = "atproto-client-attestation+jwt";
+
+/**
+ * How a space authority is addressed as the space host — the audience of
+ * delegation tokens and client attestations (`spaceHostAud` of
+ * `@atproto/space`).
+ */
+export const spaceHostAud = (authority: string): string =>
+	`${authority}#atproto_pds`;
+
+/**
+ * A client attestation as `@atproto/space`'s `buildClientAttestation`
+ * shapes it — typ `atproto-client-attestation+jwt`, the signing key's
+ * `kid`, iss = sub = client_id, aud, iat, exp and a fresh jti — signed ES256
+ * by `sign` (a 64-byte compact signature).
+ */
+export async function signClientAttestation(opts: {
+	clientId: string;
+	aud: string;
+	kid: string;
+	sign(bytes: Uint8Array): Promise<Uint8Array>;
+	expiresInSec?: number;
+}): Promise<string> {
+	const iat = Math.floor(Date.now() / 1000);
+	const part = (obj: unknown) => toBase64Url(utf8(JSON.stringify(obj)));
+	const input = `${part({ alg: "ES256", typ: CLIENT_ATTESTATION_TYP, kid: opts.kid })}.${part(
+		{
+			iss: opts.clientId,
+			sub: opts.clientId,
+			aud: opts.aud,
+			iat,
+			exp: iat + (opts.expiresInSec ?? 60),
+			jti: toBase64Url(crypto.getRandomValues(new Uint8Array(16))),
+		},
+	)}`;
+	return `${input}.${toBase64Url(await opts.sign(utf8(input)))}`;
 }
 
 // --- HTTP message signature --------------------------------------------

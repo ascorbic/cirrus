@@ -21,6 +21,8 @@ import {
 	credentialSigMembers,
 	formatDidKey,
 	formatMacRequest,
+	signClientAttestation,
+	spaceHostAud,
 } from "../space-auth.js";
 import {
 	FOREIGN_DID,
@@ -334,33 +336,59 @@ const credentialGarbageDelegation = defineCheck({
 	},
 });
 
+/** A client_id no host serves: an app the target can never resolve. */
+const UNRESOLVABLE_CLIENT =
+	"https://app.space-conformance.invalid/client-metadata.json";
+
 /**
  * A structurally valid client attestation for a client nobody can resolve:
  * typed, addressed to the space host, iss = sub = an unresolvable
  * client_id, signed by a throwaway key. Only verification can refuse it.
  */
 async function unverifiableAttestation(authority: string): Promise<string> {
-	const clientId = "https://app.space-conformance.invalid/client-metadata.json";
 	const key = await createCredentialKey();
-	const iat = Math.floor(Date.now() / 1000);
-	const part = (obj: unknown) => toBase64Url(utf8(JSON.stringify(obj)));
-	const input = `${part({ alg: "ES256", typ: "atproto-client-attestation+jwt", kid: "key-1" })}.${part(
-		{
-			iss: clientId,
-			sub: clientId,
-			aud: `${authority}#atproto_pds`,
-			iat,
-			exp: iat + 60,
-			jti: toBase64Url(crypto.getRandomValues(new Uint8Array(16))),
-		},
-	)}`;
-	return `${input}.${toBase64Url(await key.sign(utf8(input)))}`;
+	return signClientAttestation({
+		clientId: UNRESOLVABLE_CLIENT,
+		aud: spaceHostAud(authority),
+		kid: "key-1",
+		sign: (bytes) => key.sign(bytes),
+	});
 }
 
 const attestationCitations = [
 	L("com.atproto.space.authorizeSpaceSync@error:InvalidClientAttestation"),
 	P("0016#client-attestation"),
 ];
+
+/** Said by a refusal check that could not run its success-path control. */
+const NO_VERIFIABLE_CLIENT =
+	"the success path was not checked: no syncer inbox to publish a verifiable client";
+
+/**
+ * The attestation success path, when the harness serves a syncer inbox: an
+ * attestation signed by the inbox's published client key, for `space`,
+ * must issue a credential. A refusal check runs it first, so a host that
+ * refuses every attestation — verification broken — fails rather than
+ * passing on the refusals alone. Returns the control's detail, or a failure.
+ */
+async function attestationControl(
+	ctx: CheckContext,
+	space: string,
+): Promise<{ detail: string } | { failure: ReturnType<typeof fail> }> {
+	const inbox = ctx.syncerInbox;
+	if (!inbox) return { detail: NO_VERIFIABLE_CLIENT };
+	const res = await requestCredential(ctx, space, {
+		clientAttestation: await inbox.attest(spaceHostAud(ctx.target.did)),
+	});
+	return res.credential
+		? { detail: `a valid attestation from ${inbox.clientId} issued` }
+		: {
+				failure: fail(
+					`positive control failed: a valid attestation from ${inbox.clientId} was refused (${describe(res.result)}), so a refusal proves nothing about verification`,
+					res.result.json,
+				),
+			};
+}
 
 const credentialUnverifiableAttestation = defineCheck({
 	id: "credential.unverifiable-attestation-refused",
@@ -369,12 +397,15 @@ const credentialUnverifiableAttestation = defineCheck({
 	tier: "must",
 	citations: attestationCitations,
 	needs: ["operator"],
+	uses: ["syncer-inbox"],
 	destructive: true,
 	async run(ctx) {
 		// A public-read space would issue without it, so the refusal can only
 		// be the attestation's.
 		const space = await createProbeSpace(ctx, publicRead());
 		try {
+			const control = await attestationControl(ctx, space.uri);
+			if ("failure" in control) return control.failure;
 			const res = await requestCredential(ctx, space.uri, {
 				clientAttestation: await unverifiableAttestation(ctx.target.did),
 			});
@@ -383,7 +414,7 @@ const credentialUnverifiableAttestation = defineCheck({
 					"issued a credential on an unverifiable client attestation",
 				);
 			return res.result.error === "InvalidClientAttestation"
-				? pass("refused with InvalidClientAttestation")
+				? pass(`refused with InvalidClientAttestation; ${control.detail}`)
 				: fail(
 						`refused with ${describe(res.result)}, expected InvalidClientAttestation`,
 						res.result.json,
@@ -401,17 +432,20 @@ const credentialGarbageAttestation = defineCheck({
 	tier: "must",
 	citations: attestationCitations,
 	needs: ["operator"],
+	uses: ["syncer-inbox"],
 	destructive: true,
 	async run(ctx) {
 		const space = await createProbeSpace(ctx, publicRead());
 		try {
+			const control = await attestationControl(ctx, space.uri);
+			if ("failure" in control) return control.failure;
 			const res = await requestCredential(ctx, space.uri, {
 				clientAttestation: "not.an.attestation",
 			});
 			if (res.credential)
 				return fail("issued a credential despite a garbage client attestation");
 			return res.result.error === "InvalidClientAttestation"
-				? pass("refused with InvalidClientAttestation")
+				? pass(`refused with InvalidClientAttestation; ${control.detail}`)
 				: fail(
 						`refused with ${describe(res.result)}, expected InvalidClientAttestation`,
 						res.result.json,
@@ -422,41 +456,149 @@ const credentialGarbageAttestation = defineCheck({
 	},
 });
 
+const allowedAppsCitations = [
+	L("com.atproto.space.authorizeSpaceSync@error:AppNotAuthorized"),
+	L("com.atproto.memberspace.policy"),
+	P("0016#memberspace"),
+	P("0016#client-attestation"),
+];
+
 const credentialAllowedApps = defineCheck({
 	id: "credential.allowed-apps-gate",
 	title: "A memberspace with allowedApps refuses an unattested app",
 	tier: "must",
-	citations: [
-		L("com.atproto.space.authorizeSpaceSync@error:AppNotAuthorized"),
-		L("com.atproto.memberspace.policy"),
-		P("0016#memberspace"),
-	],
+	citations: allowedAppsCitations,
 	needs: ["operator"],
+	uses: ["syncer-inbox"],
 	destructive: true,
 	async run(ctx) {
 		// publicRead clears the account perimeter, so only the app perimeter is
-		// left to refuse; NotAuthorized may stand in for AppNotAuthorized.
+		// left to refuse; NotAuthorized may stand in for AppNotAuthorized. With
+		// an inbox its client is listed too, and must get in — so a gate that
+		// refuses everyone does not pass.
+		const inbox = ctx.syncerInbox;
 		const space = await createProbeSpace(
 			ctx,
 			memberspace({
 				publicRead: true,
-				allowedApps: [
-					"https://app.space-conformance.invalid/client-metadata.json",
-				],
+				allowedApps: [UNRESOLVABLE_CLIENT, ...(inbox ? [inbox.clientId] : [])],
 			}),
 		);
 		try {
 			const res = await requestCredential(ctx, space.uri);
 			if (res.credential)
 				return fail("issued a credential to an app outside allowedApps");
-			return errorIs("AppNotAuthorized", "NotAuthorized")(res.result)
-				? pass(`refused with ${res.result.error}`)
+			if (!errorIs("AppNotAuthorized", "NotAuthorized")(res.result))
+				return fail(
+					`refused with ${describe(res.result)}, expected AppNotAuthorized`,
+					res.result.json,
+				);
+			const control = await attestationControl(ctx, space.uri);
+			if ("failure" in control) return control.failure;
+			return pass(
+				`unattested request refused with ${res.result.error}; ${inbox ? "a valid attestation from a listed app issued" : control.detail}`,
+			);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
+const credentialValidAttestation = defineCheck({
+	id: "credential.valid-attestation-issues",
+	title:
+		"A verifiable client attestation from an app in allowedApps obtains a credential",
+	tier: "must",
+	citations: [
+		L("com.atproto.space.authorizeSpaceSync"),
+		L("com.atproto.memberspace.policy"),
+		P("0016#client-attestation"),
+		P("0016#memberspace"),
+	],
+	needs: ["operator", "syncer-inbox"],
+	destructive: true,
+	async run(ctx) {
+		// The host must fetch the inbox's client metadata, take the key its
+		// jwks publishes and verify the signature: the one path no refusal
+		// exercises. publicRead clears the account perimeter, so only the
+		// app perimeter decides.
+		const inbox = ctx.syncerInbox!;
+		const space = await createProbeSpace(
+			ctx,
+			memberspace({ publicRead: true, allowedApps: [inbox.clientId] }),
+		);
+		try {
+			const unattested = await requestCredential(ctx, space.uri);
+			if (unattested.credential)
+				return fail(
+					"issued without an attestation, so allowedApps is not enforced and issuance proves nothing",
+				);
+			const res = await requestCredential(ctx, space.uri, {
+				clientAttestation: await inbox.attest(spaceHostAud(ctx.target.did)),
+			});
+			return res.credential
+				? pass(
+						`unattested refused (${describe(unattested.result)}); attested as ${inbox.clientId}, issued`,
+					)
+				: fail(
+						`a valid attestation from the listed ${inbox.clientId} was refused: ${describe(res.result)}`,
+						res.result.json,
+					);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
+const credentialUnlistedAttestation = defineCheck({
+	id: "credential.valid-attestation-unlisted-refused",
+	title:
+		"A verifiable client attestation from an app outside allowedApps is refused with AppNotAuthorized",
+	tier: "must",
+	citations: allowedAppsCitations,
+	needs: ["operator", "syncer-inbox"],
+	destructive: true,
+	async run(ctx) {
+		// The same valid attestation that gets into a space listing the app
+		// is refused by one listing only another: the refusal is the
+		// allow-list's, not a verification failure.
+		const inbox = ctx.syncerInbox!;
+		const listed = await createProbeSpace(
+			ctx,
+			memberspace({ publicRead: true, allowedApps: [inbox.clientId] }),
+		);
+		const unlisted = await createProbeSpace(
+			ctx,
+			memberspace({ publicRead: true, allowedApps: [UNRESOLVABLE_CLIENT] }),
+		);
+		try {
+			const aud = spaceHostAud(ctx.target.did);
+			const ok = await requestCredential(ctx, listed.uri, {
+				clientAttestation: await inbox.attest(aud),
+			});
+			if (!ok.credential)
+				return fail(
+					`positive control failed: the space listing ${inbox.clientId} refused its valid attestation (${describe(ok.result)})`,
+					ok.result.json,
+				);
+			const res = await requestCredential(ctx, unlisted.uri, {
+				clientAttestation: await inbox.attest(aud),
+			});
+			if (res.credential)
+				return fail(
+					"issued a credential to a verified app outside allowedApps",
+				);
+			return res.result.error === "AppNotAuthorized"
+				? pass(
+						"issued where the app is listed; refused with AppNotAuthorized where it is not",
+					)
 				: fail(
 						`refused with ${describe(res.result)}, expected AppNotAuthorized`,
 						res.result.json,
 					);
 		} finally {
-			await deleteProbeSpace(ctx, space.uri);
+			await deleteProbeSpace(ctx, listed.uri);
+			await deleteProbeSpace(ctx, unlisted.uri);
 		}
 	},
 });
@@ -528,25 +670,59 @@ const credentialUnconfirmedRegistration = defineCheck({
 		P("0016#registering-for-notifications"),
 	],
 	needs: ["operator"],
+	uses: ["syncer-inbox"],
 	destructive: true,
 	async run(ctx) {
-		// An endpoint nobody serves can't echo the challenge.
+		const inbox = ctx.syncerInbox;
 		const space = await createProbeSpace(ctx, publicRead());
+		const randomToken = () =>
+			toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
 		try {
-			const res = await requestCredential(ctx, space.uri, {
-				notify: {
-					endpoint: "https://syncer.space-conformance.invalid",
-					token: toBase64Url(crypto.getRandomValues(new Uint8Array(32))),
-				},
-			});
-			if (res.credential)
-				return fail("issued a credential with an unconfirmed registration");
-			return res.result.error === "RegistrationNotConfirmed"
-				? pass("refused with RegistrationNotConfirmed")
-				: fail(
-						`refused with ${describe(res.result)}, expected RegistrationNotConfirmed`,
-						res.result.json,
+			// With an inbox, the success path first: a host whose
+			// confirmRegistration never succeeds would refuse every
+			// registration, and pass on the refusals alone.
+			const refusals: Array<[string, { endpoint: string; token: string }]> = [
+				// An endpoint nobody serves can't echo the challenge.
+				[
+					"an unreachable endpoint",
+					{
+						endpoint: "https://syncer.space-conformance.invalid",
+						token: randomToken(),
+					},
+				],
+			];
+			if (inbox) {
+				const ok = await requestCredential(ctx, space.uri, {
+					notify: {
+						endpoint: inbox.endpoint,
+						token: inbox.issueToken(space.uri),
+					},
+				});
+				if (!ok.credential)
+					return fail(
+						`positive control failed: a registration the inbox confirms was refused (${describe(ok.result)})`,
+						ok.result.json,
 					);
+				// Reachable, but refusing to confirm a token it never issued.
+				refusals.push([
+					"a token the endpoint did not issue",
+					{ endpoint: inbox.endpoint, token: randomToken() },
+				]);
+			}
+			const misses: string[] = [];
+			for (const [label, notify] of refusals) {
+				const res = await requestCredential(ctx, space.uri, { notify });
+				if (res.credential) misses.push(`${label} → issued`);
+				else if (res.result.error !== "RegistrationNotConfirmed")
+					misses.push(`${label} → ${describe(res.result)}`);
+			}
+			if (misses.length)
+				return fail(`expected RegistrationNotConfirmed: ${misses.join("; ")}`);
+			return pass(
+				inbox
+					? "a confirmed registration issued; an unreachable endpoint and an unissued token were refused with RegistrationNotConfirmed"
+					: "an unreachable endpoint was refused with RegistrationNotConfirmed; the success path was not checked (no syncer inbox)",
+			);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -587,8 +763,60 @@ const credentialSelfRoundTrip = defineCheck({
 				return fail(`credential read failed: ${describe(read)}`, read.json);
 			return read.headers.get("atproto-space-record") &&
 				read.headers.get("signature")
-				? pass("delegation → credential → MAC'd read works")
+				? pass(
+						"delegation → credential → read carrying an Atproto-Space-Record MAC (presence only here; mac.record-verifies checks it with the alpha libs)",
+					)
 				: fail("the credentialed read carried no Atproto-Space-Record MAC");
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
+const credentialPersonalOwner = defineCheck({
+	id: "policy.personalspace-owner-admitted",
+	title:
+		"A personalspace issues its authority a credential through a delegation token",
+	tier: "must",
+	citations: [
+		L("com.atproto.personalspace.policy"),
+		L("com.atproto.space.authorizeSpaceSync"),
+		P("0016#personalspace"),
+	],
+	needs: ["operator", "pds-delegation"],
+	destructive: true,
+	async run(ctx) {
+		// The other half of policy.personalspace-owner-only: a personalspace
+		// that refuses everyone, its authority included, passes that check.
+		const space = await createProbeSpace(ctx, personalspace());
+		try {
+			await mustCreateRecord(ctx, space.uri, "shared", "mine");
+			const tokenless = await requestCredential(ctx, space.uri);
+			if (tokenless.credential)
+				return fail(
+					"a personalspace issued a credential with no delegation token",
+				);
+			const { result, credential, delegation } =
+				await obtainCredentialViaDelegation(ctx, space.uri);
+			if (delegation.status !== 200)
+				return fail(
+					`getDelegationToken ${describe(delegation)}`,
+					delegation.json,
+				);
+			if (!credential)
+				return fail(
+					`the authority was refused its own personalspace: ${describe(result)}`,
+					result.json,
+				);
+			const read = await readShared(ctx, credential, space.uri);
+			return read.status === 200
+				? pass(
+						`tokenless refused (${describe(tokenless.result)}); the authority's delegation token issued, and the credential reads`,
+					)
+				: fail(
+						`the authority's credential could not read: ${describe(read)}`,
+						read.json,
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -1004,9 +1232,14 @@ const credentialCrossSpace = defineCheck({
 				if (ok.status !== 200)
 					return fail(`positive control failed: ${describe(ok)}`, ok.json);
 				const cross = await readShared(ctx, credential, other.uri);
-				return cross.status === 200
-					? fail("a space-A credential read space B", cross.json)
-					: pass(`cross-space read refused (${describe(cross)})`);
+				if (cross.status === 200)
+					return fail("a space-A credential read space B", cross.json);
+				return refused(cross.status)
+					? pass(`cross-space read refused (${describe(cross)})`)
+					: fail(
+							`cross-space read answered ${describe(cross)}, expected a 4xx refusal`,
+							cross.json,
+						);
 			});
 		} finally {
 			await deleteProbeSpace(ctx, other.uri);
@@ -1121,7 +1354,7 @@ const macRequired = defineCheck({
 			return misses.length
 				? fail(misses.join("; "))
 				: pass(
-						"each served with a MAC request and answered InvalidSpaceMac without one",
+						"each served with a MAC request (not verified here: mac.commit-verifies and mac.record-verifies need the alpha libs) and answered InvalidSpaceMac without one",
 					);
 		});
 	},
@@ -1230,9 +1463,12 @@ export const credentialChecks: Check[] = [
 	credentialUnverifiableAttestation,
 	credentialGarbageAttestation,
 	credentialAllowedApps,
+	credentialValidAttestation,
+	credentialUnlistedAttestation,
 	credentialDeletedSpace,
 	credentialUnconfirmedRegistration,
 	credentialSelfRoundTrip,
+	credentialPersonalOwner,
 	delegationClaims,
 	delegationReplay,
 	delegationWrongSpace,

@@ -49,11 +49,7 @@ export const putMembers = (
 ) =>
 	xrpcPost(op(ctx), "com.atproto.memberspace.putMembers", { space, members });
 
-const removeMembers = (
-	ctx: CheckContext,
-	space: string,
-	dids: string[],
-) =>
+const removeMembers = (ctx: CheckContext, space: string, dids: string[]) =>
 	xrpcPost(op(ctx), "com.atproto.memberspace.removeMembers", { space, dids });
 
 async function listMembers(
@@ -584,8 +580,11 @@ const spaceOwnerStateNotByCredential = defineCheck({
 	tier: "must",
 	citations: [
 		L("com.atproto.space.getSpace"),
+		L("com.atproto.space.getSpace@error:NotAuthorized"),
 		L("com.atproto.memberspace.listMembers"),
+		L("com.atproto.memberspace.listMembers@error:NotAuthorized"),
 		L("com.atproto.space.exportSpaceMeta"),
+		L("com.atproto.space.exportSpaceMeta@error:NotAuthorized"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -601,26 +600,36 @@ const spaceOwnerStateNotByCredential = defineCheck({
 					params: { space: space.uri },
 					audience: ctx.target.did,
 				});
+			// An auth refusal (401/403), or the NotAuthorized each declares for
+			// a caller who is not the authority — not a 5xx, nor some other
+			// error that would read the same for the authority itself.
+			const refusedAsNonAuthority = (r: { status: number; error?: string }) =>
+				r.status === 401 ||
+				r.status === 403 ||
+				(r.status >= 400 && r.status < 500 && r.error === "NotAuthorized");
 			const result = await expectEach([
 				[
 					"getSpace",
 					() => call("com.atproto.space.getSpace"),
-					(r) => r.status !== 200,
+					refusedAsNonAuthority,
 				],
 				[
 					"listMembers",
 					() => call("com.atproto.memberspace.listMembers"),
-					(r) => r.status !== 200,
+					refusedAsNonAuthority,
 				],
 				[
 					"exportSpaceMeta",
 					() => call("com.atproto.space.exportSpaceMeta"),
-					(r) => r.status !== 200,
+					refusedAsNonAuthority,
 				],
 			]);
 			return result.ok
 				? pass(`all refused (${Object.values(result.evidence).join(", ")})`)
-				: fail(`served to a credential: ${result.detail}`, result.evidence);
+				: fail(
+						`expected 401/403 or NotAuthorized: ${result.detail}`,
+						result.evidence,
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -636,18 +645,36 @@ const managedBareDid = defineCheck({
 	needs: ["operator"],
 	destructive: true,
 	async run(ctx) {
-		const res = await xrpcPost(op(ctx), "com.atproto.space.createSpace", {
-			spaceType: PROBE_TYPE,
-			skey: probeSkey(),
-			policy: managedspace(FOREIGN_DID),
-		});
+		const create = (managingApp: string) =>
+			xrpcPost(op(ctx), "com.atproto.space.createSpace", {
+				spaceType: PROBE_TYPE,
+				skey: probeSkey(),
+				policy: managedspace(managingApp),
+			});
+		// Control: the same policy naming a did#serviceId is accepted, so the
+		// refusal is of the bare DID, not of managedspaces.
+		const ok = await create(`${FOREIGN_DID}#managing_app`);
+		if (ok.status !== 200)
+			return fail(
+				`positive control failed: a managedspace naming a did#serviceId was refused (${describe(ok)})`,
+				ok.json,
+			);
+		await deleteProbeSpace(ctx, (ok.json as { space: string }).space);
+		const res = await create(FOREIGN_DID);
 		if (res.status === 200) {
 			await deleteProbeSpace(ctx, (res.json as { space: string }).space);
 			return fail("created a managedspace whose managingApp is a bare DID");
 		}
-		return res.status >= 400 && res.status < 500
-			? pass(`refused (${describe(res)})`)
-			: fail(`answered ${describe(res)}`, res.json);
+		// createSpace declares no error for it: a malformed input is XRPC's
+		// generic InvalidRequest.
+		return res.status === 400 && res.error === "InvalidRequest"
+			? pass(
+					"a did#serviceId was accepted; a bare DID refused with InvalidRequest",
+				)
+			: fail(
+					`answered ${describe(res)}, expected 400 InvalidRequest`,
+					res.json,
+				);
 	},
 });
 
