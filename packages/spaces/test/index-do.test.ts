@@ -118,8 +118,20 @@ describe("SpaceIndexDurableObject", () => {
 			afterUri: page1.spaces[1]!.uri,
 		});
 		expect(page2.spaces.length).toBeGreaterThan(0);
-		expect(
-			page2.spaces.every((s) => s.uri > page1.spaces[1]!.uri),
-		).toBe(true);
+		expect(page2.spaces.every((s) => s.uri > page1.spaces[1]!.uri)).toBe(true);
+	});
+
+	it("holds pending imported blobs until uploadBlob claims them", async () => {
+		const stub = indexStub();
+		const a = entry();
+		const b = entry();
+		await stub.rpcAddPendingBlobs(a.uri, ["bafkpending1", "bafkpending2"]);
+		await stub.rpcAddPendingBlobs(b.uri, ["bafkpending1"]);
+		expect((await stub.rpcClaimPendingBlob("bafkpending1")).sort()).toEqual(
+			[a.uri, b.uri].sort(),
+		);
+		// Claimed once.
+		expect(await stub.rpcClaimPendingBlob("bafkpending1")).toEqual([]);
+		expect(await stub.rpcClaimPendingBlob("bafkpending2")).toEqual([a.uri]);
 	});
 });

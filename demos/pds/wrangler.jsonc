@@ -58,13 +58,16 @@
 		"HANDLE": "pds.mk.gg",
 		// Atproto spaces (ALPHA). Breaking upstream changes are absorbed by
 		// `pds spaces reset`, which wipes space data and nothing else.
-		"SPACES_ENABLED": "true"
+		// `pds spaces kem` sets SPACES_KEM_KEY and SPACES_KEM_KEY_PUBLIC.
+		"SPACES_ENABLED": "true",
+		"SPACES_KEM_KEY_PUBLIC": "zDnaeYeM75iQkR6hidmbVWhwdZ42hoyk7iaXrQJ1oZYJqBTSn"
 	},
 	// Secrets (set via `pds init` or `pds secret <name>`):
 	// - AUTH_TOKEN: Bearer token for API write operations
 	// - SIGNING_KEY: Private signing key (secp256k1 JWK)
 	// - JWT_SECRET: Secret for signing session JWTs
 	// - PASSWORD_HASH: Bcrypt hash of account password (for Bluesky app login)
+	// - SPACES_KEM_KEY: Spaces #atproto_kem private key (`pds spaces kem`)
 	"observability": {
 		"enabled": true
 	}

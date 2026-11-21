@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { defineConfig } from "vitest/config";
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 
 // @atproto/space (and @atproto/jwk-jose) depend on jose@5, whose Node build
 // cannot sign or verify under workerd's nodejs_compat in the vitest pool;
@@ -51,6 +51,10 @@ export default defineConfig({
 					INITIAL_ACTIVE: "true",
 					// Exercise the spaces alpha in tests
 					SPACES_ENABLED: "true",
+					SPACES_KEM_KEY:
+						"b5952836830a94fa65c83db8c527ff76b99d69ed1ceffaa6de93d6a62df1efb5",
+					SPACES_KEM_KEY_PUBLIC:
+						"zDnaejUd5i6eEP8uo8LafaYmAtEVQqrnYm1wibThTZm5GpiDG",
 					// Sinkhole relay pokes: write tests run with unstubbed
 					// fetch, and the default would POST requestCrawl to the
 					// real bsky.network from CI.

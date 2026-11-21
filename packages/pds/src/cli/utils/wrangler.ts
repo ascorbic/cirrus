@@ -11,13 +11,15 @@ export type VarName =
 	| "DID"
 	| "HANDLE"
 	| "SIGNING_KEY_PUBLIC"
+	| "SPACES_KEM_KEY_PUBLIC"
 	| "INITIAL_ACTIVE"
 	| "DATA_LOCATION";
 export type SecretName =
 	| "AUTH_TOKEN"
 	| "SIGNING_KEY"
 	| "JWT_SECRET"
-	| "PASSWORD_HASH";
+	| "PASSWORD_HASH"
+	| "SPACES_KEM_KEY";
 
 export interface WranglerResult {
 	stdout: string;

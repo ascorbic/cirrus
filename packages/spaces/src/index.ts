@@ -28,6 +28,8 @@ export {
 export type { SpaceRef } from "./space-uri.js";
 
 export {
+	promotePendingSpaceBlob,
+	promoteStagedBlobToSpace,
 	spaceBlobKey,
 	spaceBlobKeyForUri,
 	spaceBlobPrefix,
@@ -45,16 +47,33 @@ export type {
 } from "./routes.js";
 
 export {
+	SPACE_AUDIENCE_HEADER,
+	SPACE_CREDENTIAL_SCHEME,
 	isSpaceCredentialAuth,
-	unverifiedJwtTyp,
-	verifyDelegationAuth,
+	verifyDelegationToken,
 	verifySpaceCredentialAuth,
 } from "./auth.js";
-export type { CheckReplay, GetSigningKey } from "./auth.js";
+export type { CheckReplay, CheckRevoked, GetSigningKey } from "./auth.js";
 
 export { verifyClientAttestation } from "./attestation.js";
 
-export { signCommit, commitToJson, bytesToJson } from "./commit.js";
+export {
+	MAC_REQUEST_HEADER,
+	macExposedHeaders,
+	buildCommit,
+	bytesToJson,
+	commitToJson,
+	generateKemKey,
+	kemDidKey,
+} from "./mac.js";
+export type { SpaceCommit } from "./mac.js";
+
+export {
+	MEMBER_COLLECTION,
+	POLICY_COLLECTION,
+	PUBLISHED_COLLECTIONS,
+	normalizePolicy,
+} from "./policy.js";
 
 export { prepareRecord, recordBytesToJson } from "./records.js";
 export type { PreparedRecord } from "./records.js";
@@ -63,24 +82,34 @@ export {
 	SPACE_SCHEMA_VERSION,
 	OPLOG_RETENTION_DAYS,
 	OPLOG_RETENTION_OPS,
-	NOTIFY_REGISTRATION_DAYS,
 } from "./schema.js";
 
 export { createServiceJwt } from "./service-jwt.js";
 export type { ServiceJwtParams } from "./service-jwt.js";
 
-export { nextRev, tidCutoff } from "./tid.js";
+export { nextRev, tidCutoff, tidTimestampMs } from "./tid.js";
 
+export { createDelegationToken, spaceHostAud } from "./tokens.js";
+
+export {
+	MANAGEDSPACE_POLICY,
+	MEMBERSPACE_POLICY,
+	PERSONALSPACE_POLICY,
+} from "./types.js";
 export type {
 	ApplyWritesResult,
+	ImportedRecord,
 	NotifyItem,
 	OplogEntry,
 	PreparedSpaceWrite,
+	RepoCommitResult,
 	RepoState,
-	SpaceAppAccess,
-	SpaceConfig,
 	SpaceHostConfig,
+	SpaceMember,
 	SpaceMeta,
 	SpacePolicy,
 	SpaceRecordRow,
+	SpaceSequence,
+	SpaceSigningKeypair,
+	SpaceWriter,
 } from "./types.js";

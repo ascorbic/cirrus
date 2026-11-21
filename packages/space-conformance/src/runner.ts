@@ -86,7 +86,7 @@ export async function runChecks(options: RunOptions): Promise<RunReport> {
 		try {
 			const outcome = await withTimeout(
 				check.run(checkCtx),
-				timeoutMs,
+				Math.max(timeoutMs, check.timeoutMs ?? 0),
 				check.id,
 				controller,
 			);

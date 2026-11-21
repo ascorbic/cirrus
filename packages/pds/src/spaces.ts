@@ -4,19 +4,20 @@
  * The engine lives in @getcirrus/spaces; this module supplies the
  * account-specific pieces: the concrete Durable Object classes, the host
  * adapter (operator identity, DID resolution, session auth, record
- * validation), and the user's-PDS role endpoints (getDelegationToken,
- * listSpaces). Everything mounts behind the SPACES_ENABLED flag.
+ * validation), and the user's-PDS role endpoint getDelegationToken.
+ * Everything mounts behind the SPACES_ENABLED flag.
  */
 
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { Secp256k1Keypair, verifySignature } from "@atproto/crypto";
-import { createSpaceToken, spaceHostAud } from "@atproto/space";
 import {
 	SpaceDurableObject as EngineSpaceDurableObject,
 	SpaceIndexDurableObject as EngineSpaceIndexDurableObject,
 	SPACE_SCHEMA_VERSION,
+	createDelegationToken,
 	createSpaceRoutes,
+	promotePendingSpaceBlob,
 	requireSpaceUri,
 	parseSpaceErrorCode,
 	spaceBlobRootPrefix,
@@ -30,7 +31,7 @@ import type {
 	SpaceStub,
 	SpaceIndexStub,
 } from "@getcirrus/spaces";
-import { permissionsFor } from "@getcirrus/oauth-provider";
+import { allowsSpace, permissionsFor } from "@getcirrus/oauth-provider";
 import { getProvider } from "./oauth.js";
 import { verifyAccessToken, TokenExpiredError } from "./session.js";
 import { InvalidRecordError, validator } from "./validation.js";
@@ -61,6 +62,8 @@ export interface SpacesAppDeps {
 	env: PDSEnv;
 	didResolver: DidResolver;
 	getKeypair: () => Promise<Secp256k1Keypair>;
+	/** Whether the account is active (a deactivated authority issues nothing). */
+	isAccountActive: () => Promise<boolean>;
 }
 
 /** Data-location-aware stub creation, matching getAccountDO's handling. */
@@ -92,12 +95,31 @@ function locatedStub<T extends Rpc.DurableObjectBranded | undefined>(
 	return namespace.get(id);
 }
 
-const SESSION_KID_ALLOWED = new Set(["#atproto", "#atproto_space"]);
+/**
+ * After an upload: promote the blob into any space whose imported repo
+ * references it (`com.atproto.space.importRepo` brings records whose blobs
+ * are uploaded afterwards). A no-op unless the spaces bindings exist. The
+ * space data already lives in the bindings, so this runs with the flag off
+ * too, as reset and status do.
+ */
+export async function promoteUploadedSpaceBlob(
+	env: PDSEnv,
+	cid: string,
+): Promise<void> {
+	if (!env.SPACES_INDEX || !env.BLOBS) return;
+	await promotePendingSpaceBlob({
+		bucket: env.BLOBS,
+		did: env.DID,
+		cid,
+		claimPendingBlob: (blobCid) =>
+			getSpaceIndexDO(env).rpcClaimPendingBlob(blobCid),
+	});
+}
 
 /**
  * Fallback app mounted when SPACES_ENABLED is set but the SPACES /
  * SPACES_INDEX Durable Object bindings are absent: every space and
- * simplespace method answers 503 with a pointer at the fix, and
+ * memberspace method answers 503 with a pointer at the fix, and
  * everything else falls through.
  *
  * Nothing in this module may throw for a missing binding at module scope:
@@ -113,7 +135,7 @@ export function createSpacesUnavailableApp(): Hono {
 		const method = c.req.param("method");
 		if (
 			!method.startsWith("com.atproto.space.") &&
-			!method.startsWith("com.atproto.simplespace.")
+			!method.startsWith("com.atproto.memberspace.")
 		) {
 			return next();
 		}
@@ -131,24 +153,19 @@ export function createSpacesUnavailableApp(): Hono {
 
 /**
  * Build the host adapter and the complete spaces Hono app: the engine's
- * space/simplespace routes plus the PDS-level getDelegationToken and
- * listSpaces.
+ * space and memberspace routes plus the PDS-level getDelegationToken.
  */
 export function createSpacesApp(deps: SpacesAppDeps): Hono {
 	const { env, didResolver, getKeypair } = deps;
 
 	/**
-	 * Resolve a DID's signing key to a did:key string, honouring the
-	 * requested kid with the proposal's #atproto_space → #atproto fallback.
+	 * Resolve a DID's `#atproto` key to a did:key string. Space tokens are
+	 * signed with it, like any other account's.
 	 */
 	async function getSigningKey(
 		iss: string,
-		kid: string | undefined,
 		forceRefresh: boolean,
 	): Promise<string> {
-		if (kid && !SESSION_KID_ALLOWED.has(kid)) {
-			throw new Error(`Unsupported signing key id: ${kid}`);
-		}
 		// The operator's own key never goes through resolution: a Worker
 		// cannot fetch its own hostname (same-zone subrequests are blocked),
 		// and the delegation-for-own-space flow verifies tokens this Worker
@@ -162,12 +179,11 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 			id: string;
 			publicKeyMultibase?: string;
 		}>;
-		const find = (fragment: string) =>
-			methods.find((m) => m.id === fragment || m.id.endsWith(fragment));
-		const method =
-			(kid ? find(kid) : undefined) ?? find("#atproto");
+		const method = methods.find(
+			(m) => m.id === "#atproto" || m.id.endsWith("#atproto"),
+		);
 		if (!method?.publicKeyMultibase) {
-			throw new Error(`No signing key in DID document for ${iss}`);
+			throw new Error(`No #atproto key in DID document for ${iss}`);
 		}
 		return `did:key:${method.publicKeyMultibase}`;
 	}
@@ -177,6 +193,12 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 		service: string,
 	): Promise<string | null> {
 		const [did, fragment] = service.split("#") as [string, string?];
+		// A Worker cannot fetch its own hostname, so the operator's own
+		// service (a syncer registering this PDS, a space it writes into
+		// as its own authority) is answered from the env.
+		if (did === env.DID && (!fragment || fragment === "atproto_pds")) {
+			return `https://${env.PDS_HOSTNAME}`;
+		}
 		const doc = await didResolver.resolve(did);
 		if (!doc) return null;
 		const services = (doc.service ?? []) as Array<{
@@ -196,19 +218,8 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 	}
 
 	/**
-	 * A space authority's host endpoint: the dedicated #atproto_space_host
-	 * entry when published, falling back to #atproto_pds.
-	 */
-	async function resolveAuthorityEndpoint(did: string): Promise<string | null> {
-		return (
-			(await resolveServiceEndpoint(`${did}#atproto_space_host`)) ??
-			(await resolveServiceEndpoint(did))
-		);
-	}
-
-	/**
-	 * Verify an inbound service-auth JWT from a foreign issuer (notifyWrite
-	 * and notifySpaceDeleted): ES256K signature against the issuer's
+	 * Verify an inbound service-auth JWT from a foreign issuer (notifyRepoUpdate
+	 * and notifyCredentialsRevoked): ES256K signature against the issuer's
 	 * #atproto key, expiry, and the lxm method binding. Resolution failures
 	 * surface as auth errors, never 500s.
 	 */
@@ -219,9 +230,10 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 		const parts = token.split(".");
 		if (parts.length !== 3) throw new Error("Malformed service JWT");
 		const decode = (part: string) =>
-			JSON.parse(
-				atob(part.replace(/-/g, "+").replace(/_/g, "/")),
-			) as Record<string, unknown>;
+			JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/"))) as Record<
+				string,
+				unknown
+			>;
 		const payload = decode(parts[1]!);
 		const iss = payload.iss;
 		const aud = payload.aud;
@@ -237,14 +249,12 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 		) {
 			throw new Error("Service JWT expired");
 		}
-		const signingInput = new TextEncoder().encode(
-			`${parts[0]}.${parts[1]}`,
-		);
+		const signingInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
 		const sigB64 = parts[2]!.replace(/-/g, "+").replace(/_/g, "/");
 		const sig = Uint8Array.from(atob(sigB64), (ch) => ch.charCodeAt(0));
 		const verifyWith = async (forceRefresh: boolean) =>
 			verifySignature(
-				await getSigningKey(iss, undefined, forceRefresh),
+				await getSigningKey(iss, forceRefresh),
 				signingInput,
 				sig,
 			);
@@ -289,7 +299,7 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 				did: tokenData.sub,
 				fullTrust: false,
 				allowsSpace: (match: SpaceScopeMatch) =>
-					perms.allowsSpace(match as never),
+					allowsSpace(perms, match as never),
 			};
 		}
 
@@ -349,14 +359,14 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 
 	const host: SpaceRoutesHost = {
 		operatorDid: env.DID,
-		publicOrigin: `https://${env.PDS_HOSTNAME}`,
 		blobs: env.BLOBS,
 		getKeypair,
+		getKemPrivateKey: () => env.SPACES_KEM_KEY ?? null,
 		getSigningKey,
 		resolveServiceEndpoint,
-		resolveAuthorityEndpoint,
 		verifyServiceJwt: verifyForeignServiceJwt,
 		authenticate,
+		isAccountActive: deps.isAccountActive,
 		validateRecord: ({ collection, record, rkey, validate }) => {
 			const result = validator.validate({ collection, record, rkey, validate });
 			return { record: result.record, status: result.status };
@@ -368,7 +378,7 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 	const app = createSpaceRoutes(host);
 
 	// ------------------------------------------------------------------
-	// User's-PDS role: delegation minting and the space index
+	// User's-PDS role: delegation minting
 	// ------------------------------------------------------------------
 
 	app.get("/xrpc/com.atproto.space.getDelegationToken", async (c) => {
@@ -395,64 +405,11 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 					);
 				}
 			}
-			const keypair = await getKeypair();
-			const token = await createSpaceToken(
-				"delegation",
-				{
-					iss: env.DID,
-					sub: ref.uri,
-					aud: spaceHostAud(ref.authority),
-				},
-				keypair,
+			const token = await createDelegationToken(
+				{ iss: env.DID, space: ref.uri, authority: ref.authority },
+				await getKeypair(),
 			);
 			return c.json({ token });
-		} catch (err) {
-			return spacesErrorResponse(c, err);
-		}
-	});
-
-	app.get("/xrpc/com.atproto.space.listSpaces", async (c) => {
-		try {
-			const session = await authenticate(c);
-			if (session instanceof Response) return session;
-			const type = c.req.query("type");
-			const authority = c.req.query("did");
-			if (!session.fullTrust) {
-				// An unfiltered listing needs a wildcard grant.
-				const allowed = session.allowsSpace({
-					type: type ?? "*",
-					authority: authority ?? "*",
-					skey: "*",
-					action: "read_self",
-				});
-				if (!allowed) {
-					return c.json(
-						{
-							error: "InsufficientScope",
-							message: "Token does not cover listing these spaces",
-						},
-						403,
-					);
-				}
-			}
-			const limitRaw = c.req.query("limit");
-			const limit = Math.min(
-				Math.max(limitRaw ? Number.parseInt(limitRaw, 10) || 50 : 50, 1),
-				100,
-			);
-			const index = getSpaceIndexDO(env);
-			const page = await index.rpcList({
-				type,
-				authority,
-				state: "active",
-				limit,
-				afterUri: c.req.query("cursor"),
-			});
-			const last = page.spaces[page.spaces.length - 1];
-			return c.json({
-				spaces: page.spaces.map((space) => ({ uri: space.uri })),
-				...(page.hasMore && last ? { cursor: last.uri } : {}),
-			});
 		} catch (err) {
 			return spacesErrorResponse(c, err);
 		}
@@ -536,6 +493,7 @@ export function createSpacesAdminApp(deps: SpacesAppDeps): Hono {
 					role: entry.isAuthority ? "authority" : "writer",
 					state: entry.state,
 					outdated: status.outdated,
+					policy: status.policyType,
 					recordCount: status.recordCount,
 					memberCount: status.memberCount,
 					writerCount: status.writerCount,
@@ -545,6 +503,12 @@ export function createSpacesAdminApp(deps: SpacesAppDeps): Hono {
 		return c.json({
 			enabled: env.SPACES_ENABLED === "true",
 			schemaVersion: SPACE_SCHEMA_VERSION,
+			kem: {
+				configured: Boolean(env.SPACES_KEM_KEY),
+				...(env.SPACES_KEM_KEY_PUBLIC
+					? { didKey: `did:key:${env.SPACES_KEM_KEY_PUBLIC}` }
+					: {}),
+			},
 			stats,
 			spaces,
 		});

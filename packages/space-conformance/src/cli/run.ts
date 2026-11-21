@@ -10,14 +10,17 @@ import { runChecks, type RunReport } from "../runner.js";
 import { fullCatalog } from "../full.js";
 import { KeypairIdentityProvider } from "../identity.js";
 import type { Capability, CheckContext, Tier } from "../model.js";
-
-/** The alpha build the suite's verifiers are pinned to (from our deps). */
-const ALPHA_BUILD = "0.0.0-spaces-alpha-20260818163953";
+import { ALPHA_BUILD } from "../alpha.js";
 
 export interface RunConformanceOptions {
 	origin: string;
 	/** Target DID; resolved from the origin's did.json when omitted. */
 	did?: string;
+	/**
+	 * PLC directory for did:plc resolution (the target's DID document and
+	 * the KEM keys of the repos it reads). Defaults to https://plc.directory.
+	 */
+	plcDirectory?: string;
 	implementation?: string;
 	/** Operator bearer token; enables the operator capability when present. */
 	operatorToken?: string;
@@ -36,9 +39,9 @@ export interface RunConformanceOptions {
 	 */
 	password?: string;
 	/**
-	 * An authenticated fetch for operator calls — a DPoP-bound OAuth session
-	 * from the loopback sign-in, which must sign each request individually
-	 * and so cannot be expressed as a bearer header. Takes precedence over
+	 * An authenticated fetch for operator calls — an OAuth session from the
+	 * loopback sign-in, whose DPoP proofs sign each request individually and
+	 * so cannot be expressed as a bearer header. Takes precedence over
 	 * {@link operatorToken} and {@link handle}.
 	 */
 	operatorFetch?: typeof fetch;
@@ -52,7 +55,8 @@ export interface RunConformanceOptions {
 	 * Provide harness identities. Only meaningful when the target can
 	 * resolve them — either an in-process fixture wired to the provider, or
 	 * a live deployment publishing the DIDs. A bare CLI against a remote
-	 * host cannot, so identity-requiring checks skip by default.
+	 * host cannot, so identity-requiring checks skip by default. With
+	 * `didFor` the identities get resolvable DIDs the caller publishes.
 	 */
 	identities?: boolean;
 	tiers?: Tier[];
@@ -103,6 +107,7 @@ export async function runConformance(
 			origin,
 			did,
 			implementation: options.implementation,
+			...(options.plcDirectory ? { plcDirectory: options.plcDirectory } : {}),
 		},
 		fetch: doFetch,
 		...(options.operatorFetch

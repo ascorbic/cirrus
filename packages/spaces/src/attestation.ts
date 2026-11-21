@@ -13,7 +13,7 @@
  */
 
 import { createLocalJWKSet, jwtVerify } from "jose";
-import { SPACE_TOKEN_TYPES, parseSpaceToken } from "@atproto/space";
+import { CLIENT_ATTESTATION_TYP, parseSpaceToken } from "@atproto/space";
 import { SpaceError } from "./errors.js";
 import type { CheckReplay } from "./auth.js";
 
@@ -69,7 +69,11 @@ export async function verifyClientAttestation(
 			"Attestation client_id is not a URL",
 		);
 	}
-	if (clientUrl.protocol !== "https:" || clientUrl.username || clientUrl.password) {
+	if (
+		clientUrl.protocol !== "https:" ||
+		clientUrl.username ||
+		clientUrl.password
+	) {
 		throw new SpaceError(
 			"InvalidClientAttestation",
 			"Attestation client_id must be a plain https URL",
@@ -87,7 +91,9 @@ export async function verifyClientAttestation(
 		const res = await doFetch(url, {
 			headers: { Accept: "application/json" },
 			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-			redirect: "error",
+			// No redirects. Not "error": workerd refuses it outright, so every
+			// fetch would throw. A 3xx under "manual" fails the ok check.
+			redirect: "manual",
 		});
 		if (!res.ok) {
 			throw new Error(`fetch of ${url} returned ${res.status}`);
@@ -143,7 +149,7 @@ export async function verifyClientAttestation(
 			issuer: clientId,
 			subject: clientId,
 			audience: opts.expectedAud,
-			typ: SPACE_TOKEN_TYPES.clientAttestation.typ,
+			typ: CLIENT_ATTESTATION_TYP,
 			requiredClaims: ["jti", "exp"],
 			clockTolerance: 5,
 		});

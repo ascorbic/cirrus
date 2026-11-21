@@ -20,6 +20,8 @@ export interface ReferencePds {
 	operatorDid: string;
 	/** A full-access session token for the operator account. */
 	operatorToken: string;
+	/** The dev-env PLC directory every did:plc here resolves against. */
+	plcUrl: string;
 	/** Tear down the PLC and PDS servers. */
 	close(): Promise<void>;
 }
@@ -40,6 +42,7 @@ export async function startReferencePds(): Promise<ReferencePds> {
 			origin: network.pds.url,
 			operatorDid: operator.did,
 			operatorToken: operator.accessJwt,
+			plcUrl: network.plc.url,
 			close: () => network.close(),
 		};
 	} catch (err) {
