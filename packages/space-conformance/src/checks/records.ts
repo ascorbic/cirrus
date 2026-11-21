@@ -996,23 +996,24 @@ const blobsNotFound = defineCheck({
 const requestInvalidSpaceUri = defineCheck({
 	id: "request.invalid-space-uri-rejected",
 	title:
-		"A malformed space reference is rejected with InvalidRequest, not misread",
+		"A malformed space reference is rejected as a bad request, not misread",
 	tier: "must",
 	citations: [L("com.atproto.space.getLatestCommit")],
 	needs: ["operator"],
 	async run(ctx) {
 		// Authenticated as the repo's own account, so an auth refusal can't
-		// stand in for the parameter check. `space` is format space-ref, and
-		// the method declares no error for it: a parameter failing its
-		// lexicon is XRPC's InvalidRequest.
+		// stand in for the parameter check: `space` fails its space-ref
+		// format, which is a 400 with an XRPC error. The method declares no
+		// error for it, so the name is reported, not required (the reference
+		// answers XRPC's generic InvalidRequest).
 		const res = await xrpcGet(op(ctx), "com.atproto.space.getLatestCommit", {
 			space: "not-a-space-uri",
 			repo: ctx.target.did,
 		});
-		return res.status === 400 && res.error === "InvalidRequest"
-			? pass("rejected with 400 InvalidRequest")
+		return res.status === 400 && res.error
+			? pass(`rejected the authenticated request with ${describe(res)}`)
 			: fail(
-					`answered ${describe(res)} for a malformed space uri, expected 400 InvalidRequest`,
+					`answered ${describe(res)} to an authenticated request with a malformed space uri, expected a 400 XRPC error`,
 					res.json,
 				);
 	},

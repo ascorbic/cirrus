@@ -229,6 +229,33 @@ malformed attestation is now `InvalidClientAttestation`, not a 500), so
 the matrix is 104 pass, 1 pinned divergence
 (`writes.delete-in-missing-space`), the slow check skipped.
 
+### Two-sided checks (2026-11-21)
+
+An audit found checks that pass against a host where the feature is
+broken. The motivating case: Cirrus's attestation verification always
+failed in production, but no check sent a valid attestation. Changes:
+
+- The syncer inbox now also acts as an OAuth client. It serves
+  `client-metadata.json` with an ES256 `jwks`, and `inbox.attest()` mints
+  attestations.
+- New checks `credential.valid-attestation-issues` and
+  `credential.valid-attestation-unlisted-refused`.
+- The refusal checks run a success-path control when an inbox is available,
+  using a new optional `uses` capability. Without one, their detail says
+  what was not checked.
+- The managing-app fail-closed checks now need an inbox, for the control.
+- Several checks now require a 4xx where they used to accept anything but
+  200, or require the error name.
+- New check `policy.personalspace-owner-admitted`.
+
+109 checks. Reference matrix: 107 pass, 1 divergence, 1 slow skip. Both
+Cirrus runners pass. The in-process routes verify a real attestation
+against the inbox's metadata.
+
+Cirrus answers a malformed `space` with `400 InvalidSpaceUri`, which no
+lexicon declares. The reference answers XRPC's generic `InvalidRequest`.
+The `must` check reports the name but does not require it.
+
 ## Alpha sync process
 
 Upstream cuts a build from `permissioned-data-alpha` most Thursdays. To

@@ -791,7 +791,11 @@ describe("SpaceDurableObject", () => {
 		await initSpace(stub, uri);
 		const syncer = { endpoint: "https://webhook.test", token: "tok-1" };
 		await stub.rpcPutNotifyRegistration(syncer, Date.now() + 600_000);
-		await stub.rpcRecordWriter("did:web:bob.test", "3kzzzzzzzzzzz", new Uint8Array(32));
+		await stub.rpcRecordWriter(
+			"did:web:bob.test",
+			"3kzzzzzzzzzzz",
+			new Uint8Array(32),
+		);
 
 		const delivered: Request[] = [];
 		const bodies: Array<Record<string, unknown>> = [];
@@ -814,7 +818,10 @@ describe("SpaceDurableObject", () => {
 		expect(bodies[0]).toMatchObject({
 			space: uri,
 			token: "tok-1",
-			update: { $type: "com.atproto.space.defs#repoWrite", repo: "did:web:bob.test" },
+			update: {
+				$type: "com.atproto.space.defs#repoWrite",
+				repo: "did:web:bob.test",
+			},
 		});
 		// Delivered, so settled: nothing left to retry.
 		expect((await stub.rpcStatus()).queuedNotifications).toBe(0);

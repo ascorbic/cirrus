@@ -580,11 +580,8 @@ const spaceOwnerStateNotByCredential = defineCheck({
 	tier: "must",
 	citations: [
 		L("com.atproto.space.getSpace"),
-		L("com.atproto.space.getSpace@error:NotAuthorized"),
 		L("com.atproto.memberspace.listMembers"),
-		L("com.atproto.memberspace.listMembers@error:NotAuthorized"),
 		L("com.atproto.space.exportSpaceMeta"),
-		L("com.atproto.space.exportSpaceMeta@error:NotAuthorized"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -600,36 +597,28 @@ const spaceOwnerStateNotByCredential = defineCheck({
 					params: { space: space.uri },
 					audience: ctx.target.did,
 				});
-			// An auth refusal (401/403), or the NotAuthorized each declares for
-			// a caller who is not the authority — not a 5xx, nor some other
-			// error that would read the same for the authority itself.
-			const refusedAsNonAuthority = (r: { status: number; error?: string }) =>
-				r.status === 401 ||
-				r.status === 403 ||
-				(r.status >= 400 && r.status < 500 && r.error === "NotAuthorized");
+			// A refusal, not a 5xx. Each declares NotAuthorized for a caller who
+			// is not the authority, but a credential is no account session at
+			// all, so the auth layer may refuse it first — the reference answers
+			// 400 InvalidToken — and a must can't insist on the error name.
+			const isRefusal = (r: { status: number }) =>
+				r.status >= 400 && r.status < 500;
 			const result = await expectEach([
-				[
-					"getSpace",
-					() => call("com.atproto.space.getSpace"),
-					refusedAsNonAuthority,
-				],
+				["getSpace", () => call("com.atproto.space.getSpace"), isRefusal],
 				[
 					"listMembers",
 					() => call("com.atproto.memberspace.listMembers"),
-					refusedAsNonAuthority,
+					isRefusal,
 				],
 				[
 					"exportSpaceMeta",
 					() => call("com.atproto.space.exportSpaceMeta"),
-					refusedAsNonAuthority,
+					isRefusal,
 				],
 			]);
 			return result.ok
 				? pass(`all refused (${Object.values(result.evidence).join(", ")})`)
-				: fail(
-						`expected 401/403 or NotAuthorized: ${result.detail}`,
-						result.evidence,
-					);
+				: fail(`expected a 4xx refusal: ${result.detail}`, result.evidence);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
