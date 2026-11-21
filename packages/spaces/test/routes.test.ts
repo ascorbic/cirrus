@@ -128,6 +128,12 @@ function makeHost(overrides: Partial<SpaceRoutesHost> = {}): {
 			env.SPACES_INDEX.get(env.SPACES_INDEX.idFromName("spaces")) as never,
 		outboundFetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
 			const url = String(input);
+			// As workerd does (pinned by the "platform assumptions" test).
+			if (init?.redirect === "error") {
+				throw new TypeError(
+					'Invalid redirect value, must be one of "follow" or "manual"',
+				);
+			}
 			outbound.push({ url, init });
 			const custom = responder(url, init);
 			if (custom) return custom;
@@ -636,6 +642,16 @@ describe("space routes: personal data (S1)", () => {
 			repo: BOB,
 		});
 		expect(other.status).toBe(403);
+	});
+});
+
+describe("platform assumptions", () => {
+	it('workerd refuses redirect: "error", which the stub fetch mirrors', () => {
+		// The Request constructor applies the same check fetch() does, without
+		// a rejected promise for the pool to report twice.
+		expect(
+			() => new Request("https://unreachable.invalid/", { redirect: "error" }),
+		).toThrow(/Invalid redirect value/);
 	});
 });
 

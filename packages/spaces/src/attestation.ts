@@ -91,7 +91,9 @@ export async function verifyClientAttestation(
 		const res = await doFetch(url, {
 			headers: { Accept: "application/json" },
 			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-			redirect: "error",
+			// No redirects. Not "error": workerd refuses it outright, so every
+			// fetch would throw. A 3xx under "manual" fails the ok check.
+			redirect: "manual",
 		});
 		if (!res.ok) {
 			throw new Error(`fetch of ${url} returned ${res.status}`);
