@@ -23,6 +23,7 @@ import {
 import {
 	getLatestPlcOperation,
 	PLC_DIRECTORY,
+	plcSubmitHeaders,
 	signOperation,
 	type PlcOperationChanges,
 	type SignedPlcOperation,
@@ -241,7 +242,7 @@ export async function submitPlcOperation(
 
 	const res = await fetch(`${PLC_DIRECTORY}/${c.env.DID}`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: plcSubmitHeaders(operation),
 		body: JSON.stringify(operation),
 	});
 

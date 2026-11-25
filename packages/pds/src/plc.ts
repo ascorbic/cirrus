@@ -7,6 +7,24 @@ import { base64url } from "jose";
 
 export const PLC_DIRECTORY = "https://plc.directory";
 
+/**
+ * Headers for submitting a PLC operation (POST /{did}). An update (any
+ * operation with a `prev`) carries `If-Match: *`, which tells the directory
+ * the DID already exists, so it is rate-limited per identifier rather than
+ * per IP. That matters on Workers, whose egress IPs are shared. A genesis
+ * operation (`prev: null`) must not carry it. Directories that predate the
+ * header ignore it.
+ * https://discourse.atmosphere.community/t/plc-directory-and-rate-limits/1506
+ */
+export function plcSubmitHeaders(operation: {
+	prev?: string | null;
+}): Record<string, string> {
+	return {
+		"Content-Type": "application/json",
+		...(typeof operation.prev === "string" ? { "If-Match": "*" } : {}),
+	};
+}
+
 export interface UnsignedPlcOperation {
 	type: "plc_operation";
 	prev: string | null;

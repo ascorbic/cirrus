@@ -29,7 +29,6 @@ export const SPACE_ERROR_CODES = [
 	"UnsupportedPolicy",
 	"ServiceNotResolvable",
 	"InvalidCursor",
-	"InvalidSpaceUri",
 	"InvalidRequest",
 	"FutureRev",
 	"InvalidSpaceMac",

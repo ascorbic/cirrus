@@ -18,8 +18,10 @@
  * 3: webhook registrations (endpoint + token) replace registerNotify;
  *    writers keep a removal marker; queue rows carry their retry policy
  *    and authentication.
+ * 4: space URIs move to `at:space/{did}/{type}/{skey}`. Space DOs are
+ *    named by URI, so spaces stored under the old form are unreachable.
  */
-export const SPACE_SCHEMA_VERSION = 3;
+export const SPACE_SCHEMA_VERSION = 4;
 
 export const SPACE_DO_SCHEMA = `
 	-- One row. schema_version is checked on every open.

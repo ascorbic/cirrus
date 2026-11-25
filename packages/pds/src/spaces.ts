@@ -333,12 +333,13 @@ export function createSpacesApp(deps: SpacesAppDeps): Hono {
 			if (payload.apf === true) {
 				// App passwords are a deprecated credential class; there is no
 				// reason to widen their reach into a new data model.
+				// InvalidToken, as the reference answers ("Bad token scope").
 				return c.json(
 					{
-						error: "AuthenticationRequired",
-						message: "App passwords cannot access atproto spaces",
+						error: "InvalidToken",
+						message: "Bad token scope: app passwords cannot access atproto spaces",
 					},
-					403,
+					400,
 				);
 			}
 			return { did: env.DID, fullTrust: true, allowsSpace: () => true };

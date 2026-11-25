@@ -517,7 +517,7 @@ const exportCommand = defineCommand({
 		};
 		for (const space of exportable) {
 			const base = space.uri
-				.replace("at://", "")
+				.replace(/^at:space\//, "")
 				.replace(/[^a-zA-Z0-9._-]+/g, "_");
 			// The space meta archive first: importSpaceMeta must precede
 			// importRepo for a space you are the authority of.

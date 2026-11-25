@@ -19,6 +19,7 @@ export {
 export type { SpaceErrorCode } from "./errors.js";
 
 export {
+	SPACE_URI_PREFIX,
 	formatSpaceUri,
 	parseSpaceUri,
 	requireSpaceUri,

@@ -11,6 +11,7 @@ import { Client, ok, type FetchHandler } from "@atcute/client";
 import type {} from "@atcute/atproto";
 import {
 	PLC_DIRECTORY,
+	plcSubmitHeaders,
 	type PlcAuditLog,
 	type PlcOperationChanges,
 	type SignedPlcOperation,
@@ -235,7 +236,7 @@ export class PlcDirectoryClient {
 		try {
 			const res = await fetch(`${this.plcUrl}/${did}`, {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: plcSubmitHeaders(operation),
 				body: JSON.stringify(operation),
 			});
 

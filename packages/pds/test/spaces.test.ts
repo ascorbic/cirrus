@@ -158,7 +158,7 @@ describe("spaces integration", () => {
 
 	it("mints delegation tokens (S2)", async () => {
 		const authority = "did:web:elsewhere.test";
-		const space = `at://${authority}/space/app.bsky.group/friends`;
+		const space = `at:space/${authority}/app.bsky.group/friends`;
 		const res = await get(
 			`/xrpc/com.atproto.space.getDelegationToken?space=${encodeURIComponent(space)}`,
 			{ Authorization: `Bearer ${env.AUTH_TOKEN}` },
@@ -271,7 +271,7 @@ describe("spaces integration", () => {
 				size: bytes.length,
 			},
 		};
-		const space = `at://did:web:elsewhere.test/space/app.bsky.group/migrated${spaceN++}`;
+		const space = `at:space/did:web:elsewhere.test/app.bsky.group/migrated${spaceN++}`;
 		const { jsonToLex } = await import("@atproto/lex-json");
 		const recordBytes = encode(jsonToLex(record) as never);
 		const recordCid = toString(await create(CODEC_DCBOR, recordBytes));
@@ -397,10 +397,14 @@ describe("spaces integration", () => {
 			},
 			appPassAuth,
 		);
-		expect(spaceWrite.status).toBe(403);
-		expect(((await spaceWrite.json()) as { message: string }).message).toMatch(
-			/App password/i,
-		);
+		// As the reference answers: 400 InvalidToken ("Bad token scope").
+		expect(spaceWrite.status).toBe(400);
+		const refusal = (await spaceWrite.json()) as {
+			error: string;
+			message: string;
+		};
+		expect(refusal.error).toBe("InvalidToken");
+		expect(refusal.message).toMatch(/App password/i);
 	});
 
 	it("reports spaces status and resets all space data (S7)", async () => {
@@ -462,7 +466,7 @@ describe("spaces integration", () => {
 		// Simulate the two-step creation crashing between the space DO's
 		// initialisation and the index activation: a pending entry with a
 		// live, never-activated DO behind it.
-		const uri = `at://${env.DID}/space/app.bsky.group/orphaned1`;
+		const uri = `at:space/${env.DID}/app.bsky.group/orphaned1`;
 		const index = env.SPACES_INDEX!.get(env.SPACES_INDEX!.idFromName("spaces"));
 		await index.rpcRegister({
 			uri,

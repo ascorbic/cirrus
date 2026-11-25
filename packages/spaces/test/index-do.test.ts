@@ -11,7 +11,7 @@ let n = 0;
 function entry(overrides: Record<string, unknown> = {}) {
 	const skey = `idx${n++}x`;
 	return {
-		uri: `at://${AUTHORITY}/space/app.bsky.group/${skey}`,
+		uri: `at:space/${AUTHORITY}/app.bsky.group/${skey}`,
 		authority: AUTHORITY,
 		type: "app.bsky.group",
 		skey,
@@ -37,7 +37,7 @@ describe("SpaceIndexDurableObject", () => {
 	it("filters by type and authority", async () => {
 		const stub = indexStub();
 		const a = entry({ type: "app.bsky.personal" });
-		a.uri = `at://${AUTHORITY}/space/app.bsky.personal/${a.skey}`;
+		a.uri = `at:space/${AUTHORITY}/app.bsky.personal/${a.skey}`;
 		await stub.rpcRegister(a);
 		await stub.rpcActivate(a.uri);
 

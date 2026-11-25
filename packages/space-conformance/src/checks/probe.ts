@@ -91,13 +91,49 @@ export function probeSkey(): string {
 		.slice(0, 10)}`;
 }
 
+/**
+ * The prefix of every space URI (`SPACE_URI_PREFIX` of `@atproto/syntax`):
+ * since the 2026-11-24 alpha a space is `at:space/{spaceDid}/{spaceType}/{skey}`
+ * and a record in it appends `/{authorDid}/{collection}/{rkey}`. There is no
+ * `at://` form of a space URI.
+ */
+const SPACE_URI_PREFIX = "at:space/";
+
+/** The space-ref of a space: `at:space/{did}/{type}/{skey}`. */
+export const spaceUri = (
+	did: string,
+	skey: string,
+	type: string = PROBE_TYPE,
+): string => `${SPACE_URI_PREFIX}${did}/${type}/${skey}`;
+
+/** The URI of a record in a space: the space-ref plus author/collection/rkey. */
+export const spaceRecordUri = (
+	space: string,
+	author: string,
+	collection: string,
+	rkey: string,
+): string => `${space}/${author}/${collection}/${rkey}`;
+
+/**
+ * The pre-2026-11-24 form, `at://{did}/space/{type}/{skey}` — only for
+ * probes that a host must now refuse it in a `space` param.
+ */
+export const legacySpaceUri = (
+	did: string,
+	skey: string,
+	type: string = PROBE_TYPE,
+): string => `at://${did}/space/${type}/${skey}`;
+
 /** A space URI under `did` that nobody has created. */
 export const unknownSpaceUri = (did: string): string =>
-	`at://${did}/space/${PROBE_TYPE}/${probeSkey()}`;
+	spaceUri(did, probeSkey());
 
-/** The authority DID a space URI names. */
+/** The authority DID a space URI names: the first segment after the prefix. */
 export const spaceAuthority = (space: string): string =>
-	space.replace(/^at:\/\//, "").split("/")[0]!;
+	(space.startsWith(SPACE_URI_PREFIX)
+		? space.slice(SPACE_URI_PREFIX.length)
+		: space
+	).split("/")[0]!;
 
 /**
  * Create a probe space owned by the target's operator. The default policy

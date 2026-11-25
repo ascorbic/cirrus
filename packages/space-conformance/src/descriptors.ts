@@ -45,7 +45,7 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 	{
 		id: "mac.commit-verifies",
 		title:
-			"getLatestCommit's commit MAC verifies, under the requested label, with Vary: Accept-Signature",
+			"getLatestCommit's commit MAC verifies, under the requested label, with Vary: Accept-Signature, naming the at:space/ ref",
 		tier: "must",
 		needs: ["operator"],
 		citations: [
@@ -53,15 +53,21 @@ export const cryptoCheckDescriptors: CheckDescriptor[] = [
 			L("com.atproto.space.defs#commit"),
 			P("0016#requesting-a-mac"),
 			P("0016#commit-mac"),
+			C("pds-space-uri-migration"),
 		],
 		destructive: true,
 	},
 	{
 		id: "mac.record-verifies",
-		title: "getRecord's record MAC verifies and its value encodes to its cid",
+		title:
+			"getRecord's record MAC verifies over its at:space/ uri, and its value encodes to its cid",
 		tier: "must",
 		needs: ["operator"],
-		citations: [L("com.atproto.space.getRecord"), P("0016#record-mac")],
+		citations: [
+			L("com.atproto.space.getRecord"),
+			P("0016#record-mac"),
+			C("spaces-syntax"),
+		],
 		destructive: true,
 	},
 	{

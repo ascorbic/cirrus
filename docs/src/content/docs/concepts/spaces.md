@@ -12,10 +12,10 @@ Cirrus implements the spaces alpha behind the `SPACES_ENABLED` flag. Everything 
 A space is identified by a URI like:
 
 ```
-at://did:web:alice.example.com/space/app.bsky.group/3kbcq3p7ad400
+at:space/did:web:alice.example.com/app.bsky.group/3kbcq3p7ad400
 ```
 
-That's an **authority** (the DID that owns the space and decides who may read it), a **type** (an NSID describing what kind of space it is), and a **key** distinguishing multiple spaces of the same type.
+That's an **authority** (the DID that owns the space and decides who may read it), a **type** (an NSID describing what kind of space it is), and a **key** distinguishing multiple spaces of the same type. A record in a space adds the author's DID, the collection and the record key: `at:space/{authority}/{type}/{key}/{author}/{collection}/{rkey}`. The `at:space/` prefix tells space URIs apart from public `at://` URIs; earlier alpha builds wrote them as `at://{authority}/space/…`, a form that is no longer accepted.
 
 Every participant stores *their own* records for a space in their own PDS — their **permissioned repo** for that space. Reading a space means collecting the repos of its writers from wherever each is hosted.
 

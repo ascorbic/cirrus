@@ -256,6 +256,72 @@ Cirrus answers a malformed `space` with `400 InvalidSpaceUri`, which no
 lexicon declares. The reference answers XRPC's generic `InvalidRequest`.
 The `must` check reports the name but does not require it.
 
+## Alpha 20261124235736 (2026-11-25)
+
+Cut from `permissioned-data-alpha@1f510f8e`, the last alpha before the
+1 December beta. Upstream wrote a migration note for this release
+(`alpha-migrations/prompt-11-24-26.md` on `permissioned-data`); it is
+the best summary of what changed.
+
+- **Space URIs**: `at://{did}/space/{type}/{skey}` → `at:space/{did}/{type}/{skey}`
+  (records append `/{author}/{collection}/{rkey}`). Everywhere a space
+  URI travels: params, record `uri`s, delegation/credential `sub`, the
+  MAC headers' `space`/`uri`, STAR metadata. `space-uri.ts` parses only
+  the new form (strict, as the reference parses params); a parity test
+  runs it against `@atproto/syntax`'s `isSpaceRefString`. The old form
+  is only tolerated upstream inside alpha-era record values, which
+  Cirrus never parses.
+- **Stored state**: space DOs are named by URI, so old spaces are
+  unreachable under new URIs. Schema version 4 and `pds spaces reset`,
+  per the alpha policy. (Upstream migrated its databases; the beta is a
+  clean cut regardless.) Requests for old spaces answer `SpaceNotFound`,
+  not 503, because the new URI names a fresh DO.
+- **App passwords**: refused with `400 InvalidToken` ("Bad token
+  scope"), matching the reference (previously 403).
+- **importRepo scope**: read plus create/update/delete on `collection:
+  '*'`, which only a `space:` grant with `collection=*` satisfies (a
+  grant without `collection` allows no writes at all).
+- **Packaging**: `@atproto/space` depends on the stable
+  `star@0.0.1` / `lex-cbor@0.1.11` / `lex-data@0.1.11` and on its alpha
+  siblings at exact versions, and not every package publishes each build
+  (lex-cbor/data/json and star stayed at 1117). The workspace overrides
+  are removed; the install resolves without broken releases. Bundling
+  stays: it still keeps consumers off alpha ranges.
+- **Not done**: `com.atproto.server.reserveKemKey` (entryways only) and
+  the reference's activation check that the DID document publishes the
+  PDS's `#atproto_kem` key. Cirrus surfaces the latter through
+  `pds spaces status` instead of refusing activation. `importRepo`
+  still replaces the repo outright rather than indexing a diff; the end
+  state is the same apart from blob release timing.
+
+### Conformance at 1124
+
+111 checks. Every space URI the suite builds is `at:space/`, and the
+checks that read URIs back (createSpace, record `uri`s, listSpaces,
+credential and delegation `sub`, the MAC headers) require the new form.
+New MUST checks `request.legacy-space-uri-rejected` and
+`request.handle-space-authority-rejected` (each with a positive control
+on the same space) require `400 InvalidRequest` for the old form and for
+a handle authority; `request.invalid-space-uri-rejected` now requires the
+same name.
+
+- **Reference (matrix):** 109 pass, `writes.delete-in-missing-space`
+  still pinned, the slow `notify.registration-expired` not run. Before
+  the port, 18 checks failed against 1124 on the URI form alone.
+- **Cirrus (both runners):** pass. They first failed the two new checks
+  on the error name only: Cirrus answered `InvalidSpaceUri`, which no
+  lexicon declares. Cirrus now answers `InvalidRequest`.
+
+### PLC `If-Match` (2026-11-25)
+
+plc.directory gives `If-Match: *` submissions (updates of an existing
+DID) per-identifier rate limits instead of the tighter per-IP ones
+(did-method-plc #174/#183; 412 "DID not registered" if sent for a DID
+that doesn't exist). Cirrus sends it on every operation with a `prev`,
+from the Worker's `submitPlcOperation` and the CLI, never on genesis.
+It matters for Workers' shared egress IPs with every PDS publishing
+`#atproto_kem` keys at the beta.
+
 ## Alpha sync process
 
 Upstream cuts a build from `permissioned-data-alpha` most Thursdays. To
@@ -307,7 +373,7 @@ move to a new one (the update loop from the space-conformance spec, #228):
 - Standalone host package (S9): the engine boundary is in place; no
   package yet.
 - Alpha deps (`@atproto/space`, `@atproto/oauth-scopes` at
-  `0.0.0-spaces-alpha-20261117141222`) follow the sync process above;
+  `0.0.0-spaces-alpha-20261124235736`) follow the sync process above;
   Renovate is configured to leave them alone.
 
 ## Implementation notes (non-obvious)

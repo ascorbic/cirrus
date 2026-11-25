@@ -65,7 +65,6 @@ import {
 import {
 	FOREIGN_DID,
 	POST,
-	PROBE_TYPE,
 	createProbeSpace,
 	credentialCall,
 	credentialGet,
@@ -79,6 +78,8 @@ import {
 	personalspace,
 	probeSkey,
 	publicRead,
+	spaceRecordUri,
+	spaceUri,
 	unknownSpaceUri,
 	type Credential,
 } from "../checks/probe.js";
@@ -105,16 +106,23 @@ const crypto$ = (
 const errMsg = (err: unknown) =>
 	err instanceof Error ? err.message : String(err);
 
-/** A public-read space with two records and a credential for it. */
+/**
+ * A public-read space with two records and a credential for it. `fn` gets
+ * the space-ref in the form the protocol fixes (`at:space/{did}/{type}/{skey}`),
+ * built here rather than echoed from createSpace, so the MAC checks verify
+ * the commit's and record's URIs against it, not against whatever the host
+ * emitted.
+ */
 async function withPublicSpace<T>(
 	ctx: CheckContext,
 	fn: (space: string, credential: Credential) => Promise<T>,
 ): Promise<T> {
 	const space = await createProbeSpace(ctx, publicRead());
 	try {
-		await mustCreateRecord(ctx, space.uri, "a", "one");
-		await mustCreateRecord(ctx, space.uri, "b", "two");
-		return await fn(space.uri, await obtainPublicCredential(ctx, space.uri));
+		const ref = spaceUri(ctx.target.did, space.skey);
+		await mustCreateRecord(ctx, ref, "a", "one");
+		await mustCreateRecord(ctx, ref, "b", "two");
+		return await fn(ref, await obtainPublicCredential(ctx, ref));
 	} finally {
 		await deleteProbeSpace(ctx, space.uri);
 	}
@@ -172,13 +180,16 @@ const macCommit = crypto$("mac.commit-verifies", (ctx) =>
 		)
 			return fail(`Vary does not list Accept-Signature: ${vary}`);
 		try {
+			// `space` is the at:space/ ref built from the skey: verifyCommit
+			// requires the commit's space, and the space the MAC header covers,
+			// to equal it exactly — an at:// form fails here.
 			verifyCommit(commit, {
 				space: space as never,
 				repo: ctx.target.did as Did,
 				...macParams(res),
 			});
 			return pass(
-				"commit shape as specified; MAC verifies under the requested label; Vary lists Accept-Signature",
+				"commit shape as specified; commit and MAC name the at:space/ ref; MAC verifies under the requested label; Vary lists Accept-Signature",
 			);
 		} catch (err) {
 			return fail(`verifyCommit rejected the response: ${errMsg(err)}`, raw);
@@ -205,12 +216,19 @@ const macRecord = crypto$("mac.record-verifies", (ctx) =>
 			cid: string;
 			value: Record<string, unknown>;
 		};
+		// The record's URI in the form the protocol fixes; the response's uri
+		// and the uri the MAC header covers must both be exactly this.
+		const uri = spaceRecordUri(space, ctx.target.did, POST, "a");
+		if (record.uri !== uri)
+			return fail(`getRecord uri was ${record.uri}, expected ${uri}`, record);
 		try {
 			await verifyRecord(record as never, {
-				uri: record.uri as never,
+				uri: uri as never,
 				...macParams(res),
 			});
-			return pass("record MAC verifies over uri and cid; value encodes to cid");
+			return pass(
+				"record uri is the at:space/ form; MAC verifies over that uri and the cid; value encodes to cid",
+			);
 		} catch (err) {
 			return fail(`verifyRecord rejected the response: ${errMsg(err)}`, record);
 		}
@@ -642,7 +660,7 @@ const importRepoNotFound = crypto$(
 	async (ctx) => {
 		// A well-formed archive of an empty repo in an own space this host has
 		// never heard of: the authority's space must be imported first.
-		const space = `at://${ctx.target.did}/space/${PROBE_TYPE}/${probeSkey()}`;
+		const space = spaceUri(ctx.target.did, probeSkey());
 		const res = await xrpcPostBytes(
 			asOperator(ctx),
 			"com.atproto.space.importRepo",
@@ -979,7 +997,7 @@ async function revocationFlow(
 	after?: { status: number; error?: string };
 }> {
 	const authority = await ctx.identities!.identity("authority");
-	const space = `at://${authority.did}/space/${PROBE_TYPE}/${probeSkey()}`;
+	const space = spaceUri(authority.did, probeSkey());
 	const write = await operatorCreateRecord(ctx, space, POST, "shared", {
 		$type: POST,
 		text: "for the authority",
