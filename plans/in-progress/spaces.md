@@ -256,6 +256,48 @@ Cirrus answers a malformed `space` with `400 InvalidSpaceUri`, which no
 lexicon declares. The reference answers XRPC's generic `InvalidRequest`.
 The `must` check reports the name but does not require it.
 
+## Alpha 20261124235736 (2026-11-25)
+
+Cut from `permissioned-data-alpha@1f510f8e`, the last alpha before the
+1 December beta. Upstream wrote a migration note for this release
+(`alpha-migrations/prompt-11-24-26.md` on `permissioned-data`); it is
+the best summary of what changed.
+
+- **Space URIs**: `at://{did}/space/{type}/{skey}` → `at:space/{did}/{type}/{skey}`
+  (records append `/{author}/{collection}/{rkey}`). Everywhere a space
+  URI travels: params, record `uri`s, delegation/credential `sub`, the
+  MAC headers' `space`/`uri`, STAR metadata. `space-uri.ts` parses only
+  the new form (strict, as the reference parses params); a parity test
+  runs it against `@atproto/syntax`'s `isSpaceRefString`. The old form
+  is only tolerated upstream inside alpha-era record values, which
+  Cirrus never parses.
+- **Stored state**: space DOs are named by URI, so old spaces are
+  unreachable under new URIs. Schema version 4 and `pds spaces reset`,
+  per the alpha policy. (Upstream migrated its databases; the beta is a
+  clean cut regardless.) Requests for old spaces answer `SpaceNotFound`,
+  not 503, because the new URI names a fresh DO.
+- **App passwords**: refused with `400 InvalidToken` ("Bad token
+  scope"), matching the reference (previously 403).
+- **importRepo scope**: read plus create/update/delete on `collection:
+  '*'`, which only a `space:` grant with `collection=*` satisfies (a
+  grant without `collection` allows no writes at all).
+- **Packaging**: `@atproto/space` depends on the stable
+  `star@0.0.1` / `lex-cbor@0.1.11` / `lex-data@0.1.11` and on its alpha
+  siblings at exact versions, and not every package publishes each build
+  (lex-cbor/data/json and star stayed at 1117). The workspace overrides
+  are removed; the install resolves without broken releases. Bundling
+  stays: it still keeps consumers off alpha ranges.
+- **Not done**: `com.atproto.server.reserveKemKey` (entryways only) and
+  the reference's activation check that the DID document publishes the
+  PDS's `#atproto_kem` key. Cirrus surfaces the latter through
+  `pds spaces status` instead of refusing activation. `importRepo`
+  still replaces the repo outright rather than indexing a diff; the end
+  state is the same apart from blob release timing.
+
+### Conformance at 1124
+
+_Pending the suite port._
+
 ## Alpha sync process
 
 Upstream cuts a build from `permissioned-data-alpha` most Thursdays. To
@@ -307,7 +349,7 @@ move to a new one (the update loop from the space-conformance spec, #228):
 - Standalone host package (S9): the engine boundary is in place; no
   package yet.
 - Alpha deps (`@atproto/space`, `@atproto/oauth-scopes` at
-  `0.0.0-spaces-alpha-20261117141222`) follow the sync process above;
+  `0.0.0-spaces-alpha-20261124235736`) follow the sync process above;
   Renovate is configured to leave them alone.
 
 ## Implementation notes (non-obvious)

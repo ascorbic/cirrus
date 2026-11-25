@@ -9,6 +9,7 @@
  */
 export const knownChangesets: readonly string[] = [
 	"alpha-kem-key-backfill",
+	"alpha-space-uris",
 	"baseline-space-policies",
 	"brave-spaces-exist",
 	"clear-spaces-sweep",
@@ -17,6 +18,7 @@ export const knownChangesets: readonly string[] = [
 	"olive-crabs-fly",
 	"open-spaces-greet",
 	"patient-managers-answer",
+	"pds-space-uri-migration",
 	"plain-keys-resolve",
 	"quiet-spaces-mac",
 	"quiet-writers-leave",
@@ -27,6 +29,7 @@ export const knownChangesets: readonly string[] = [
 	"space-mac-http-signatures",
 	"space-takedown-parity",
 	"spaces-sdk-shape",
+	"spaces-syntax",
 	"star-spaces-shine",
 	"sturdy-spaces-depart",
 	"tidy-spaces-settle",

@@ -53,13 +53,22 @@ check:
 - the dev-env PLC as `target.plcDirectory`, so the operator's did:plc
   document (and its `#atproto_kem` key) resolves.
 
-## Pinned reference divergences (alpha `0.0.0-spaces-alpha-20261117141222`)
+## Pinned reference divergences (alpha `0.0.0-spaces-alpha-20261124235736`)
 
 | Check                            | Why the reference diverges                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `writes.delete-in-missing-space` | `deleteRecord` declares `SpaceNotFound`, and proposal 0016 (Repo lifecycle) says that when the writer is the space authority "the space must already exist" (changeset `brave-spaces-exist`: such writes are rejected with `SpaceNotFound`). The reference's `deleteRecord` checks whether the record exists first (`hasRecord` → no-op, for idempotency), so a delete in a missing or deleted space is a silent 200. Its create, put and applyWrites do answer `SpaceNotFound`. |
 
-Carried over unchanged from the 1105 alpha. The 1117 reference fixed
+Carried over unchanged from the 1105 alpha. The 1124 alpha moved space URIs
+from `at://{spaceDid}/space/…` to `at:space/{spaceDid}/…`; the reference
+emits and accepts only the new form, and passes the checks that pin it
+(`space.create-and-get`, `writes.create-and-read`, `space.listspaces-filters`,
+`credential.claims`, `delegation.token-claims`, `mac.commit-verifies`,
+`mac.record-verifies`), refusing the old form and a handle authority in a
+`space` param with `400 InvalidRequest`
+(`request.legacy-space-uri-rejected`,
+`request.handle-space-authority-rejected`). No divergence was added or
+cleared. The 1117 reference fixed
 `credential.garbage-attestation-refused` (a malformed client attestation
 was a 500, now `InvalidClientAttestation`), so it passes. The third 1105
 divergence, `space.reads-after-delete-not-found`, is gone with the check: the
@@ -67,7 +76,7 @@ divergence, `space.reads-after-delete-not-found`, is gone with the check: the
 methods' `SpaceNotFound` is now a reasoned coverage exemption instead.
 
 Not run here: `notify.registration-expired`, a `slow` check that waits out a
-real 10-minute credential before writing. It was run by hand against the 1112 alpha (2026-11-13, about 10 minutes) and passed; 1117 changed nothing it exercises: after the credential lapsed, the next write was replaced by `registrationExpired` and the `repoWrite` was not delivered. Run it with `slow: true`.
+real 10-minute credential before writing. It was run by hand against the 1112 alpha (2026-11-13, about 10 minutes) and passed; 1117 and 1124 (beyond the URI form, which the faster notify checks cover) changed nothing it exercises: after the credential lapsed, the next write was replaced by `registrationExpired` and the `repoWrite` was not delivered. Run it with `slow: true`.
 
 Everything else in the catalog passes against the reference, including the
 identity-gated checks (foreign readers, writers' `notifyRepoUpdate`, foreign
@@ -83,6 +92,7 @@ pnpm --filter @getcirrus/space-conformance-matrix test
 `@getcirrus/space-conformance` must be built first (`pnpm build`), which CI
 does before `pnpm test`. The test also pins the suite's `ALPHA_BUILD`: bumping
 the alpha without re-running and re-pinning this matrix fails it. The reference stack pulls `better-sqlite3` (a native
-module) and the `@atproto/lex*` family, which the spaces alpha published with
-leaked `workspace:*` specifiers — both are handled by `pnpm-workspace.yaml`
-(`allowBuilds` and `overrides` respectively).
+module), allowed to build by `pnpm-workspace.yaml` (`allowBuilds`). Since the
+1124 build the alpha packages depend on each other at exact versions, so the
+`overrides` that steered the `@atproto/lex*` family away from its broken
+`workspace:*`-leaking releases are gone.
