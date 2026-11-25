@@ -1026,17 +1026,18 @@ const requestInvalidSpaceUri = defineCheck({
 	async run(ctx) {
 		// Authenticated as the repo's own account, so an auth refusal can't
 		// stand in for the parameter check: `space` fails its space-ref
-		// format, which is a 400 with an XRPC error. The method declares no
-		// error for it, so the name is reported, not required (the reference
-		// answers XRPC's generic InvalidRequest).
+		// format. The method declares no error for it, so it is XRPC's
+		// generic InvalidRequest, as for the retired form and a handle
+		// authority (request.legacy-space-uri-rejected and
+		// request.handle-space-authority-rejected).
 		const res = await xrpcGet(op(ctx), "com.atproto.space.getLatestCommit", {
 			space: "not-a-space-uri",
 			repo: ctx.target.did,
 		});
-		return res.status === 400 && res.error
+		return res.status === 400 && res.error === "InvalidRequest"
 			? pass(`rejected the authenticated request with ${describe(res)}`)
 			: fail(
-					`answered ${describe(res)} to an authenticated request with a malformed space uri, expected a 400 XRPC error`,
+					`answered ${describe(res)} to an authenticated request with a malformed space uri, expected 400 InvalidRequest`,
 					res.json,
 				);
 	},

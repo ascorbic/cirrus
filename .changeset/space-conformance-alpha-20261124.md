@@ -14,3 +14,4 @@ Port the conformance suite to the 2026-11-24 spaces alpha (`0.0.0-spaces-alpha-2
 - New check `request.legacy-space-uri-rejected`: a `space` param in the old `at://…/space/…` form gets `400 InvalidRequest` from `getRecord`, `getSpace` and `createRecord`. The same space's `at:space/` ref is served.
 - New check `request.handle-space-authority-rejected`: a space ref that names its authority by handle (the operator's own, taken from its DID document) gets `400 InvalidRequest`. The DID ref is served.
 - The changesets `spaces-syntax`, `pds-space-uri-migration` and `alpha-space-uris` can now be cited.
+- `request.invalid-space-uri-rejected` now requires `400 InvalidRequest`, as the new URI checks do, rather than reporting whatever error name the host returns.

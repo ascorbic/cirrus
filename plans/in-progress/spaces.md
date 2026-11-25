@@ -296,7 +296,31 @@ the best summary of what changed.
 
 ### Conformance at 1124
 
-_Pending the suite port._
+111 checks. Every space URI the suite builds is `at:space/`, and the
+checks that read URIs back (createSpace, record `uri`s, listSpaces,
+credential and delegation `sub`, the MAC headers) require the new form.
+New MUST checks `request.legacy-space-uri-rejected` and
+`request.handle-space-authority-rejected` (each with a positive control
+on the same space) require `400 InvalidRequest` for the old form and for
+a handle authority; `request.invalid-space-uri-rejected` now requires the
+same name.
+
+- **Reference (matrix):** 109 pass, `writes.delete-in-missing-space`
+  still pinned, the slow `notify.registration-expired` not run. Before
+  the port, 18 checks failed against 1124 on the URI form alone.
+- **Cirrus (both runners):** pass. They first failed the two new checks
+  on the error name only: Cirrus answered `InvalidSpaceUri`, which no
+  lexicon declares. Cirrus now answers `InvalidRequest`.
+
+### PLC `If-Match` (2026-11-25)
+
+plc.directory gives `If-Match: *` submissions (updates of an existing
+DID) per-identifier rate limits instead of the tighter per-IP ones
+(did-method-plc #174/#183; 412 "DID not registered" if sent for a DID
+that doesn't exist). Cirrus sends it on every operation with a `prev`,
+from the Worker's `submitPlcOperation` and the CLI, never on genesis.
+It matters for Workers' shared egress IPs with every PDS publishing
+`#atproto_kem` keys at the beta.
 
 ## Alpha sync process
 

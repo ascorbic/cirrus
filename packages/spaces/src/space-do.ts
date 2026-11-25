@@ -224,7 +224,7 @@ export abstract class SpaceDurableObject<
 		const existing = this.readMeta();
 		if (existing && existing.uri !== params.uri) {
 			throw new SpaceError(
-				"InvalidSpaceUri",
+				"InvalidRequest",
 				`Space DO already holds ${existing.uri}`,
 			);
 		}
@@ -1254,7 +1254,7 @@ export abstract class SpaceDurableObject<
 		const existing = this.readMeta();
 		if (existing && existing.uri !== params.uri) {
 			throw new SpaceError(
-				"InvalidSpaceUri",
+				"InvalidRequest",
 				`Space DO already holds ${existing.uri}`,
 			);
 		}

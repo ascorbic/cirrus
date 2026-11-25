@@ -488,7 +488,7 @@ describe("space routes: personal data (S1)", () => {
 		expect((await get(path(space))).status).toBe(200);
 		const refused = await get(path(legacy));
 		expect(refused.status).toBe(400);
-		expect(await errorOf(refused)).toBe("InvalidSpaceUri");
+		expect(await errorOf(refused)).toBe("InvalidRequest");
 	});
 
 	it("refuses an unauthenticated getRecord", async () => {

@@ -48,11 +48,14 @@ export function parseSpaceUri(uri: string): SpaceRef | null {
 	return ref;
 }
 
-/** Parse a space URI or throw an InvalidSpaceUri error. */
+/**
+ * Parse a space URI or throw. The error is XRPC's generic InvalidRequest, as
+ * the reference answers: no lexicon declares a more specific one.
+ */
 export function requireSpaceUri(uri: string | undefined): SpaceRef {
 	const ref = uri ? parseSpaceUri(uri) : null;
 	if (!ref) {
-		throw new SpaceError("InvalidSpaceUri", `Invalid space URI: ${uri}`);
+		throw new SpaceError("InvalidRequest", `Invalid space URI: ${uri}`);
 	}
 	return ref;
 }

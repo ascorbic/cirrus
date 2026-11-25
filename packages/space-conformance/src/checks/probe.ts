@@ -97,7 +97,7 @@ export function probeSkey(): string {
  * and a record in it appends `/{authorDid}/{collection}/{rkey}`. There is no
  * `at://` form of a space URI.
  */
-export const SPACE_URI_PREFIX = "at:space/";
+const SPACE_URI_PREFIX = "at:space/";
 
 /** The space-ref of a space: `at:space/{did}/{type}/{skey}`. */
 export const spaceUri = (

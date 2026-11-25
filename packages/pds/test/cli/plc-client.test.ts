@@ -349,6 +349,33 @@ describe("PlcDirectoryClient", () => {
 			expect(result.success).toBe(true);
 		});
 
+		it("marks updates with If-Match: * and leaves genesis operations unmarked", async () => {
+			const op = (prev: string | null) => ({
+				type: "plc_operation" as const,
+				prev,
+				sig: "xyz",
+				rotationKeys: ["did:key:rot"],
+				verificationMethods: { atproto: "did:key:sig" },
+				alsoKnownAs: ["at://user.bsky.social"],
+				services: {
+					atproto_pds: {
+						type: "AtprotoPersonalDataServer",
+						endpoint: "https://pds.example.com",
+					},
+				},
+			});
+			mockFetch.mockResolvedValue({ ok: true });
+			const client = new PlcDirectoryClient();
+
+			await client.submitOperation("did:plc:abc123", op("bafyprev"));
+			const update = mockFetch.mock.calls.at(-1)![1] as RequestInit;
+			expect(new Headers(update.headers).get("If-Match")).toBe("*");
+
+			await client.submitOperation("did:plc:abc123", op(null) as never);
+			const genesis = mockFetch.mock.calls.at(-1)![1] as RequestInit;
+			expect(new Headers(genesis.headers).get("If-Match")).toBeNull();
+		});
+
 		it("returns error when operation rejected", async () => {
 			mockFetch.mockResolvedValueOnce({
 				ok: false,

@@ -78,9 +78,9 @@ describe("parseSpaceUri", () => {
 		}
 	});
 
-	it("requireSpaceUri throws InvalidSpaceUri", () => {
+	it("requireSpaceUri throws InvalidRequest, as the reference answers", () => {
 		expect(() => requireSpaceUri("nope")).toThrow(SpaceError);
-		expect(() => requireSpaceUri(undefined)).toThrow(/InvalidSpaceUri/);
+		expect(() => requireSpaceUri(undefined)).toThrow(/InvalidRequest/);
 	});
 });
 
