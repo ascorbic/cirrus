@@ -14,7 +14,18 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { P256Keypair, Secp256k1Keypair } from "@atproto/crypto";
-import { createDelegationToken, spaceHostAud } from "@atproto/space";
+import {
+	LtHash,
+	createDelegationToken,
+	spaceHostAud,
+	writeRepoStar,
+} from "@atproto/space";
+import { encode } from "@atproto/lex-cbor";
+import {
+	CODEC_DCBOR,
+	create as createCid,
+	toString as cidToString,
+} from "@atcute/cid";
 import { now as tidNow } from "@atcute/tid";
 import {
 	SignJWT,
@@ -407,6 +418,61 @@ describe("spaces host adapter: OAuth space scopes", () => {
 		expect(wrongType.status).toBe(403);
 		const wrongCollection = await write(granted, "test.cirrus.other");
 		expect(wrongCollection.status).toBe(403);
+	});
+
+	it("importRepo needs a grant covering every collection of the space", async () => {
+		// A repo for a space hosted elsewhere, as an account migration moves it.
+		const space = `at:space/did:web:elsewhere-${n++}.adapter.test/app.bsky.group/imported`;
+		const record = { $type: "test.cirrus.note", text: "migrated" };
+		const recordBytes = encode(record as never);
+		const recordCid = cidToString(await createCid(CODEC_DCBOR, recordBytes));
+		const data = new LtHash().add(`test.cirrus.note/n/${recordCid}`).digest();
+		const chunks: Uint8Array[] = [];
+		for await (const chunk of writeRepoStar(
+			{
+				ver: 1,
+				repo: OPERATOR,
+				space: space as never,
+				rev: tidNow() as never,
+				data,
+			},
+			[
+				{
+					collection: "test.cirrus.note" as never,
+					rkey: "n" as never,
+					bytes: recordBytes,
+				},
+			],
+		)) {
+			chunks.push(chunk);
+		}
+		const archive = new Uint8Array(await new Blob(chunks).arrayBuffer());
+		const url = `${ORIGIN}/xrpc/com.atproto.space.importRepo`;
+		const importWith = async (scope: string) => {
+			const headers = await dpopSession(scope);
+			return call("/xrpc/com.atproto.space.importRepo", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/vnd.dasl.star",
+					...(await headers("POST", url)),
+				},
+				body: archive,
+			});
+		};
+		const authority = space.split("/")[1]!;
+
+		// Writes to the archive's one collection are not enough.
+		const narrow = await importWith(
+			`atproto space:app.bsky.group?authority=${authority}&collection=test.cirrus.note`,
+		);
+		expect(narrow.status).toBe(403);
+		expect(await errorOf(narrow)).toBe("InsufficientScope");
+
+		// collection=* covers every collection, which "*" checks require.
+		const full = await importWith(
+			`atproto space:app.bsky.group?authority=${authority}&collection=*`,
+		);
+		expect(full.status).toBe(200);
 	});
 });
 

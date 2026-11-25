@@ -478,6 +478,19 @@ describe("space routes: personal data (S1)", () => {
 		expect(body.cid).toBe(created.cid);
 	});
 
+	it("emits at:space/ URIs and refuses the old at://{did}/space/ form in params", async () => {
+		const space = await createSpace();
+		expect(space.startsWith(`at:space/${OPERATOR}/app.bsky.group/`)).toBe(true);
+		await createRecord(space, { $type: "app.bsky.feed.post", text: "x" }, "old");
+		const legacy = space.replace(/^at:space\/([^/]+)\//, "at://$1/space/");
+		const path = (s: string) =>
+			`/xrpc/com.atproto.space.getRecord?space=${q(s)}&repo=${OPERATOR}&collection=app.bsky.feed.post&rkey=old`;
+		expect((await get(path(space))).status).toBe(200);
+		const refused = await get(path(legacy));
+		expect(refused.status).toBe(400);
+		expect(await errorOf(refused)).toBe("InvalidSpaceUri");
+	});
+
 	it("refuses an unauthenticated getRecord", async () => {
 		const space = await createSpace();
 		await createRecord(space, { $type: "app.bsky.feed.post", text: "x" }, "aaa");
@@ -499,7 +512,7 @@ describe("space routes: personal data (S1)", () => {
 
 	it("requires createSpace before writing into an own-authority space", async () => {
 		const res = await post("/xrpc/com.atproto.space.createRecord", {
-			space: `at://${OPERATOR}/space/app.bsky.group/nevercreated`,
+			space: `at:space/${OPERATOR}/app.bsky.group/nevercreated`,
 			repo: OPERATOR,
 			collection: "app.bsky.feed.post",
 			record: { $type: "app.bsky.feed.post", text: "x" },
@@ -1223,7 +1236,7 @@ describe("space routes: outbound calls don't follow redirects", () => {
 	});
 
 	it("notifyRepoUpdate to a foreign authority", async () => {
-		const foreignSpace = `at://${BOB}/space/app.bsky.group/redir${spaceN++}`;
+		const foreignSpace = `at:space/${BOB}/app.bsky.group/redir${spaceN++}`;
 		const stub = env.SPACES.get(env.SPACES.idFromName(foreignSpace));
 		const since = outbound.length;
 		setOutboundResponse((url) =>
@@ -1510,7 +1523,7 @@ describe("space routes: sync (S2-S4)", () => {
 		await expectForbidden(impersonation, /iss does not match the repo/);
 
 		const unknown = await notifyRepoUpdate(
-			`at://${OPERATOR}/space/app.bsky.group/notreal`,
+			`at:space/${OPERATOR}/app.bsky.group/notreal`,
 			BOB,
 			bobKeypair,
 			tidAt(now),
@@ -1521,7 +1534,7 @@ describe("space routes: sync (S2-S4)", () => {
 	});
 
 	it("delivers writes in foreign spaces to the authority, queueing retryable failures (S3)", async () => {
-		const foreign = `at://${BOB}/space/app.bsky.group/writer${spaceN++}`;
+		const foreign = `at:space/${BOB}/app.bsky.group/writer${spaceN++}`;
 		const stub = env.SPACES.get(env.SPACES.idFromName(foreign));
 		const before = outbound.length;
 		await post("/xrpc/com.atproto.space.createRecord", {
@@ -1797,7 +1810,7 @@ describe("space routes: lifecycle and management", () => {
 		expect(await errorOf(put)).toBe("PolicyMismatch");
 
 		const notOwner = await post("/xrpc/com.atproto.space.updateSpace", {
-			space: `at://${BOB}/space/app.bsky.group/x`,
+			space: `at:space/${BOB}/app.bsky.group/x`,
 			policy: MEMBERSPACE,
 		});
 		expect(await errorOf(notOwner)).toBe("NotAuthorized");
@@ -1928,7 +1941,7 @@ describe("space routes: lifecycle and management", () => {
 	});
 
 	it("importRepo refuses another account's archive and malformed archives", async () => {
-		const space = `at://${BOB}/space/app.bsky.group/imp${spaceN++}`;
+		const space = `at:space/${BOB}/app.bsky.group/imp${spaceN++}`;
 		const record = { $type: "app.bsky.feed.post", text: "x" };
 		const bytes = encode(record);
 		const cid = await cidForCbor(bytes);

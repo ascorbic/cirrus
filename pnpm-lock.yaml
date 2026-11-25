@@ -425,6 +425,9 @@ importers:
       '@atproto/space':
         specifier: 0.0.0-spaces-alpha-20261124235736
         version: 0.0.0-spaces-alpha-20261124235736
+      '@atproto/syntax':
+        specifier: 0.0.0-spaces-alpha-20261124235736
+        version: 0.0.0-spaces-alpha-20261124235736
       '@cloudflare/vitest-plugin':
         specifier: ^1.8.5
         version: 1.8.5(@cloudflare/workers-types@4.20260524.1)(@types/node@24.10.11)(vitest@4.1.12(@opentelemetry/api@1.10.0)(@types/node@24.10.11)(vite@8.0.14(@types/node@24.10.11)(esbuild@0.28.2)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0)))
