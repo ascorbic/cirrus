@@ -32,7 +32,7 @@ import { startReferencePds, type ReferencePds } from "../src/reference.js";
 import { startHarnessServices, type HarnessServices } from "../src/harness.js";
 
 /** The alpha build this partition was calibrated against. */
-const CALIBRATED_ALPHA = "0.0.0-spaces-alpha-20261117141222";
+const CALIBRATED_ALPHA = "0.0.0-spaces-alpha-20261124235736";
 
 /**
  * Checks the reference PDS is known to fail, with the reason it diverges from

@@ -4,4 +4,4 @@
  * bluesky-social/atproto `permissioned-data-alpha` at the vendored lexicon
  * commit. Runners stamp it on every report.
  */
-export const ALPHA_BUILD = "0.0.0-spaces-alpha-20261117141222";
+export const ALPHA_BUILD = "0.0.0-spaces-alpha-20261124235736";
