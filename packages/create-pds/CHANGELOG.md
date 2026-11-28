@@ -1,5 +1,11 @@
 # create-pds
 
+## 0.1.2
+
+### Patch Changes
+
+- [#263](https://github.com/ascorbic/cirrus/pull/263) [`bcb6808`](https://github.com/ascorbic/cirrus/commit/bcb6808ce0a192e6541052e38274bf76512b935b) Thanks [@ascorbic](https://github.com/ascorbic)! - The README of a new project explains how to update it with `upgrade-pds`.
+
 ## 0.1.1
 
 ### Patch Changes

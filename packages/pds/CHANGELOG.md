@@ -1,5 +1,22 @@
 # @getcirrus/pds
 
+## 0.20.1
+
+### Patch Changes
+
+- [#265](https://github.com/ascorbic/cirrus/pull/265) [`a0e40f8`](https://github.com/ascorbic/cirrus/commit/a0e40f80c1f9ecad5b2d95312407bb8acde89c74) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix `pds` CLI bugs:
+  
+  - `pds spaces kem` no longer treats a key in `.dev.vars` as the production key. After `pds spaces kem --local`, running it for production asked whether to replace a key that production did not have, and `pds spaces kem --publish` could publish the local key. Without `--local` the command now looks only at `wrangler.jsonc`; with `--local` it looks only at `.dev.vars`.
+  - Commands that write to `wrangler.jsonc`, such as `pds spaces kem` and `pds init`, no longer strip the file's trailing newline.
+  - `pds status` no longer prints lines like "815/294 blobs imported". The first number counted every blob ever uploaded, and the second only the blobs your migrated records referenced. It now checks the migrated blobs themselves and reports "All 294 migrated blobs imported" or "3 of 294 migrated blobs missing", with the total number of stored blobs on its own line.
+  - `pds migrate` and `pds activate` use the same check. Both used to compare the two counts, so on a PDS that had taken uploads since the import, `pds migrate` could report "Everything looks good!" and skip the transfer, and `pds activate` could pass its repo check, while migrated blobs were still missing. `pds migrate` now shows its resume progress and "images remaining" from the blobs that are missing, and `pds activate` reports "3 of 294 migrated blobs missing".
+
+- [#264](https://github.com/ascorbic/cirrus/pull/264) [`48f2ebf`](https://github.com/ascorbic/cirrus/commit/48f2ebf3ffffde71295b24057ed0b82a9bd0e235) Thanks [@ascorbic](https://github.com/ascorbic)! - Fixes `pds rotation-keys` failing with `BadJwtSignature` when the previous PDS is a Bluesky host. The command now asks bsky.social for the confirmation code and signature.
+
+- [#263](https://github.com/ascorbic/cirrus/pull/263) [`bcb6808`](https://github.com/ascorbic/cirrus/commit/bcb6808ce0a192e6541052e38274bf76512b935b) Thanks [@ascorbic](https://github.com/ascorbic)! - The 0.19.0 release notes for atproto spaces now list what an existing project has to change: the R2 lifecycle rule for staged blob uploads, and the Durable Object bindings, migration, and worker exports needed to enable spaces. There is no code change in this release. It exists so that `upgrade-pds`, which reads each package's changelog at its release tag, shows those instructions.
+- Updated dependencies [[`d70f7c4`](https://github.com/ascorbic/cirrus/commit/d70f7c4e6ea944945d6985b4c0ce39915226e569), [`bcb6808`](https://github.com/ascorbic/cirrus/commit/bcb6808ce0a192e6541052e38274bf76512b935b)]:
+  - @getcirrus/oauth-provider@0.7.1
+
 ## 0.20.0
 
 ### Minor Changes
