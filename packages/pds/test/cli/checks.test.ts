@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
 	checkBlobsImported,
 	checkPlcRotationKeys,
+	checkRepoComplete,
 	countMissingBlobs,
 } from "../../src/cli/utils/checks.js";
 import type {
@@ -98,13 +99,34 @@ describe("checkBlobsImported", () => {
 		expect(result.ok).toBe(false);
 		expect(result.message).toBe("3 of 294 migrated blobs missing");
 	});
+});
 
-	it("falls back to the status counts when the missing count is unknown", () => {
-		expect(checkBlobsImported(statusWith(10, 10)).ok).toBe(true);
-		expect(checkBlobsImported(statusWith(10, 815)).ok).toBe(true);
-		const result = checkBlobsImported(statusWith(10, 9));
+describe("checkRepoComplete", () => {
+	const repo = { repoCommit: "bafyrepo", repoBlocks: 100, indexedRecords: 50 };
+
+	function clientMissing(cids: string[]) {
+		return {
+			listMissingBlobs: vi.fn(async () => ({
+				blobs: cids.map((cid) => ({ cid, recordUri: `at://${DID}/a/${cid}` })),
+			})),
+		} as unknown as PDSClient;
+	}
+
+	it("fails when migrated blobs are missing, even if more blobs are stored than expected", async () => {
+		const result = await checkRepoComplete(
+			clientMissing(["bafy1", "bafy2", "bafy3"]),
+			{ ...statusWith(294, 815), ...repo },
+		);
 		expect(result.ok).toBe(false);
-		expect(result.message).toBe("1 of 10 migrated blobs missing");
+		expect(result.message).toBe("3 of 294 migrated blobs missing");
+	});
+
+	it("passes when no migrated blobs are missing", async () => {
+		const result = await checkRepoComplete(clientMissing([]), {
+			...statusWith(294, 815),
+			...repo,
+		});
+		expect(result.ok).toBe(true);
 	});
 });
 

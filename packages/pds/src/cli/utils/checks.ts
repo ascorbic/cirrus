@@ -208,12 +208,12 @@ export async function countMissingBlobs(client: PDSClient): Promise<number> {
  *
  * `expectedBlobs` counts blobs referenced by records at import time, while
  * `importedBlobs` counts every blob uploaded since, so the two only compare
- * until the account takes new uploads. Pass `missingBlobs` from
- * `countMissingBlobs` for an exact answer.
+ * until the account takes new uploads. `missingBlobs` comes from
+ * `countMissingBlobs`.
  */
 export function checkBlobsImported(
 	status: MigrationStatus,
-	missingBlobs = Math.max(0, status.expectedBlobs - status.importedBlobs),
+	missingBlobs: number,
 ): CheckResult {
 	if (missingBlobs > 0) {
 		return {
@@ -255,7 +255,10 @@ export function checkRepoInitialised(status: MigrationStatus): CheckResult {
 /**
  * Check that repo is complete for activation (combines blob and repo checks)
  */
-export function checkRepoComplete(status: MigrationStatus): CheckResult {
+export async function checkRepoComplete(
+	client: PDSClient,
+	status: MigrationStatus,
+): Promise<CheckResult> {
 	// First check repo is initialised
 	const repoCheck = checkRepoInitialised(status);
 	if (!repoCheck.ok) {
@@ -264,7 +267,10 @@ export function checkRepoComplete(status: MigrationStatus): CheckResult {
 
 	// Then check blobs if there are any expected
 	if (status.expectedBlobs > 0) {
-		const blobCheck = checkBlobsImported(status);
+		const blobCheck = checkBlobsImported(
+			status,
+			await countMissingBlobs(client),
+		);
 		if (!blobCheck.ok) {
 			return blobCheck;
 		}
