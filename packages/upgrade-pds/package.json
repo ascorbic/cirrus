@@ -1,6 +1,6 @@
 {
 	"name": "upgrade-pds",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Upgrade a Cirrus PDS project and prepare its upgrade work order",
 	"type": "module",
 	"bin": {

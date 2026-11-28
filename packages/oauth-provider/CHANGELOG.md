@@ -1,5 +1,13 @@
 # @getcirrus/oauth-provider
 
+## 0.7.1
+
+### Patch Changes
+
+- [#242](https://github.com/ascorbic/cirrus/pull/242) [`d70f7c4`](https://github.com/ascorbic/cirrus/commit/d70f7c4e6ea944945d6985b4c0ce39915226e569) Thanks [@andrewsouthard](https://github.com/andrewsouthard)! - Fixes pressing Enter on the OAuth consent screen denying the request. Enter now allows it.
+
+- [#263](https://github.com/ascorbic/cirrus/pull/263) [`bcb6808`](https://github.com/ascorbic/cirrus/commit/bcb6808ce0a192e6541052e38274bf76512b935b) Thanks [@ascorbic](https://github.com/ascorbic)! - The 0.19.0 release notes for atproto spaces now list what an existing project has to change: the R2 lifecycle rule for staged blob uploads, and the Durable Object bindings, migration, and worker exports needed to enable spaces. There is no code change in this release. It exists so that `upgrade-pds`, which reads each package's changelog at its release tag, shows those instructions.
+
 ## 0.7.0
 
 ### Minor Changes
