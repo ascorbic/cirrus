@@ -2,4 +2,4 @@
 "create-pds": patch
 ---
 
-New projects ignore `.cirrus`, where `upgrade-pds` writes its upgrade work order, and their README explains how to update.
+The README of a new project explains how to update it with `upgrade-pds`.

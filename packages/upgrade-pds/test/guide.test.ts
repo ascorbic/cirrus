@@ -1,6 +1,17 @@
-import { describe, expect, it } from "vitest";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { renderUpgradeGuide } from "../src/guide.js";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { renderUpgradeGuide, writeUpgradeGuide } from "../src/guide.js";
 import type { UpgradePlan } from "../src/types.js";
 
 const plan: UpgradePlan = {
@@ -144,5 +155,79 @@ describe("renderUpgradeGuide", () => {
 		);
 		expect(regenerated).toContain("The updater did not change any package.");
 		expect(regenerated).not.toContain("changed the Cirrus packages listed");
+	});
+});
+
+describe("writeUpgradeGuide", () => {
+	const directories: string[] = [];
+
+	async function planIn(): Promise<UpgradePlan> {
+		const root = await mkdtemp(join(tmpdir(), "upgrade-pds-guide-"));
+		directories.push(root);
+		return {
+			...plan,
+			projectRoot: root,
+			guidePath: join(root, ".cirrus", "UPGRADE.md"),
+		};
+	}
+
+	const exists = (path: string) =>
+		stat(path).then(
+			() => true,
+			() => false,
+		);
+
+	afterEach(async () => {
+		await Promise.all(
+			directories
+				.splice(0)
+				.map((directory) => rm(directory, { recursive: true, force: true })),
+		);
+	});
+
+	it("writes the work order into a directory that git ignores", async () => {
+		const target = await planIn();
+
+		await writeUpgradeGuide(target);
+
+		expect(await readFile(target.guidePath, "utf8")).toBe(
+			renderUpgradeGuide(target),
+		);
+		expect(
+			await readFile(join(target.projectRoot, ".cirrus", ".gitignore"), "utf8"),
+		).toBe("*\n");
+	});
+
+	it("keeps a .gitignore the project already has there", async () => {
+		const target = await planIn();
+		const ignore = join(target.projectRoot, ".cirrus", ".gitignore");
+		await mkdir(join(target.projectRoot, ".cirrus"));
+		await writeFile(ignore, "UPGRADE.md\n");
+
+		const written = await writeUpgradeGuide(target);
+		await written.undo();
+
+		expect(await readFile(ignore, "utf8")).toBe("UPGRADE.md\n");
+		expect(await exists(target.guidePath)).toBe(false);
+	});
+
+	it("removes everything it created when undone", async () => {
+		const target = await planIn();
+
+		const written = await writeUpgradeGuide(target);
+		await written.undo();
+
+		expect(await exists(join(target.projectRoot, ".cirrus"))).toBe(false);
+	});
+
+	it("puts an earlier work order back when undone", async () => {
+		const target = await planIn();
+		await mkdir(join(target.projectRoot, ".cirrus"));
+		await writeFile(target.guidePath, "earlier\n");
+
+		const written = await writeUpgradeGuide(target);
+		await written.undo();
+
+		expect(await readFile(target.guidePath, "utf8")).toBe("earlier\n");
 	});
 });

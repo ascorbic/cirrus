@@ -51,7 +51,7 @@ Other options:
 
 Hand the file to a coding agent, or work through it yourself. Most entries need no action. An entry that requires a change to an existing project says what to change.
 
-The work order is specific to one upgrade. Add `.cirrus` to `.gitignore` if your project does not already ignore it; projects scaffolded by a recent `create-pds` do.
+The work order is specific to one upgrade. The updater puts a `.gitignore` inside `.cirrus`, so the directory stays out of your repository without a change to your own `.gitignore`.
 
 ## If the packages were already updated
 

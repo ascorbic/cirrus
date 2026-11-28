@@ -2,16 +2,13 @@
 /**
  * upgrade-pds - Upgrade a Cirrus PDS project and write its upgrade work order
  */
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-
 import * as p from "@clack/prompts";
 import { defineCommand, runMain } from "citty";
 import pc from "picocolors";
 
 import packageJson from "../package.json" with { type: "json" };
 import { validateOptions } from "./args.js";
-import { renderUpgradeGuide } from "./guide.js";
+import { writeUpgradeGuide } from "./guide.js";
 import { createUpgradePlan } from "./plan.js";
 import { loadProject, writeDependenciesAndInstall } from "./project.js";
 import type { UpgradePlan } from "./types.js";
@@ -64,17 +61,14 @@ async function applyPlan(plan: UpgradePlan): Promise<void> {
 	const project = await loadProject(plan.projectRoot);
 	// Written before the install: once the packages have moved, the range this
 	// work order covers can no longer be derived from the project.
-	const previousGuide = await readFile(plan.guidePath).catch(() => null);
-	await mkdir(dirname(plan.guidePath), { recursive: true });
-	await writeFile(plan.guidePath, renderUpgradeGuide(plan));
+	const guide = await writeUpgradeGuide(plan);
 	if (plan.dependencies.length > 0) p.log.step("Updating dependencies");
 	try {
 		await writeDependenciesAndInstall(project, plan.dependencies, () =>
 			verifyInstalled(plan),
 		);
 	} catch (error) {
-		if (previousGuide) await writeFile(plan.guidePath, previousGuide);
-		else await rm(plan.guidePath, { force: true });
+		await guide.undo();
 		throw error;
 	}
 }

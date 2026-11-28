@@ -17,6 +17,8 @@ The work order contains:
 - a link to the `create-pds` project template at the target release
 - the build, deploy, and verification commands for the project's package manager
 
+The `.cirrus` directory gets its own `.gitignore`, so the work order stays out of the project's repository.
+
 The updater does not edit `wrangler.jsonc` or the worker source, set secrets, or deploy. Give the work order to a coding agent or work through it yourself, then deploy.
 
 ## Options

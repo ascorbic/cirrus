@@ -1,3 +1,6 @@
+import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+
 import type { ChangelogEntry, UpgradePlan } from "./types.js";
 
 function codeBlock(commands: readonly string[]): string {
@@ -114,4 +117,31 @@ ${changes}
 
 ${renderReference(plan)}${renderDeploy(plan)}
 `;
+}
+
+/**
+ * Writes the work order, and a `.gitignore` that keeps its directory out of
+ * the project's repository. `undo` puts back what was there before.
+ */
+export async function writeUpgradeGuide(
+	plan: UpgradePlan,
+): Promise<{ undo: () => Promise<void> }> {
+	const directory = dirname(plan.guidePath);
+	const ignorePath = resolve(directory, ".gitignore");
+	const previousGuide = await readFile(plan.guidePath).catch(() => null);
+	const createdDirectory =
+		(await mkdir(directory, { recursive: true })) !== undefined;
+	const createdIgnore = await writeFile(ignorePath, "*\n", { flag: "wx" }).then(
+		() => true,
+		() => false,
+	);
+	await writeFile(plan.guidePath, renderUpgradeGuide(plan));
+	return {
+		async undo() {
+			if (previousGuide) await writeFile(plan.guidePath, previousGuide);
+			else await rm(plan.guidePath, { force: true });
+			if (createdIgnore) await rm(ignorePath, { force: true });
+			if (createdDirectory) await rmdir(directory);
+		},
+	};
 }
