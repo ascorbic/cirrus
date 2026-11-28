@@ -7,6 +7,7 @@ import {
 } from "@atproto/crypto";
 import {
 	buildRotationKeys,
+	entrywayFor,
 	findPreviousPdsEndpoint,
 	generateRecoveryKey,
 	importRotationKey,
@@ -132,6 +133,27 @@ describe("findPreviousPdsEndpoint", () => {
 				"https://pds.example.com",
 			),
 		).toBeNull();
+	});
+});
+
+describe("entrywayFor", () => {
+	it("maps a Bluesky-hosted PDS to bsky.social", () => {
+		expect(entrywayFor("https://morel.us-east.host.bsky.network")).toBe(
+			"https://bsky.social",
+		);
+		expect(entrywayFor("https://oyster.us-west.host.bsky.network/")).toBe(
+			"https://bsky.social",
+		);
+	});
+
+	it("leaves other PDSes alone", () => {
+		expect(entrywayFor("https://pds.example.com")).toBe(
+			"https://pds.example.com",
+		);
+		expect(entrywayFor("https://bsky.social")).toBe("https://bsky.social");
+		expect(entrywayFor("https://host.bsky.network.evil.example")).toBe(
+			"https://host.bsky.network.evil.example",
+		);
 	});
 });
 
