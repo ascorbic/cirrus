@@ -32,7 +32,9 @@ import {
 	type RotationKeyChoice,
 } from "../utils/rotation-key-prompts.js";
 import {
+	entrywayFor,
 	findPreviousPdsEndpoint,
+	hostnameOf,
 	importRotationKey,
 	labelRotationKeys,
 } from "../utils/rotation-keys.js";
@@ -188,16 +190,17 @@ export const rotationKeysCommand = defineCommand({
 
 		if (signer === "previous") {
 			const previous = findPreviousPdsEndpoint(log, targetEndpoint);
-			const sourceUrl = await promptText({
+			const enteredUrl = await promptText({
 				message: "Your previous PDS:",
-				initialValue: previous ?? "https://bsky.social",
+				initialValue: previous ? entrywayFor(previous) : "https://bsky.social",
 				validate: (v) =>
-					v && /^https?:\/\//.test(v.trim())
+					v && /^https?:\/\//.test(v.trim()) && hostnameOf(v.trim())
 						? undefined
 						: "Enter a URL, such as https://bsky.social",
 			});
-			sourceName = displayName(sourceUrl.trim());
-			sourcePdsClient = new SourcePdsPlcClient(sourceUrl.trim());
+			const sourceUrl = entrywayFor(enteredUrl.trim());
+			sourceName = displayName(sourceUrl);
+			sourcePdsClient = new SourcePdsPlcClient(sourceUrl);
 
 			const password = await p.password({
 				message: `Your password for ${sourceName}:`,
@@ -209,7 +212,7 @@ export const rotationKeysCommand = defineCommand({
 
 			spinner.start(`Logging in to ${sourceName}...`);
 			try {
-				const session = await new PDSClient(sourceUrl.trim()).createSession(
+				const session = await new PDSClient(sourceUrl).createSession(
 					did,
 					password,
 				);

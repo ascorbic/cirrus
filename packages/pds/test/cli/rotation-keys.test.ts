@@ -7,8 +7,10 @@ import {
 } from "@atproto/crypto";
 import {
 	buildRotationKeys,
+	entrywayFor,
 	findPreviousPdsEndpoint,
 	generateRecoveryKey,
+	hostnameOf,
 	importRotationKey,
 	labelRotationKeys,
 } from "../../src/cli/utils/rotation-keys.js";
@@ -132,6 +134,43 @@ describe("findPreviousPdsEndpoint", () => {
 				"https://pds.example.com",
 			),
 		).toBeNull();
+	});
+});
+
+describe("entrywayFor", () => {
+	it("maps a Bluesky-hosted PDS to bsky.social", () => {
+		expect(entrywayFor("https://morel.us-east.host.bsky.network")).toBe(
+			"https://bsky.social",
+		);
+		expect(entrywayFor("https://oyster.us-west.host.bsky.network/")).toBe(
+			"https://bsky.social",
+		);
+	});
+
+	it("leaves other PDSes alone", () => {
+		expect(entrywayFor("https://pds.example.com")).toBe(
+			"https://pds.example.com",
+		);
+		expect(entrywayFor("https://bsky.social")).toBe("https://bsky.social");
+		expect(entrywayFor("https://host.bsky.network.evil.example")).toBe(
+			"https://host.bsky.network.evil.example",
+		);
+	});
+
+	it("returns an endpoint that isn't a URL unchanged", () => {
+		expect(entrywayFor("https://")).toBe("https://");
+		expect(entrywayFor("not a url")).toBe("not a url");
+	});
+});
+
+describe("hostnameOf", () => {
+	it("returns the hostname of a URL", () => {
+		expect(hostnameOf("https://pds.example.com/path")).toBe("pds.example.com");
+	});
+
+	it("returns null for input that isn't a URL", () => {
+		expect(hostnameOf("https://")).toBeNull();
+		expect(hostnameOf("not a url")).toBeNull();
 	});
 });
 

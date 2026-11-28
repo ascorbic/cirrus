@@ -94,6 +94,29 @@ export function findPreviousPdsEndpoint(
 	return null;
 }
 
+/**
+ * The server to log in to and ask for PLC signatures, given a PDS endpoint
+ * from a DID's history. Bluesky's hosts forward PLC signing requests to
+ * bsky.social with a service token signed by the account's repo key at that
+ * host, which bsky.social rejects once the DID lists another PDS's key.
+ */
+export function entrywayFor(endpoint: string): string {
+	return hostnameOf(endpoint)?.endsWith(".host.bsky.network")
+		? "https://bsky.social"
+		: endpoint;
+}
+
+/**
+ * The hostname of a URL, or null if it doesn't parse as one.
+ */
+export function hostnameOf(url: string): string | null {
+	try {
+		return new URL(url).hostname;
+	} catch {
+		return null;
+	}
+}
+
 export interface RecoveryKey {
 	/** Private key in multibase form, as used by goat's --plc-signing-key */
 	privateKey: string;
