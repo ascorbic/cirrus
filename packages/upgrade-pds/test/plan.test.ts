@@ -235,6 +235,43 @@ describe("createUpgradePlan", () => {
 		).toHaveLength(1);
 	});
 
+	it("covers the copy inside @getcirrus/pds when the project's own copy is on a different version", async () => {
+		const plan = await createUpgradePlan(
+			project([
+				pds("0.18.0"),
+				{
+					name: "@getcirrus/oauth-provider",
+					section: "dependencies",
+					specifier: "0.6.0",
+					installedVersion: "0.6.0",
+				},
+			]),
+			"latest",
+			async (input, init) => {
+				const url = requestUrl(input);
+				if (url.pathname === "/@getcirrus%2Foauth-provider/latest") {
+					return registry("0.19.0")(
+						"https://registry.npmjs.org/@getcirrus%2Foauth-provider/0.6.0",
+						init,
+					);
+				}
+				return registry("0.19.0")(input, init);
+			},
+		);
+
+		expect(plan.dependencies.map((change) => change.name)).toEqual([
+			"@getcirrus/pds",
+		]);
+		expect(plan.transitive).toContainEqual({
+			name: "@getcirrus/oauth-provider",
+			fromVersion: "0.5.0",
+			toVersion: "0.6.0",
+		});
+		expect(plan.changelog.map((entry) => entry.body)).toContain(
+			"Add space scopes.",
+		);
+	});
+
 	it("plans nothing when the project is already on the tag", async () => {
 		const requests: string[] = [];
 		const plan = await createUpgradePlan(

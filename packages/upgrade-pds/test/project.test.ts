@@ -417,7 +417,7 @@ describe("loadProject transitive Cirrus packages", () => {
 		});
 	});
 
-	it("reads hoisted versions and leaves out packages the project declares itself", async () => {
+	it("reads hoisted versions, including packages the project also declares itself", async () => {
 		const root = await tempDir();
 		await writeJson(join(root, "package.json"), {
 			dependencies: {
@@ -447,6 +447,7 @@ describe("loadProject transitive Cirrus packages", () => {
 
 		expect(project.transitive).toEqual({
 			"@getcirrus/oauth-provider": "0.6.0",
+			"@getcirrus/spaces": "0.1.0",
 		});
 	});
 });

@@ -32,7 +32,7 @@ export interface ProjectState {
 	packageJson: ProjectPackage;
 	packageManager: PackageManager;
 	dependencies: ProjectDependency[];
-	/** Installed versions of the Cirrus packages that `@getcirrus/pds` depends on and the project does not declare. */
+	/** Installed versions of the Cirrus packages that `@getcirrus/pds` depends on, as it resolves them. */
 	transitive: Record<string, string>;
 }
 
@@ -232,12 +232,7 @@ export async function loadProject(start: string): Promise<ProjectState> {
 		dependencies.push({ ...dependency, installedVersion: installed.version });
 		if (dependency.name !== PDS_PACKAGE) continue;
 		for (const name of Object.keys(installed.dependencies)) {
-			if (
-				!name.startsWith(CIRRUS_SCOPE) ||
-				declared.some((direct) => direct.name === name)
-			) {
-				continue;
-			}
+			if (!name.startsWith(CIRRUS_SCOPE)) continue;
 			// pnpm links a package's own dependencies beside it, not at the project root.
 			const version = (await findInstalled(installed.directory, name))?.version;
 			if (version) transitive[name] = version;

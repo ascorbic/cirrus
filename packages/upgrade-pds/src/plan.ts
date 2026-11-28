@@ -43,17 +43,24 @@ function requireRepository(
 }
 
 function transitiveChanges(
-	project: ProjectState,
+	direct: readonly DependencyChange[],
 	fromVersions: Record<string, string>,
 	fromPdsVersion: string,
 	target: RegistryRelease,
 ): TransitiveChange[] {
 	if (fromPdsVersion === target.version) return [];
-	const direct = new Set(project.dependencies.map(({ name }) => name));
 	return Object.entries(target.cirrusDependencies).flatMap(
 		([name, toVersion]) => {
 			const fromVersion = fromVersions[name];
-			if (direct.has(name) || fromVersion === toVersion) return [];
+			// The project's own copy can sit on a different version from the one
+			// inside pds, so only an identical move is already accounted for.
+			const covered = direct.some(
+				(change) =>
+					change.name === name &&
+					change.fromVersion === fromVersion &&
+					change.toVersion === toVersion,
+			);
+			if (covered || fromVersion === toVersion) return [];
 			return [{ name, ...(fromVersion ? { fromVersion } : {}), toVersion }];
 		},
 	);
@@ -185,7 +192,7 @@ export async function createUpgradePlan(
 			: project.transitive;
 	const transitive = pds
 		? transitiveChanges(
-				project,
+				dependencies,
 				transitiveFrom,
 				startVersion(pds.dependency),
 				pds.release,
