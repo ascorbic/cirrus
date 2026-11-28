@@ -10,6 +10,7 @@ const DID = "did:plc:abc123";
 
 const pds = vi.hoisted(() => ({
 	missing: [] as string[],
+	recordsPerBlob: 1,
 	uploadBlob: vi.fn(),
 }));
 
@@ -80,10 +81,12 @@ vi.mock("../../src/cli/utils/pds-client.js", () => ({
 		}
 		async listMissingBlobs() {
 			return {
-				blobs: pds.missing.map((cid) => ({
-					cid,
-					recordUri: `at://${DID}/app.bsky.feed.post/${cid}`,
-				})),
+				blobs: pds.missing.flatMap((cid) =>
+					Array.from({ length: pds.recordsPerBlob }, (_, i) => ({
+						cid,
+						recordUri: `at://${DID}/app.bsky.feed.post/${cid}${i}`,
+					})),
+				),
 			};
 		}
 		async getBlob() {
@@ -102,6 +105,7 @@ describe("pds migrate", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		pds.recordsPerBlob = 1;
 		originalCwd = process.cwd();
 		tempDir = mkdtempSync(join(tmpdir(), "migrate-test-"));
 		writeFileSync(
@@ -146,6 +150,15 @@ describe("pds migrate", () => {
 		expect(p.log.warn).toHaveBeenCalledWith(
 			"Migration partially complete. 1 images remaining.",
 		);
+	});
+
+	it("transfers a blob shared by several records once", async () => {
+		pds.missing = ["bafy1", "bafy2"];
+		pds.recordsPerBlob = 2;
+
+		await runCommand(migrateCommand, { rawArgs: [] });
+
+		expect(pds.uploadBlob).toHaveBeenCalledTimes(2);
 	});
 
 	it("has nothing to do when no migrated blobs are missing", async () => {

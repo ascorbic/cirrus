@@ -428,11 +428,15 @@ export const migrateCommand = defineCommand({
 
 			spinner.message(`Transferring media ${progressBar(0, totalBlobs)}`);
 
+			// listMissingBlobs returns one entry per record that references a blob
+			const attempted = new Set<string>();
 			do {
 				const page = await targetClient.listMissingBlobs(100, cursor);
 				cursor = page.cursor;
 
 				for (const blob of page.blobs) {
+					if (attempted.has(blob.cid)) continue;
+					attempted.add(blob.cid);
 					try {
 						const { bytes, mimeType } = await sourceClient.getBlob(
 							did,
