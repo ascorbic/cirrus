@@ -29,11 +29,6 @@ function printPlan(plan: UpgradePlan): void {
 	for (const change of plan.dependencies) {
 		p.log.info(`${change.name}: ${change.fromVersion} → ${change.toVersion}`);
 	}
-	for (const change of plan.transitive) {
-		p.log.info(
-			`${change.name}: ${change.fromVersion ?? "not installed"} → ${change.toVersion} ${pc.dim("(through @getcirrus/pds)")}`,
-		);
-	}
 	for (const dependency of plan.skipped) {
 		p.log.warn(
 			`${dependency.name} (${dependency.specifier}) will not be changed: ${dependency.reason}.`,
