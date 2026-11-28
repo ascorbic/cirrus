@@ -21,6 +21,7 @@ import type {
 	ChangelogEntry,
 	DependencyChange,
 	GitHubRepository,
+	ProjectDependency,
 	SkippedDependency,
 	TransitiveChange,
 	UpgradePlan,
@@ -42,14 +43,15 @@ function requireRepository(
 
 function transitiveChanges(
 	project: ProjectState,
-	installedPdsVersion: string,
+	fromVersions: Record<string, string>,
+	fromPdsVersion: string,
 	target: RegistryRelease,
 ): TransitiveChange[] {
-	if (installedPdsVersion === target.version) return [];
+	if (fromPdsVersion === target.version) return [];
 	const direct = new Set(project.dependencies.map(({ name }) => name));
 	return Object.entries(target.cirrusDependencies).flatMap(
 		([name, toVersion]) => {
-			const fromVersion = project.transitive[name];
+			const fromVersion = fromVersions[name];
 			if (direct.has(name) || fromVersion === toVersion) return [];
 			return [{ name, ...(fromVersion ? { fromVersion } : {}), toVersion }];
 		},
@@ -60,6 +62,7 @@ export async function createUpgradePlan(
 	project: ProjectState,
 	tag: string,
 	fetcher: typeof fetch = fetch,
+	from?: string,
 ): Promise<UpgradePlan> {
 	const skipped: SkippedDependency[] = [];
 	const upgradable = project.dependencies.filter((dependency) => {
@@ -135,20 +138,46 @@ export async function createUpgradePlan(
 	const pds = releases.find(
 		({ dependency }) => dependency.name === PDS_PACKAGE,
 	);
+	if (from !== undefined) {
+		if (!pds) {
+			throw new Error(
+				`--from applies to ${PDS_PACKAGE}, which this project does not install from npm.`,
+			);
+		}
+		if (semver.gt(from, pds.dependency.installedVersion)) {
+			throw new Error(
+				`--from ${from} is newer than the installed ${PDS_PACKAGE} ${pds.dependency.installedVersion}.`,
+			);
+		}
+	}
+	const startVersion = (dependency: ProjectDependency) =>
+		from !== undefined && dependency.name === PDS_PACKAGE
+			? from
+			: dependency.installedVersion;
+	// node_modules holds what is installed now; an earlier release's pins are only on npm.
+	const transitiveFrom =
+		pds && from !== undefined && from !== pds.dependency.installedVersion
+			? (await resolveRegistryRelease(PDS_PACKAGE, from, fetcher))
+					.cirrusDependencies
+			: project.transitive;
 	const transitive = pds
-		? transitiveChanges(project, pds.dependency.installedVersion, pds.release)
+		? transitiveChanges(
+				project,
+				transitiveFrom,
+				startVersion(pds.dependency),
+				pds.release,
+			)
 		: [];
 
 	const directRanges = releases
 		.filter(
-			({ dependency, release }) =>
-				dependency.installedVersion !== release.version,
+			({ dependency, release }) => startVersion(dependency) !== release.version,
 		)
 		.map(({ dependency, release }) =>
 			fetchChangelogRange(
 				requireRepository(release, tag),
 				dependency.name,
-				dependency.installedVersion,
+				startVersion(dependency),
 				release.version,
 				fetcher,
 			),
@@ -188,6 +217,7 @@ export async function createUpgradePlan(
 		projectRoot: project.root,
 		packageManager: project.packageManager,
 		tag,
+		...(from !== undefined ? { from } : {}),
 		dependencies,
 		skipped,
 		transitive,

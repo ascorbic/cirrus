@@ -60,6 +60,8 @@ export interface UpgradePlan {
 	projectRoot: string;
 	packageManager: PackageManager;
 	tag: string;
+	/** The `@getcirrus/pds` version the release entries start after, when it is not the installed one. */
+	from?: string;
 	dependencies: DependencyChange[];
 	skipped: SkippedDependency[];
 	transitive: TransitiveChange[];

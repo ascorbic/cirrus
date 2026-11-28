@@ -307,4 +307,79 @@ describe("createUpgradePlan", () => {
 			status: "pnpm exec pds status",
 		});
 	});
+
+	describe("with a from version", () => {
+		const bumped = () =>
+			project(
+				[pds("0.19.0")],
+				{},
+				{
+					"@getcirrus/oauth-provider": "0.6.0",
+					"@getcirrus/spaces": "0.1.0",
+				},
+			);
+
+		it("covers the range from that version when the packages have already moved", async () => {
+			const plan = await createUpgradePlan(
+				bumped(),
+				"latest",
+				registry("0.19.0"),
+				"0.18.0",
+			);
+
+			expect(plan.from).toBe("0.18.0");
+			expect(plan.dependencies).toEqual([]);
+			expect(plan.transitive).toEqual([
+				{
+					name: "@getcirrus/oauth-provider",
+					fromVersion: "0.5.0",
+					toVersion: "0.6.0",
+				},
+				{ name: "@getcirrus/spaces", toVersion: "0.1.0" },
+			]);
+			expect(plan.changelog.map((entry) => entry.body)).toEqual([
+				"Add spaces.",
+				"Add space scopes.",
+				"Initial spaces engine.",
+			]);
+		});
+
+		it("still moves packages that are behind the tag", async () => {
+			const plan = await createUpgradePlan(
+				project([pds("0.18.0")]),
+				"latest",
+				registry("0.19.0"),
+				"0.17.1",
+			);
+
+			expect(plan.dependencies).toHaveLength(1);
+			expect(plan.changelog.map((entry) => entry.body)).toContain(
+				"Proxy reports.",
+			);
+		});
+
+		it("rejects a version newer than the installed one", async () => {
+			await expect(
+				createUpgradePlan(
+					project([pds("0.18.0")]),
+					"latest",
+					registry("0.19.0"),
+					"0.19.0",
+				),
+			).rejects.toThrow(
+				"--from 0.19.0 is newer than the installed @getcirrus/pds 0.18.0.",
+			);
+		});
+
+		it("needs @getcirrus/pds to come from npm", async () => {
+			await expect(
+				createUpgradePlan(
+					project([pds("0.19.0", "workspace:*")]),
+					"latest",
+					registry("0.19.0"),
+					"0.18.0",
+				),
+			).rejects.toThrow("--from applies to @getcirrus/pds");
+		});
+	});
 });

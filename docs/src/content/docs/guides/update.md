@@ -30,12 +30,13 @@ npx upgrade-pds@latest --dry-run
 
 Other options:
 
-| Option       | Effect                                        |
-| ------------ | --------------------------------------------- |
-| `--to <tag>` | Install another npm dist-tag, such as `next`  |
-| `--yes`      | Apply without the confirmation prompt         |
-| `--json`     | Print the plan as JSON without changing files |
-| `--cwd`      | Run against a project in another directory    |
+| Option             | Effect                                                   |
+| ------------------ | -------------------------------------------------------- |
+| `--to <tag>`       | Install another npm dist-tag, such as `next`             |
+| `--yes`            | Apply without the confirmation prompt                    |
+| `--json`           | Print the plan as JSON without changing files            |
+| `--cwd`            | Run against a project in another directory               |
+| `--from <version>` | Cover releases after an earlier `@getcirrus/pds` version |
 
 `--to` takes a dist-tag, not a version. Dependencies must already be installed, so the updater can read the versions in `node_modules`.
 
@@ -51,6 +52,16 @@ Other options:
 Hand the file to a coding agent, or work through it yourself. Most entries need no action. An entry that requires a change to an existing project says what to change.
 
 The work order is specific to one upgrade. Add `.cirrus` to `.gitignore` if your project does not already ignore it; projects scaffolded by a recent `create-pds` do.
+
+## If the packages were already updated
+
+The updater works out which releases to cover from the versions in `node_modules`. If `@getcirrus/pds` was bumped by hand, or `.cirrus/UPGRADE.md` was lost, tell it the version the project was on before:
+
+```bash
+npx upgrade-pds@latest --from 0.18.0
+```
+
+It writes a work order for every release after that version, and updates any package that is still behind.
 
 ## Test locally
 

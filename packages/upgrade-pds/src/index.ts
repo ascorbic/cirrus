@@ -21,6 +21,9 @@ function printPlan(plan: UpgradePlan): void {
 		[
 			`${pc.dim("Project")}         ${plan.projectRoot}`,
 			`${pc.dim("npm tag")}         ${plan.tag}`,
+			...(plan.from
+				? [`${pc.dim("From")}            @getcirrus/pds ${plan.from}`]
+				: []),
 			`${pc.dim("Release entries")} ${plan.changelog.length}`,
 			`${pc.dim("Work order")}      ${plan.guidePath}`,
 		].join("\n"),
@@ -64,7 +67,7 @@ async function applyPlan(plan: UpgradePlan): Promise<void> {
 	const previousGuide = await readFile(plan.guidePath).catch(() => null);
 	await mkdir(dirname(plan.guidePath), { recursive: true });
 	await writeFile(plan.guidePath, renderUpgradeGuide(plan));
-	p.log.step("Updating dependencies");
+	if (plan.dependencies.length > 0) p.log.step("Updating dependencies");
 	try {
 		await writeDependenciesAndInstall(project, plan.dependencies, () =>
 			verifyInstalled(plan),
@@ -82,10 +85,16 @@ async function upgrade(args: {
 	"dry-run": boolean;
 	json: boolean;
 	yes: boolean;
+	from?: string;
 }): Promise<void> {
-	validateOptions({ tag: args.to, json: args.json, yes: args.yes });
+	validateOptions({
+		tag: args.to,
+		json: args.json,
+		yes: args.yes,
+		from: args.from,
+	});
 	const project = await loadProject(args.cwd);
-	const plan = await createUpgradePlan(project, args.to);
+	const plan = await createUpgradePlan(project, args.to, fetch, args.from);
 	if (args.json) {
 		process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
 		return;
@@ -93,7 +102,8 @@ async function upgrade(args: {
 
 	p.intro(pc.bgCyan(pc.black(" upgrade-pds ")));
 	printPlan(plan);
-	if (plan.dependencies.length === 0) {
+	const installs = plan.dependencies.length > 0;
+	if (!installs && (!plan.from || plan.changelog.length === 0)) {
 		p.outro(
 			plan.skipped.length > 0
 				? "There is nothing for upgrade-pds to change. No files were changed."
@@ -115,7 +125,9 @@ async function upgrade(args: {
 			return;
 		}
 		const answer = await p.confirm({
-			message: "Update these packages and install them?",
+			message: installs
+				? "Update these packages and install them?"
+				: "Write the work order?",
 			initialValue: true,
 		});
 		if (p.isCancel(answer) || !answer) {
@@ -126,7 +138,7 @@ async function upgrade(args: {
 
 	await applyPlan(plan);
 	p.outro(
-		`Packages updated. Give an agent this work order: ${pc.cyan(plan.guidePath)}`,
+		`${installs ? "Packages updated" : "Work order written"}. Give an agent this work order: ${pc.cyan(plan.guidePath)}`,
 	);
 }
 
@@ -147,6 +159,11 @@ const main = defineCommand({
 			type: "string",
 			description: "npm dist-tag to install",
 			default: "latest",
+		},
+		from: {
+			type: "string",
+			description:
+				"@getcirrus/pds version the project was on, to cover release entries from before the installed version",
 		},
 		"dry-run": {
 			type: "boolean",

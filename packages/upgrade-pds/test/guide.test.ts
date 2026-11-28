@@ -131,4 +131,18 @@ describe("renderUpgradeGuide", () => {
 			"- `@getcirrus/oauth-provider` (`workspace:*`) was not changed: it comes from a package in this workspace, not from npm.",
 		);
 	});
+
+	it("describes a work order regenerated from an earlier version", () => {
+		const regenerated = renderUpgradeGuide({
+			...plan,
+			from: "0.18.0",
+			dependencies: [],
+		});
+
+		expect(regenerated).toContain(
+			"It covers the releases after `@getcirrus/pds` `0.18.0`, the version given with `--from`.",
+		);
+		expect(regenerated).toContain("The updater did not change any package.");
+		expect(regenerated).not.toContain("changed the Cirrus packages listed");
+	});
 });

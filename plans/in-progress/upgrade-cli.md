@@ -22,7 +22,7 @@ The updater does not model what a release requires of a project. There is no man
 - Specifier handling: preserve caret, tilde or exact style; a preview URL or git source becomes a caret range.
 - Registry resolution by dist-tag (`--to next`), refusing exact versions and downgrades.
 - Changelog fetch from the exact release tag on GitHub, Changesets wrapper stripping, removal of `Updated dependencies` entries, deduplication across packages. Cirrus uses the same `@changesets/changelog-github` format and the same `<name>@<version>` tags.
-- Flags: `--cwd`, `--to`, `--dry-run`, `--json`, `--yes`.
+- Flags: `--cwd`, `--to`, `--dry-run`, `--json`, `--yes`. `--from` is new here.
 - The plan/apply split: build a full plan with no side effects, print it, confirm, apply.
 
 Dropped:
@@ -98,12 +98,12 @@ Implementation notes:
 - SIGINT is held during the install so an interrupted package manager goes through the restore path.
 - pnpm installs run with `--no-frozen-lockfile` and Yarn with `YARN_ENABLE_IMMUTABLE_INSTALLS=false`, because `CI=true` otherwise rejects the changed lockfile.
 - A parent directory's lockfile counts only when that directory is a workspace root (`pnpm-workspace.yaml`, or a `package.json` with `workspaces`).
+- `--from <version>` starts the `@getcirrus/pds` range at an earlier version, for projects bumped by hand or missing their work order. The transitive from-versions for that case come from the registry entry for that pds release, since `node_modules` already holds the new ones. With nothing to install, it writes the work order only.
 - The spaces entry in the oauth-provider changelog is kept byte-identical to the pds one, and a test asserts it, so the work order lists it once.
 - Scripts are always invoked as `<pm> run <script>`, because `pnpm deploy` is a pnpm built-in.
 
 Not done:
 
-- Regenerating a work order for a project whose packages were already bumped by hand. That needs the previous version from the user, such as a `--from <version>` option.
 - A changelog entry hand-edited so that a body line starts at column 0 with `- ` or `## ` is split at that line. Changesets indents bodies; hand edits have to keep the indent.
 - The automated end-to-end test. It needs the npm registry and GitHub, and the CLI has no way to point at a local registry. The unit tests cover each module and the hand run above covers the whole path.
 

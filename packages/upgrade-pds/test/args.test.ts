@@ -24,4 +24,14 @@ describe("validateOptions", () => {
 			validateOptions({ tag: "latest", json: true, yes: true }),
 		).toThrow("--json reports the plan without applying it");
 	});
+
+	it("accepts an exact version for --from and nothing else", () => {
+		const options = { tag: "latest", json: false, yes: false };
+		expect(() => validateOptions({ ...options, from: "0.18.0" })).not.toThrow();
+		for (const from of ["latest", "^0.18.0", "0.18", ""]) {
+			expect(() => validateOptions({ ...options, from })).toThrow(
+				"--from takes the exact @getcirrus/pds version",
+			);
+		}
+	});
 });

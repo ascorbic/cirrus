@@ -27,6 +27,7 @@ npx upgrade-pds@latest --json      # print the plan as JSON without changing fil
 npx upgrade-pds@latest --yes       # apply without the confirmation prompt
 npx upgrade-pds@latest --to next   # install another npm dist-tag
 npx upgrade-pds@latest --cwd ./pds # run against another directory
+npx upgrade-pds@latest --from 0.18.0 # cover releases after an earlier version
 ```
 
 `--to` takes a dist-tag, not a version.
@@ -41,3 +42,13 @@ Packages declared with `workspace:`, `catalog:`, `link:`, `file:`, `portal:`, `p
 If the install fails or is interrupted, `package.json`, the lockfile, and any earlier work order are restored and the previous dependencies are reinstalled.
 
 The work order covers the versions installed when the updater ran. Once the packages have moved, running the updater again reports that nothing needs to change and leaves the existing work order in place.
+
+## Projects that were already updated
+
+If `@getcirrus/pds` was bumped by hand, or the work order was lost, pass the version the project was on before:
+
+```sh
+npx upgrade-pds@latest --from 0.18.0
+```
+
+The work order then covers every release after that version. Packages already on the target release are left as they are, and anything still behind is updated as usual. `--from` takes an exact `@getcirrus/pds` version that is not newer than the installed one. Use the version from the project's last deploy; `git log -p package.json` shows earlier values.

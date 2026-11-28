@@ -100,7 +100,7 @@ export function renderUpgradeGuide(plan: UpgradePlan): string {
 			: "No release entries were crossed by this update.";
 	return `# Cirrus upgrade work order
 
-This file is the handoff for upgrading the Cirrus PDS project at \`${plan.projectRoot}\` to the npm \`${plan.tag}\` release. The updater changed the Cirrus packages listed below and installed them. It did not edit the wrangler config or the worker source, set a secret, or deploy.
+This file is the handoff for upgrading the Cirrus PDS project at \`${plan.projectRoot}\` to the npm \`${plan.tag}\` release.${plan.from ? ` It covers the releases after \`@getcirrus/pds\` \`${plan.from}\`, the version given with \`--from\`.` : ""} ${plan.dependencies.length > 0 ? "The updater changed the Cirrus packages listed below and installed them." : "The updater did not change any package."} It did not edit the wrangler config or the worker source, set a secret, or deploy.
 
 ## Package changes
 
@@ -108,7 +108,7 @@ ${renderPackages(plan)}
 
 ## Release entries to assess
 
-These are the complete authored major, minor, and patch entries crossed by the Cirrus packages this update changed. Generated dependency-bump entries and attribution have been removed. Check whether each entry requires a change to this project's configuration, worker entry, secrets, or Cloudflare resources, and make that change. Do not enable an optional feature merely because it appears here.
+These are the complete authored major, minor, and patch entries crossed by this upgrade. Generated dependency-bump entries and attribution have been removed. Check whether each entry requires a change to this project's configuration, worker entry, secrets, or Cloudflare resources, and make that change. Do not enable an optional feature merely because it appears here.
 
 ${changes}
 
