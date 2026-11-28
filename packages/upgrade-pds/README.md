@@ -13,7 +13,7 @@ The updater resolves the `latest` npm dist-tag for every `@getcirrus/*` package 
 The work order contains:
 
 - the package versions that changed, including the Cirrus packages installed through `@getcirrus/pds`
-- every authored major, minor, and patch release entry crossed by the update, fetched from each package's changelog at its release tag
+- every authored major, minor, and patch release entry crossed by the update, fetched from each package's changelog at its release tag and grouped by release, oldest first
 - a link to the `create-pds` project template at the target release
 - the build, deploy, and verification commands for the project's package manager
 
@@ -49,9 +49,13 @@ If the install fails or is interrupted, `package.json`, the lockfile, and any ea
 
 The work order covers the versions installed when the updater ran. Once the packages have moved, running the updater again reports that nothing needs to change and leaves the existing work order in place.
 
+## Deployed version
+
+When `wrangler.jsonc` sets `PDS_HOSTNAME`, the updater asks that PDS which version it is running (`/xrpc/_health`). If production is on an earlier release than the one installed in the project, the work order starts from the deployed version, since those are the releases the next deploy crosses. This also means the updater can write a work order for a project that was updated but not yet deployed. If the PDS does not answer, the installed version is used.
+
 ## Projects that were already updated
 
-If `@getcirrus/pds` was bumped by hand, or the work order was lost, pass the version the project was on before:
+If the deployed version cannot be read, or is not the right starting point, pass the version the project was on before:
 
 ```sh
 npx upgrade-pds@latest --from 0.18.0

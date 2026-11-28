@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, parse, resolve } from "node:path";
 
-import { applyEdits, modify } from "jsonc-parser";
+import { applyEdits, modify, parse as parseJsonc } from "jsonc-parser";
 
 import type {
 	DependencyChange,
@@ -34,6 +34,8 @@ export interface ProjectState {
 	dependencies: ProjectDependency[];
 	/** Installed versions of the Cirrus packages that `@getcirrus/pds` depends on, as it resolves them. */
 	transitive: Record<string, string>;
+	/** `PDS_HOSTNAME` from the wrangler config. */
+	pdsHostname?: string;
 }
 
 export type Run = (
@@ -193,6 +195,30 @@ async function findInstalled(
 	return undefined;
 }
 
+async function readPdsHostname(root: string): Promise<string | undefined> {
+	for (const name of ["wrangler.jsonc", "wrangler.json"]) {
+		let source: string;
+		try {
+			source = await readFile(resolve(root, name), "utf8");
+		} catch {
+			continue;
+		}
+		const config: unknown = parseJsonc(source);
+		const vars =
+			typeof config === "object" && config !== null
+				? Reflect.get(config, "vars")
+				: undefined;
+		const hostname =
+			typeof vars === "object" && vars !== null
+				? Reflect.get(vars, "PDS_HOSTNAME")
+				: undefined;
+		return typeof hostname === "string" && hostname !== ""
+			? hostname
+			: undefined;
+	}
+	return undefined;
+}
+
 export async function loadProject(start: string): Promise<ProjectState> {
 	const root = await findProjectRoot(start);
 	const packageJsonPath = resolve(root, "package.json");
@@ -247,6 +273,7 @@ export async function loadProject(start: string): Promise<ProjectState> {
 		packageManager,
 		dependencies,
 		transitive,
+		pdsHostname: await readPdsHostname(root),
 	};
 }
 

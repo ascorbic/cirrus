@@ -87,10 +87,10 @@ describe("renderUpgradeGuide", () => {
 
 	it("includes every release entry in full with where it applies", () => {
 		expect(guide).toContain(
-			"### Change 1\n\nApplies to: `@getcirrus/pds@0.19.0` (minor)  \nSource: [#219](https://github.com/ascorbic/cirrus/pull/219)\n\nAdd spaces.\n\n  Add the `SPACES` binding.",
+			"### `@getcirrus/pds` 0.19.0\n\n#### Change 1\n\nApplies to: `@getcirrus/pds@0.19.0` (minor)  \nSource: [#219](https://github.com/ascorbic/cirrus/pull/219)\n\nAdd spaces.\n\n  Add the `SPACES` binding.",
 		);
 		expect(guide).toContain(
-			"### Change 2\n\nApplies to: `@getcirrus/pds@0.19.0` (patch), `@getcirrus/spaces@0.1.0` (patch)\n\nShared fix.",
+			"#### Change 2\n\nApplies to: `@getcirrus/pds@0.19.0` (patch), `@getcirrus/spaces@0.1.0` (patch)\n\nShared fix.",
 		);
 	});
 
@@ -147,14 +147,68 @@ describe("renderUpgradeGuide", () => {
 		const regenerated = renderUpgradeGuide({
 			...plan,
 			from: "0.18.0",
+			fromSource: "option",
 			dependencies: [],
 		});
 
 		expect(regenerated).toContain(
 			"It covers the releases after `@getcirrus/pds` `0.18.0`, the version given with `--from`.",
 		);
+		expect(regenerated).toContain(
+			"Installed through `@getcirrus/pds`, compared with its `0.18.0` release:",
+		);
 		expect(regenerated).toContain("The updater did not change any package.");
 		expect(regenerated).not.toContain("changed the Cirrus packages listed");
+	});
+});
+
+describe("renderUpgradeGuide baselines and order", () => {
+	it("says which version the entries start from when it is not the installed one", () => {
+		const guide = renderUpgradeGuide({
+			...plan,
+			from: "0.17.1",
+			fromSource: "deployed",
+			deployed: { hostname: "pds.example.com", version: "0.17.1" },
+		});
+
+		expect(guide).toContain(
+			"Production at `pds.example.com` reports `@getcirrus/pds` `0.17.1`.",
+		);
+		expect(guide).toContain(
+			"It covers the releases after `@getcirrus/pds` `0.17.1`, the version production is running.",
+		);
+		expect(guide).toContain(
+			"- `@getcirrus/pds`: `0.18.0` → `0.19.0` (`^0.18.0` → `^0.19.0`), with release entries from `0.17.1`",
+		);
+	});
+
+	it("groups entries under the release that introduced them and explains the order", () => {
+		const guide = renderUpgradeGuide({
+			...plan,
+			changelog: [
+				{
+					body: "Older.",
+					occurrences: [
+						{
+							packageName: "@getcirrus/pds",
+							version: "0.18.0",
+							category: "patch",
+						},
+					],
+				},
+				...plan.changelog,
+			],
+		});
+
+		expect(guide.indexOf("### `@getcirrus/pds` 0.18.0")).toBeLessThan(
+			guide.indexOf("### `@getcirrus/pds` 0.19.0"),
+		);
+		expect(guide.match(/^### `@getcirrus\/pds` 0\.19\.0$/gm)).toHaveLength(1);
+		expect(guide).toContain("oldest release first");
+	});
+
+	it("tells the reader to wait for the dev server before checking it", () => {
+		expect(renderUpgradeGuide(plan)).toContain("/xrpc/_health");
 	});
 });
 

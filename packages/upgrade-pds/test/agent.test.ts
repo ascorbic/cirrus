@@ -34,9 +34,20 @@ describe("agentUsage", () => {
 	});
 
 	it("repeats the tag and from version in that command", () => {
-		expect(agentUsage({ ...plan, tag: "next", from: "0.17.1" })).toContain(
-			"npx upgrade-pds@latest --to next --from 0.17.1 --yes\n",
-		);
+		expect(
+			agentUsage({
+				...plan,
+				tag: "next",
+				from: "0.17.1",
+				fromSource: "option",
+			}),
+		).toContain("npx upgrade-pds@latest --to next --from 0.17.1 --yes\n");
+	});
+
+	it("leaves out a from version the updater worked out from production", () => {
+		expect(
+			agentUsage({ ...plan, from: "0.17.1", fromSource: "deployed" }),
+		).toContain("npx upgrade-pds@latest --yes\n");
 	});
 
 	it("says what applying changes and what it leaves alone", () => {

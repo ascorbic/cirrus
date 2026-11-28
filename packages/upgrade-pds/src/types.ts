@@ -62,6 +62,10 @@ export interface UpgradePlan {
 	tag: string;
 	/** The `@getcirrus/pds` version the release entries start after, when it is not the installed one. */
 	from?: string;
+	/** Whether `from` was given with `--from` or read from the deployed PDS. */
+	fromSource?: "option" | "deployed";
+	/** The version the project's production PDS reports, when it answers. */
+	deployed?: { hostname: string; version: string };
 	dependencies: DependencyChange[];
 	skipped: SkippedDependency[];
 	transitive: TransitiveChange[];

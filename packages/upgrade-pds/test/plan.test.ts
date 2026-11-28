@@ -467,4 +467,103 @@ describe("createUpgradePlan", () => {
 			);
 		});
 	});
+
+	describe("with a deployed PDS", () => {
+		const deployedProject = (installedVersion: string) => ({
+			...project([pds(installedVersion)]),
+			pdsHostname: "pds.example.com",
+		});
+		const withHealth =
+			(version: string | undefined, latest = "0.19.0"): typeof fetch =>
+			async (input, init) =>
+				requestUrl(input).hostname === "pds.example.com"
+					? version
+						? jsonResponse({ status: "ok", version: `cirrus ${version}` })
+						: new Response("", { status: 503 })
+					: registry(latest)(input, init);
+
+		it("starts the release entries at the deployed version when production is behind", async () => {
+			const plan = await createUpgradePlan(
+				deployedProject("0.18.0"),
+				"latest",
+				withHealth("0.17.1"),
+			);
+
+			expect(plan.deployed).toEqual({
+				hostname: "pds.example.com",
+				version: "0.17.1",
+			});
+			expect(plan.from).toBe("0.17.1");
+			expect(plan.fromSource).toBe("deployed");
+			expect(plan.changelog.map((entry) => entry.body)).toContain(
+				"Proxy reports.",
+			);
+		});
+
+		it("covers what the next deploy crosses even when the packages are current", async () => {
+			const plan = await createUpgradePlan(
+				deployedProject("0.19.0"),
+				"latest",
+				withHealth("0.18.0"),
+			);
+
+			expect(plan.dependencies).toEqual([]);
+			expect(plan.from).toBe("0.18.0");
+			expect(plan.changelog.map((entry) => entry.body)).toContain(
+				"Add spaces.",
+			);
+		});
+
+		it("records the deployed version without changing the range when production is current", async () => {
+			const plan = await createUpgradePlan(
+				deployedProject("0.18.0"),
+				"latest",
+				withHealth("0.18.0"),
+			);
+
+			expect(plan.deployed?.version).toBe("0.18.0");
+			expect(plan.from).toBeUndefined();
+		});
+
+		it("prefers an explicit from version", async () => {
+			const plan = await createUpgradePlan(
+				deployedProject("0.19.0"),
+				"latest",
+				withHealth("0.17.1"),
+				"0.18.0",
+			);
+
+			expect(plan.from).toBe("0.18.0");
+			expect(plan.fromSource).toBe("option");
+		});
+
+		it("plans from the installed version when production does not answer", async () => {
+			const plan = await createUpgradePlan(
+				deployedProject("0.18.0"),
+				"latest",
+				withHealth(undefined),
+			);
+
+			expect(plan.deployed).toBeUndefined();
+			expect(plan.from).toBeUndefined();
+			expect(plan.dependencies).toHaveLength(1);
+		});
+	});
+
+	it("lists entries oldest release first within each package", async () => {
+		const plan = await createUpgradePlan(
+			project([pds("0.18.0")], {}, {}),
+			"latest",
+			registry("0.19.0"),
+			"0.17.1",
+		);
+
+		expect(plan.changelog.map((entry) => entry.body)).toEqual([
+			"Proxy reports.",
+			"Add spaces.",
+			"Granular scopes.",
+			"Add space scopes.",
+			"Initial spaces engine.",
+		]);
+	});
 });

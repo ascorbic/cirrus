@@ -55,7 +55,7 @@ The work order is specific to one upgrade. The updater puts a `.gitignore` insid
 
 ## If the packages were already updated
 
-The updater works out which releases to cover from the versions in `node_modules`. If `@getcirrus/pds` was bumped by hand, or `.cirrus/UPGRADE.md` was lost, tell it the version the project was on before:
+The updater asks your deployed PDS which version it is running, using `PDS_HOSTNAME` from `wrangler.jsonc`. If production is behind the version installed in the project, the work order starts from the deployed version, so it covers everything the next deploy changes. If the PDS can't be reached, the updater starts from the installed version. To choose the starting version yourself:
 
 ```bash
 npx upgrade-pds@latest --from 0.18.0

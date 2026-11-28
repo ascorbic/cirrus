@@ -19,11 +19,29 @@ function renderEntry(entry: ChangelogEntry, index: number): string {
 	const sources = [
 		...new Set(entry.occurrences.flatMap(({ source }) => source ?? [])),
 	];
-	return `### Change ${index + 1}
+	return `#### Change ${index + 1}
 
 Applies to: ${appliesTo}${sources.length > 0 ? `  \nSource: ${sources.join(", ")}` : ""}
 
 ${entry.body}`;
+}
+
+function releaseHeading(entry: ChangelogEntry): string {
+	const first = entry.occurrences[0];
+	return first ? `### \`${first.packageName}\` ${first.version}` : "";
+}
+
+function renderEntries(changelog: readonly ChangelogEntry[]): string {
+	return changelog
+		.map((entry, index) => {
+			const heading = releaseHeading(entry);
+			const previous = changelog[index - 1];
+			const rendered = renderEntry(entry, index);
+			return previous && releaseHeading(previous) === heading
+				? rendered
+				: `${heading}\n\n${rendered}`;
+		})
+		.join("\n\n");
 }
 
 function renderPackages(plan: UpgradePlan): string {
@@ -31,7 +49,13 @@ function renderPackages(plan: UpgradePlan): string {
 		plan.dependencies.length > 0
 			? plan.dependencies.map(
 					(change) =>
-						`- \`${change.name}\`: \`${change.fromVersion}\` → \`${change.toVersion}\` (\`${change.from}\` → \`${change.to}\`)`,
+						`- \`${change.name}\`: \`${change.fromVersion}\` → \`${change.toVersion}\` (\`${change.from}\` → \`${change.to}\`)${
+							plan.from &&
+							change.name === "@getcirrus/pds" &&
+							plan.from !== change.fromVersion
+								? `, with release entries from \`${plan.from}\``
+								: ""
+						}`,
 				)
 			: [
 					`All direct Cirrus packages were already on the \`${plan.tag}\` release.`,
@@ -42,7 +66,7 @@ function renderPackages(plan: UpgradePlan): string {
 	);
 	const transitive =
 		plan.transitive.length > 0
-			? `\n\nInstalled through \`@getcirrus/pds\`:\n\n${plan.transitive
+			? `\n\nInstalled through \`@getcirrus/pds\`${plan.from ? `, compared with its \`${plan.from}\` release` : ""}:\n\n${plan.transitive
 					.map((change) =>
 						change.fromVersion
 							? `- \`${change.name}\`: \`${change.fromVersion}\` → \`${change.toVersion}\``
@@ -72,8 +96,8 @@ function renderDeploy(plan: UpgradePlan): string {
 		? `Build the project:\n\n${codeBlock([commands.build])}`
 		: "Build the project with its own build command.";
 	const dev = commands.dev
-		? `Start the local dev server and leave it running:\n\n${codeBlock([commands.dev])}\n\nIn another shell, check it:`
-		: "Start the project locally, then check it:";
+		? `Start the local dev server and leave it running:\n\n${codeBlock([commands.dev])}\n\nWait until it answers at \`/xrpc/_health\` on the URL it prints. Then, in another shell, check it:`
+		: "Start the project locally, wait until it answers at `/xrpc/_health`, then check it:";
 	const deploy = commands.deploy
 		? `Deploy:\n\n${codeBlock([commands.deploy])}`
 		: "Deploy with the project's deployment workflow. On Cloudflare Workers, run `wrangler deploy` after building.";
@@ -99,11 +123,11 @@ To roll back, reinstall the previous package versions listed above and deploy ag
 export function renderUpgradeGuide(plan: UpgradePlan): string {
 	const changes =
 		plan.changelog.length > 0
-			? plan.changelog.map(renderEntry).join("\n\n")
+			? renderEntries(plan.changelog)
 			: "No release entries were crossed by this update.";
 	return `# Cirrus upgrade work order
 
-This file is the handoff for upgrading the Cirrus PDS project at \`${plan.projectRoot}\` to the npm \`${plan.tag}\` release.${plan.from ? ` It covers the releases after \`@getcirrus/pds\` \`${plan.from}\`, the version given with \`--from\`.` : ""} ${plan.dependencies.length > 0 ? "The updater changed the Cirrus packages listed below and installed them." : "The updater did not change any package."} It did not edit the wrangler config or the worker source, set a secret, or deploy.
+This file is the handoff for upgrading the Cirrus PDS project at \`${plan.projectRoot}\` to the npm \`${plan.tag}\` release.${plan.deployed ? ` Production at \`${plan.deployed.hostname}\` reports \`@getcirrus/pds\` \`${plan.deployed.version}\`.` : ""}${plan.from ? ` It covers the releases after \`@getcirrus/pds\` \`${plan.from}\`, the version ${plan.fromSource === "deployed" ? "production is running" : "given with \`--from\`"}.` : ""} ${plan.dependencies.length > 0 ? "The updater changed the Cirrus packages listed below and installed them." : "The updater did not change any package."} It did not edit the wrangler config or the worker source, set a secret, or deploy.
 
 ## Package changes
 
@@ -112,6 +136,8 @@ ${renderPackages(plan)}
 ## Release entries to assess
 
 These are the complete authored major, minor, and patch entries crossed by this upgrade. Generated dependency-bump entries and attribution have been removed. Check whether each entry requires a change to this project's configuration, worker entry, secrets, or Cloudflare resources, and make that change. Do not enable an optional feature merely because it appears here.
+
+Entries are grouped by the release that introduced them, oldest release first within each package. A later entry can replace what an earlier one asks for, so read them all before changing anything.
 
 ${changes}
 

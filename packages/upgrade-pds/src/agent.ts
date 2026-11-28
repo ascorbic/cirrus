@@ -4,7 +4,9 @@ function applyCommand(plan: UpgradePlan): string {
 	return [
 		"npx upgrade-pds@latest",
 		...(plan.tag === "latest" ? [] : [`--to ${plan.tag}`]),
-		...(plan.from ? [`--from ${plan.from}`] : []),
+		...(plan.from && plan.fromSource === "option"
+			? [`--from ${plan.from}`]
+			: []),
 		"--yes",
 	].join(" ");
 }

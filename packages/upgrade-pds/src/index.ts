@@ -20,8 +20,15 @@ function printPlan(plan: UpgradePlan): void {
 		[
 			`${pc.dim("Project")}         ${plan.projectRoot}`,
 			`${pc.dim("npm tag")}         ${plan.tag}`,
+			...(plan.deployed
+				? [
+						`${pc.dim("Deployed")}        @getcirrus/pds ${plan.deployed.version} at ${plan.deployed.hostname}`,
+					]
+				: []),
 			...(plan.from
-				? [`${pc.dim("From")}            @getcirrus/pds ${plan.from}`]
+				? [
+						`${pc.dim("From")}            @getcirrus/pds ${plan.from}${plan.fromSource === "deployed" ? " (deployed)" : ""}`,
+					]
 				: []),
 			`${pc.dim("Release entries")} ${plan.changelog.length}`,
 			`${pc.dim("Work order")}      ${plan.guidePath}`,

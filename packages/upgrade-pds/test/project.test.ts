@@ -484,3 +484,34 @@ describe("writeDependenciesAndInstall interruption", () => {
 		expect(process.listenerCount("SIGINT")).toBe(before);
 	});
 });
+
+describe("loadProject production hostname", () => {
+	it("reads PDS_HOSTNAME from the wrangler config", async () => {
+		const root = await createProject(
+			{ dependencies: { "@getcirrus/pds": "^0.19.0" } },
+			{ "@getcirrus/pds": "0.19.0" },
+		);
+		await writeFile(
+			join(root, "wrangler.jsonc"),
+			'{\n\t// public config\n\t"vars": {\n\t\t"PDS_HOSTNAME": "pds.example.com",\n\t},\n}\n',
+		);
+
+		expect((await loadProject(root)).pdsHostname).toBe("pds.example.com");
+	});
+
+	it("has none when the config is missing or the hostname is empty", async () => {
+		const root = await createProject(
+			{ dependencies: { "@getcirrus/pds": "^0.19.0" } },
+			{ "@getcirrus/pds": "0.19.0" },
+		);
+
+		expect((await loadProject(root)).pdsHostname).toBeUndefined();
+
+		await writeFile(
+			join(root, "wrangler.jsonc"),
+			'{ "vars": { "PDS_HOSTNAME": "" } }',
+		);
+
+		expect((await loadProject(root)).pdsHostname).toBeUndefined();
+	});
+});

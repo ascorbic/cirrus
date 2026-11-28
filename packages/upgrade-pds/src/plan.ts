@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import semver from "semver";
 
 import { deduplicateChangelog, fetchChangelogRange } from "./changelog.js";
+import { fetchDeployedVersion } from "./deployed.js";
 import {
 	execCommand,
 	installCommand,
@@ -66,15 +67,37 @@ function transitiveChanges(
 	);
 }
 
+/** The deployed version, when it is an earlier release than the one installed from npm. */
+function deployedBaseline(
+	project: ProjectState,
+	deployedVersion: string | undefined,
+): string | undefined {
+	const pds = project.dependencies.find(({ name }) => name === PDS_PACKAGE);
+	if (
+		!deployedVersion ||
+		!pds ||
+		targetSpecifier(pds.specifier, "0.0.0") === null ||
+		!semver.valid(pds.installedVersion) ||
+		!semver.lt(deployedVersion, pds.installedVersion)
+	) {
+		return undefined;
+	}
+	return deployedVersion;
+}
+
 export async function createUpgradePlan(
 	project: ProjectState,
 	tag: string,
 	fetcher: typeof fetch = fetch,
-	from?: string,
+	requestedFrom?: string,
 ): Promise<UpgradePlan> {
 	const skipped: SkippedDependency[] = [];
+	const deployedVersion = project.pdsHostname
+		? await fetchDeployedVersion(project.pdsHostname, fetcher)
+		: undefined;
+	const from = requestedFrom ?? deployedBaseline(project, deployedVersion);
 	const replacesLocalPds = (dependency: ProjectDependency) =>
-		from !== undefined &&
+		requestedFrom !== undefined &&
 		dependency.name === PDS_PACKAGE &&
 		isLocalSource(dependency.specifier);
 	const startVersion = (dependency: ProjectDependency) =>
@@ -94,7 +117,7 @@ export async function createUpgradePlan(
 			skipped.push({ name, specifier, reason });
 			return false;
 		}
-		if (from !== undefined) {
+		if (requestedFrom !== undefined) {
 			throw new Error(
 				`--from cannot move ${PDS_PACKAGE} (${dependency.specifier}) to npm: ${reason}.`,
 			);
@@ -176,12 +199,12 @@ export async function createUpgradePlan(
 	);
 	if (
 		pds &&
-		from !== undefined &&
+		requestedFrom !== undefined &&
 		!replacesLocalPds(pds.dependency) &&
-		semver.gt(from, pds.dependency.installedVersion)
+		semver.gt(requestedFrom, pds.dependency.installedVersion)
 	) {
 		throw new Error(
-			`--from ${from} is newer than the installed ${PDS_PACKAGE} ${pds.dependency.installedVersion}.`,
+			`--from ${requestedFrom} is newer than the installed ${PDS_PACKAGE} ${pds.dependency.installedVersion}.`,
 		);
 	}
 	// node_modules holds what is installed now; an earlier release's pins are only on npm.
@@ -228,15 +251,26 @@ export async function createUpgradePlan(
 		...directRanges,
 		...transitiveRanges,
 	]);
+	const packageOrder = [
+		...releases.map(({ dependency }) => dependency.name),
+		...transitive.map(({ name }) => name),
+	];
 	const changelog = deduplicateChangelog(
-		ranges.flatMap((entries) =>
-			entries.flatMap((entry) =>
-				entry.occurrences.map((occurrence) => ({
-					body: entry.body,
-					occurrence,
-				})),
+		ranges
+			.flatMap((entries) =>
+				entries.flatMap((entry) =>
+					entry.occurrences.map((occurrence) => ({
+						body: entry.body,
+						occurrence,
+					})),
+				),
+			)
+			.sort(
+				(a, b) =>
+					packageOrder.indexOf(a.occurrence.packageName) -
+						packageOrder.indexOf(b.occurrence.packageName) ||
+					semver.compare(a.occurrence.version, b.occurrence.version),
 			),
-		),
 	);
 
 	const repository = pds?.release.repository;
@@ -247,7 +281,17 @@ export async function createUpgradePlan(
 		projectRoot: project.root,
 		packageManager: project.packageManager,
 		tag,
-		...(from !== undefined ? { from } : {}),
+		...(from !== undefined
+			? {
+					from,
+					fromSource: requestedFrom !== undefined ? "option" : "deployed",
+				}
+			: {}),
+		...(project.pdsHostname && deployedVersion
+			? {
+					deployed: { hostname: project.pdsHostname, version: deployedVersion },
+				}
+			: {}),
 		dependencies,
 		skipped,
 		transitive,
