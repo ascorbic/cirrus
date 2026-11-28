@@ -224,7 +224,8 @@ space; the space only decides who may download.
 only a did:web document with an `#atproto` key, which is what the planned
 site-identity RFC provides. That makes licences per site (seats are
 entitlements per site DID) rather than per person. Until then, the admin's
-own atproto account can be the licensee.
+own atproto account can be the licensee. The same site identity is proposed for #4913's
+usage counts in [emdash-site-identity.md](./emdash-site-identity.md).
 
 **Updates.** The site learns of new versions from the aggregator's public
 `listReleases` as now, and downloads them the same way. No syncer needed.
