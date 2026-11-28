@@ -7,6 +7,7 @@ import { fetchDeployedVersion } from "./deployed.js";
 import {
 	execCommand,
 	installCommand,
+	isLocalPath,
 	isLocalSource,
 	PDS_PACKAGE,
 	runScript,
@@ -67,22 +68,20 @@ function transitiveChanges(
 	);
 }
 
-/** The deployed version, when it is an earlier release than the one installed from npm. */
+/** The deployed version, when the release entries should start from it. */
 function deployedBaseline(
 	project: ProjectState,
 	deployedVersion: string | undefined,
 ): string | undefined {
 	const pds = project.dependencies.find(({ name }) => name === PDS_PACKAGE);
-	if (
-		!deployedVersion ||
-		!pds ||
-		targetSpecifier(pds.specifier, "0.0.0") === null ||
-		!semver.valid(pds.installedVersion) ||
-		!semver.lt(deployedVersion, pds.installedVersion)
-	) {
-		return undefined;
-	}
-	return deployedVersion;
+	if (!deployedVersion || !pds) return undefined;
+	// A local copy's own version says nothing about which release is deployed.
+	if (isLocalPath(pds.specifier)) return deployedVersion;
+	return targetSpecifier(pds.specifier, "0.0.0") !== null &&
+		semver.valid(pds.installedVersion) &&
+		semver.lt(deployedVersion, pds.installedVersion)
+		? deployedVersion
+		: undefined;
 }
 
 export async function createUpgradePlan(
@@ -97,9 +96,11 @@ export async function createUpgradePlan(
 		: undefined;
 	const from = requestedFrom ?? deployedBaseline(project, deployedVersion);
 	const replacesLocalPds = (dependency: ProjectDependency) =>
-		requestedFrom !== undefined &&
+		from !== undefined &&
 		dependency.name === PDS_PACKAGE &&
-		isLocalSource(dependency.specifier);
+		(requestedFrom !== undefined
+			? isLocalSource(dependency.specifier)
+			: isLocalPath(dependency.specifier));
 	const startVersion = (dependency: ProjectDependency) =>
 		from !== undefined && dependency.name === PDS_PACKAGE
 			? from

@@ -537,6 +537,76 @@ describe("createUpgradePlan", () => {
 			expect(plan.fromSource).toBe("option");
 		});
 
+		it("replaces a local path @getcirrus/pds with the npm release, starting from the deployed version", async () => {
+			for (const specifier of [
+				"link:../cirrus/packages/pds",
+				"file:../cirrus/packages/pds",
+				"../cirrus/packages/pds",
+			]) {
+				const plan = await createUpgradePlan(
+					{
+						...project([pds("0.20.0-dev", specifier)]),
+						pdsHostname: "pds.example.com",
+					},
+					"latest",
+					withHealth("0.18.0"),
+				);
+
+				expect(plan.skipped).toEqual([]);
+				expect(plan.from).toBe("0.18.0");
+				expect(plan.fromSource).toBe("deployed");
+				expect(plan.dependencies).toEqual([
+					{
+						name: "@getcirrus/pds",
+						section: "dependencies",
+						from: specifier,
+						to: "^0.19.0",
+						fromVersion: "0.18.0",
+						toVersion: "0.19.0",
+					},
+				]);
+				expect(plan.changelog.map((entry) => entry.body)).toContain(
+					"Add spaces.",
+				);
+			}
+		});
+
+		it("leaves a workspace @getcirrus/pds alone unless --from is given", async () => {
+			const plan = await createUpgradePlan(
+				{
+					...project([pds("0.20.0-dev", "workspace:*")]),
+					pdsHostname: "pds.example.com",
+				},
+				"latest",
+				withHealth("0.18.0"),
+			);
+
+			expect(plan.dependencies).toEqual([]);
+			expect(plan.skipped).toHaveLength(1);
+			expect(plan.from).toBeUndefined();
+		});
+
+		it("leaves a local path alone when production does not answer", async () => {
+			const plan = await createUpgradePlan(
+				{
+					...project([pds("0.20.0-dev", "link:../pds")]),
+					pdsHostname: "pds.example.com",
+				},
+				"latest",
+				withHealth(undefined),
+			);
+
+			expect(plan.dependencies).toEqual([]);
+			expect(plan.skipped).toEqual([
+				{
+					name: "@getcirrus/pds",
+					specifier: "link:../pds",
+					reason:
+						"it is installed from a local path; pass --from <version> to replace it with the npm release",
+				},
+			]);
+		});
+
 		it("plans from the installed version when production does not answer", async () => {
 			const plan = await createUpgradePlan(
 				deployedProject("0.18.0"),

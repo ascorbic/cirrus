@@ -287,11 +287,16 @@ export function targetSpecifier(
 	return `${match[1] ?? ""}${targetVersion}`;
 }
 
-const LOCAL_SOURCE = /^(?:(?:workspace|link|file|portal):|\.{0,2}\/|~\/)/;
+const LOCAL_PATH = /^(?:(?:link|file|portal):|\.{0,2}\/|~\/)/;
 
-/** Whether the specifier installs the package from this machine, not from a registry. */
+/** Whether the specifier installs the package from a path on this machine. */
+export function isLocalPath(specifier: string): boolean {
+	return LOCAL_PATH.test(specifier);
+}
+
+/** Whether the specifier installs the package from this machine or workspace, not from a registry. */
 export function isLocalSource(specifier: string): boolean {
-	return LOCAL_SOURCE.test(specifier);
+	return specifier.startsWith("workspace:") || isLocalPath(specifier);
 }
 
 export function unsupportedSpecifierReason(specifier: string): string {

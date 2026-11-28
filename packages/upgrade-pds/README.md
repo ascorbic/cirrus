@@ -53,6 +53,8 @@ The work order covers the versions installed when the updater ran. Once the pack
 
 When `wrangler.jsonc` sets `PDS_HOSTNAME`, the updater asks that PDS which version it is running (`/xrpc/_health`). If production is on an earlier release than the one installed in the project, the work order starts from the deployed version, since those are the releases the next deploy crosses. This also means the updater can write a work order for a project that was updated but not yet deployed. If the PDS does not answer, the installed version is used.
 
+Knowing the deployed version also lets the updater move a project off a local copy. When `@getcirrus/pds` is declared with `link:`, `file:`, `portal:`, or a bare path, and the deployed version is known, the updater replaces that specifier with a caret range on the npm release and starts the work order from the deployed version. A `workspace:` dependency is only replaced when `--from` is given.
+
 ## Projects that were already updated
 
 If the deployed version cannot be read, or is not the right starting point, pass the version the project was on before:
@@ -63,4 +65,4 @@ npx upgrade-pds@latest --from 0.18.0
 
 The work order then covers every release after that version. Packages already on the target release are left as they are, and anything still behind is updated as usual. `--from` takes an exact `@getcirrus/pds` version that is not newer than the installed one. Use the version from the project's last deploy; `git log -p package.json` shows earlier values.
 
-`--from` also moves a project off a local copy of `@getcirrus/pds`. When the package is declared with `workspace:`, `link:`, `file:`, `portal:`, or a bare path, the updater replaces that specifier with a caret range on the npm release. The local copy's own version is ignored, so the `--from` version does not have to be older than it. Without `--from`, a local copy is reported and left alone.
+`--from` also moves a project off a local copy of `@getcirrus/pds`. When the package is declared with `workspace:`, `link:`, `file:`, `portal:`, or a bare path, the updater replaces that specifier with a caret range on the npm release. The local copy's own version is ignored, so the `--from` version does not have to be older than it. Without `--from`, a local path is replaced only when the deployed version is known, and a `workspace:` dependency is reported and left alone.

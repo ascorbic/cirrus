@@ -6,6 +6,7 @@ import * as p from "@clack/prompts";
 import { isAgent } from "am-i-vibing";
 import { defineCommand, runMain } from "citty";
 import pc from "picocolors";
+import semver from "semver";
 
 import packageJson from "../package.json" with { type: "json" };
 import { agentNextSteps, agentUsage } from "./agent.js";
@@ -36,7 +37,11 @@ function printPlan(plan: UpgradePlan): void {
 		"Upgrade plan",
 	);
 	for (const change of plan.dependencies) {
-		p.log.info(`${change.name}: ${change.fromVersion} → ${change.toVersion}`);
+		p.log.info(
+			semver.validRange(change.from)
+				? `${change.name}: ${change.fromVersion} → ${change.toVersion}`
+				: `${change.name}: ${change.from} → ${change.to}`,
+		);
 	}
 	for (const dependency of plan.skipped) {
 		p.log.warn(
