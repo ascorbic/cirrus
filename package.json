@@ -4,9 +4,9 @@
 	"version": "1.0.0",
 	"description": "Cirrus – A single-user AT Protocol PDS on Cloudflare Workers",
 	"scripts": {
-		"check": "pnpm run --filter '@getcirrus/*' --filter 'create-pds' check",
-		"test": "pnpm run --filter '@getcirrus/*' --filter 'create-pds' test",
-		"build": "pnpm run --filter '@getcirrus/*' --filter 'create-pds' build",
+		"check": "pnpm run --filter '@getcirrus/*' --filter 'create-pds' --filter 'upgrade-pds' check",
+		"test": "pnpm run --filter '@getcirrus/*' --filter 'create-pds' --filter 'upgrade-pds' test",
+		"build": "pnpm run --filter '@getcirrus/*' --filter 'create-pds' --filter 'upgrade-pds' build",
 		"format": "prettier --write .",
 		"knip": "knip"
 	},

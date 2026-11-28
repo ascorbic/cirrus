@@ -189,6 +189,16 @@ Verify with:
 dig TXT _atproto.alice.example.com
 ```
 
+## Updating
+
+To move to a newer Cirrus release, run the updater from this directory:
+
+```bash
+npx upgrade-pds@latest
+```
+
+It updates `@getcirrus/pds`, installs it, and writes `.cirrus/UPGRADE.md`: the release notes between your version and the new one, with the build and deploy commands. Follow that file, or hand it to a coding agent, before deploying. See [Update a deployed PDS](https://cirrus.cloud/guides/update/).
+
 ## Project Structure
 
 ```

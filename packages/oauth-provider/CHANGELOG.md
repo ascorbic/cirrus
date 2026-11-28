@@ -45,6 +45,20 @@
 
 - [#219](https://github.com/ascorbic/cirrus/pull/219) [`5762e22`](https://github.com/ascorbic/cirrus/commit/5762e22a9ece71a83eb4b3d67ae5a773c637ee7d) Thanks [@ascorbic](https://github.com/ascorbic)! - Atproto spaces (alpha), behind the `SPACES_ENABLED` flag: space and simplespace endpoints, space Durable Objects, delegation and credential issuance, `space:` OAuth scopes with consent-screen support, the `pds spaces` CLI, a dashboard panel, and blob upload staging (uploads land in `staged/` until a record references them — add the R2 lifecycle rule documented in the wrangler template).
 
+  Existing projects with a `BLOBS` bucket: add a lifecycle rule so abandoned uploads expire, replacing the bucket name and DID with the project's own:
+
+  ```sh
+  wrangler r2 bucket lifecycle add pds-blobs --prefix "<did>/staged/" --expire-days 7
+  ```
+
+  Spaces stay off, and existing projects need no other change, unless `SPACES_ENABLED` is set. To enable spaces in an existing project:
+  - Add Durable Object bindings `SPACES` (class `SpaceDurableObject`) and `SPACES_INDEX` (class `SpaceIndexDurableObject`) to `wrangler.jsonc`.
+  - Append a migration with a new tag that lists both classes in `new_sqlite_classes`.
+  - Export `SpaceDurableObject` and `SpaceIndexDurableObject` from the worker entry alongside `AccountDurableObject`.
+  - Set the `SPACES_ENABLED` var to `"true"`, deploy, then run `pds spaces kem`.
+
+  See [Enable spaces](https://cirrus.cloud/guides/enable-spaces/).
+
 ## 0.5.0
 
 ### Minor Changes
