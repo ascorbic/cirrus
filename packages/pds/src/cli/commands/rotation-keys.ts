@@ -34,6 +34,7 @@ import {
 import {
 	entrywayFor,
 	findPreviousPdsEndpoint,
+	hostnameOf,
 	importRotationKey,
 	labelRotationKeys,
 } from "../utils/rotation-keys.js";
@@ -193,7 +194,7 @@ export const rotationKeysCommand = defineCommand({
 				message: "Your previous PDS:",
 				initialValue: previous ? entrywayFor(previous) : "https://bsky.social",
 				validate: (v) =>
-					v && /^https?:\/\//.test(v.trim())
+					v && /^https?:\/\//.test(v.trim()) && hostnameOf(v.trim())
 						? undefined
 						: "Enter a URL, such as https://bsky.social",
 			});

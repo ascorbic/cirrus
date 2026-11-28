@@ -101,9 +101,20 @@ export function findPreviousPdsEndpoint(
  * host, which bsky.social rejects once the DID lists another PDS's key.
  */
 export function entrywayFor(endpoint: string): string {
-	return new URL(endpoint).hostname.endsWith(".host.bsky.network")
+	return hostnameOf(endpoint)?.endsWith(".host.bsky.network")
 		? "https://bsky.social"
 		: endpoint;
+}
+
+/**
+ * The hostname of a URL, or null if it doesn't parse as one.
+ */
+export function hostnameOf(url: string): string | null {
+	try {
+		return new URL(url).hostname;
+	} catch {
+		return null;
+	}
 }
 
 export interface RecoveryKey {

@@ -10,6 +10,7 @@ import {
 	entrywayFor,
 	findPreviousPdsEndpoint,
 	generateRecoveryKey,
+	hostnameOf,
 	importRotationKey,
 	labelRotationKeys,
 } from "../../src/cli/utils/rotation-keys.js";
@@ -154,6 +155,22 @@ describe("entrywayFor", () => {
 		expect(entrywayFor("https://host.bsky.network.evil.example")).toBe(
 			"https://host.bsky.network.evil.example",
 		);
+	});
+
+	it("returns an endpoint that isn't a URL unchanged", () => {
+		expect(entrywayFor("https://")).toBe("https://");
+		expect(entrywayFor("not a url")).toBe("not a url");
+	});
+});
+
+describe("hostnameOf", () => {
+	it("returns the hostname of a URL", () => {
+		expect(hostnameOf("https://pds.example.com/path")).toBe("pds.example.com");
+	});
+
+	it("returns null for input that isn't a URL", () => {
+		expect(hostnameOf("https://")).toBeNull();
+		expect(hostnameOf("not a url")).toBeNull();
 	});
 });
 
