@@ -9,6 +9,7 @@ import { getVars } from "../utils/wrangler.js";
 import { readDevVars } from "../utils/dotenv.js";
 import { ClientResponseError } from "@atcute/client";
 import { PDSClient } from "../utils/pds-client.js";
+import { countMissingBlobs } from "../utils/checks.js";
 import { DidResolver } from "../../did-resolver.js";
 
 import {
@@ -254,7 +255,9 @@ export const migrateCommand = defineCommand({
 		const needsRepoImport =
 			status.repoBlocks === 0 ||
 			(status.indexedRecords === 0 && status.expectedBlobs === 0);
-		const missingBlobs = status.expectedBlobs - status.importedBlobs;
+		const missingBlobs = needsRepoImport
+			? 0
+			: await countMissingBlobs(targetClient);
 		const needsBlobSync = missingBlobs > 0 || needsRepoImport;
 		const isResuming = !needsRepoImport && needsBlobSync;
 
@@ -270,7 +273,7 @@ export const migrateCommand = defineCommand({
 					`@${handle} (${did.slice(0, 20)}...)`,
 					"",
 					"✓ Repository imported",
-					`◐ Media: ${num(status.importedBlobs)}/${num(status.expectedBlobs)} images and videos transferred`,
+					`◐ Media: ${num(status.expectedBlobs - missingBlobs)}/${num(status.expectedBlobs)} images and videos transferred`,
 				].join("\n"),
 				"Migration Progress",
 			);
@@ -387,9 +390,6 @@ export const migrateCommand = defineCommand({
 				p.outro("Migration cancelled.");
 				process.exit(1);
 			}
-
-			// Refresh status to get blob counts
-			status = await targetClient.getAccountStatus();
 		}
 
 		spinner.start("Migrating your preferences...");
@@ -408,13 +408,13 @@ export const migrateCommand = defineCommand({
 			spinner.stop("Skipped preferences (not available)");
 		}
 
-		const expectedBlobs = status.expectedBlobs;
-		const alreadyImported = status.importedBlobs;
-		const blobsToSync = expectedBlobs - alreadyImported;
+		spinner.start("Counting images to transfer...");
+		const totalBlobs = await countMissingBlobs(targetClient);
 
-		if (blobsToSync > 0) {
+		if (totalBlobs === 0) {
+			spinner.stop("No images or videos to transfer");
+		} else {
 			let synced = 0;
-			let totalBlobs = 0;
 			let cursor: string | undefined;
 			let failedBlobs: string[] = [];
 
@@ -426,22 +426,17 @@ export const migrateCommand = defineCommand({
 				return `${"█".repeat(filled)}${"░".repeat(empty)} ${current}/${total}`;
 			};
 
-			// First, count total missing blobs
-			spinner.start("Counting images to transfer...");
-			let countCursor: string | undefined;
-			do {
-				const page = await targetClient.listMissingBlobs(500, countCursor);
-				totalBlobs += page.blobs.length;
-				countCursor = page.cursor;
-			} while (countCursor);
-
 			spinner.message(`Transferring media ${progressBar(0, totalBlobs)}`);
 
+			// listMissingBlobs returns one entry per record that references a blob
+			const attempted = new Set<string>();
 			do {
 				const page = await targetClient.listMissingBlobs(100, cursor);
 				cursor = page.cursor;
 
 				for (const blob of page.blobs) {
+					if (attempted.has(blob.cid)) continue;
+					attempted.add(blob.cid);
 					try {
 						const { bytes, mimeType } = await sourceClient.getBlob(
 							did,
@@ -473,17 +468,14 @@ export const migrateCommand = defineCommand({
 		}
 
 		spinner.start("Verifying migration...");
-		const finalStatus = await targetClient.getAccountStatus();
+		const remainingBlobs = await countMissingBlobs(targetClient);
 		spinner.stop("Verification complete");
 
-		const allBlobsSynced =
-			finalStatus.importedBlobs >= finalStatus.expectedBlobs;
-
-		if (allBlobsSynced) {
+		if (remainingBlobs === 0) {
 			p.log.success("All packed and moved!");
 		} else {
 			p.log.warn(
-				`Migration partially complete. ${finalStatus.expectedBlobs - finalStatus.importedBlobs} images remaining.`,
+				`Migration partially complete. ${remainingBlobs} images remaining.`,
 			);
 			p.log.info("Run 'pds migrate' again to continue.");
 		}

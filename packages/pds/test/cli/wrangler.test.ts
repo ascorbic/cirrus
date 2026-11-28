@@ -98,6 +98,28 @@ describe("wrangler utilities", () => {
 			});
 		});
 
+		it("keeps the file's trailing newline", () => {
+			writeConfig({ name: "test-worker", vars: {} });
+			const path = join(tempDir, "wrangler.jsonc");
+			writeFileSync(path, readFileSync(path, "utf-8") + "\n");
+
+			setVar("SPACES_KEM_KEY_PUBLIC", "zDnaKey");
+
+			const content = readFileSync(path, "utf-8");
+			expect(content.endsWith("}\n")).toBe(true);
+			expect(content.endsWith("\n\n")).toBe(false);
+		});
+
+		it("does not add a trailing newline to a file without one", () => {
+			writeConfig({ name: "test-worker", vars: {} });
+
+			setVar("SPACES_KEM_KEY_PUBLIC", "zDnaKey");
+
+			expect(
+				readFileSync(join(tempDir, "wrangler.jsonc"), "utf-8").endsWith("}"),
+			).toBe(true);
+		});
+
 		it("throws when no config found", () => {
 			// Don't write config, just chdir to empty temp dir
 			process.chdir(tempDir);
