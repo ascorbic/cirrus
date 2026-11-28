@@ -269,7 +269,7 @@ export function execCommand(
 	}
 }
 
-export const run: Run = (command, args, cwd) =>
+const run: Run = (command, args, cwd) =>
 	new Promise((resolvePromise, reject) => {
 		// Package manager commands are .cmd shims on Windows, which Node only runs through a shell.
 		const child =

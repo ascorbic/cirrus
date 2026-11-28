@@ -79,16 +79,26 @@ A standalone `npx` package, not a `pds upgrade` subcommand: the subcommand that 
 
 The generic modules are ported from upgrade-emdash by copy.
 
-## Implementation order
+## Implementation status
 
-Each step is test-first.
+Done:
 
-1. **Skeleton.** Package, args, project discovery, registry resolution, dependency plan, `--dry-run` and `--json`. Tests use temp-dir fixture projects and a stub fetch.
-2. **Changelog.** Port the parser and range logic; add transitive package resolution. Fixture: the real `@getcirrus/pds` changelog across 0.17.1 → 0.19.0, asserting the oauth-provider and spaces entries appear.
-3. **Apply and guide.** Write `package.json`, install, verify installed versions match the plan, render the work order. Restore `package.json` and the lockfile when install fails.
-4. **Changelog corrections and the `AGENTS.md` rule.**
-5. **Docs.** Rewrite `guides/update.md` around the command, keeping the manual procedure as a fallback; add a line to the template README; add `.cirrus/` to the template `gitignore`.
-6. **End-to-end test.** Scaffold with `create-pds` at an older pinned PDS version, run `upgrade-pds --yes`, assert the dependency moved and the work order contains the crossed entries.
+- `packages/upgrade-pds`: project discovery, registry resolution, changelog ranges including the Cirrus packages installed through `@getcirrus/pds`, the plan, the work order, and the CLI. Unit tests use temp-dir projects and a stub `fetch`.
+- Run by hand against a real npm project on `@getcirrus/pds@0.17.1`: `--dry-run`, then `--yes`, moved it to 0.19.0 and wrote the work order with the pds, oauth-provider and spaces entries.
+- The 0.19.0 entry in `packages/pds/CHANGELOG.md` now carries the project changes. The data placement entry (#104) needed no correction: existing projects need no change for it.
+- The changeset rule in `CLAUDE.md` (`AGENTS.md` is a symlink to it).
+- `guides/update.md`, the template README and `gitignore`, the package README, changesets.
+
+Implementation notes:
+
+- The package manager is detected from the `packageManager` field, then the nearest lockfile in the project directory or a parent. The lockfile's directory is where it is snapshotted and restored.
+- `jsonc-parser` is aliased to its ESM build in `tsdown.config.ts`; its UMD `main` does not bundle.
+- With nothing to change, the command exits without writing a work order.
+- Scripts are always invoked as `<pm> run <script>`, because `pnpm deploy` is a pnpm built-in.
+
+Not done:
+
+- The automated end-to-end test. It needs the npm registry and GitHub, and the CLI has no way to point at a local registry. The unit tests cover each module and the hand run above covers the whole path.
 
 ## Open questions
 
