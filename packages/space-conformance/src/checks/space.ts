@@ -25,6 +25,7 @@ import {
 	personalspace,
 	probeSkey,
 	publicRead,
+	spaceUri,
 	unknownSpaceUri,
 	type Policy,
 } from "./probe.js";
@@ -69,12 +70,14 @@ async function listMembers(
 const spaceCreateAndGet = defineCheck({
 	id: "space.create-and-get",
 	title:
-		"createSpace anchors the space on the operator and getSpace describes it",
+		"createSpace anchors the space on the operator at an at:space/ ref and getSpace describes it",
 	tier: "must",
 	citations: [
 		L("com.atproto.space.createSpace"),
 		L("com.atproto.space.getSpace"),
 		P("0016#addressing"),
+		C("spaces-syntax"),
+		C("pds-space-uri-migration"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -89,7 +92,9 @@ const spaceCreateAndGet = defineCheck({
 			return fail(`createSpace ${describe(res)}`, res.json);
 		const uri = (res.json as { space?: string }).space;
 		try {
-			const expected = `at://${ctx.target.did}/space/${PROBE_TYPE}/${skey}`;
+			// Since the 2026-11-24 alpha a space is addressed as
+			// at:space/{spaceDid}/{spaceType}/{skey}; hosts emit only that form.
+			const expected = spaceUri(ctx.target.did, skey);
 			if (uri !== expected) {
 				return fail(
 					`createSpace returned space ${uri}, expected ${expected}`,
@@ -113,7 +118,7 @@ const spaceCreateAndGet = defineCheck({
 						"a memberspace created without publicRead reports publicRead: true",
 					)
 				: pass(
-						"created at the expected ref; getSpace reports the memberspace policy",
+						"created at the expected at:space/ ref; getSpace reports the memberspace policy",
 					);
 		} finally {
 			if (uri) await deleteProbeSpace(ctx, uri);
@@ -503,6 +508,7 @@ const spaceListSpaces = defineCheck({
 	citations: [
 		L("com.atproto.space.listSpaces"),
 		L("com.atproto.space.listSpaces#spaceView"),
+		C("pds-space-uri-migration"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -535,13 +541,14 @@ const spaceListSpaces = defineCheck({
 			}
 			const entry = seen.find((s) => s.space === space.uri);
 			if (!entry) return fail("listSpaces did not list the new space");
+			// Every entry is an at:space/ ref under the filtered authority and
+			// type — an entry in any other form is outside the filter too.
 			const stray = seen.filter(
-				(s) =>
-					!s.space.startsWith(`at://${ctx.target.did}/space/${PROBE_TYPE}/`),
+				(s) => !s.space.startsWith(spaceUri(ctx.target.did, "")),
 			);
 			if (stray.length)
 				return fail(
-					`listing included spaces outside the filter: ${stray.map((s) => s.space).join(", ")}`,
+					`listing included spaces outside the filter (or not as at:space/${ctx.target.did}/${PROBE_TYPE}/… refs): ${stray.map((s) => s.space).join(", ")}`,
 				);
 			// The entry carries the operator's repo state, and — as authority — the spaceRev.
 			const latest = await xrpcGet(

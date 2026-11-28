@@ -54,7 +54,7 @@ function freshSpace(): {
 	uri: string;
 	stub: DurableObjectStub<TestSpaceDurableObject>;
 } {
-	const uri = `at://${AUTHORITY}/space/app.bsky.group/space${spaceCounter++}x`;
+	const uri = `at:space/${AUTHORITY}/app.bsky.group/space${spaceCounter++}x`;
 	const stub = env.SPACES.get(env.SPACES.idFromName(uri));
 	return { uri, stub };
 }

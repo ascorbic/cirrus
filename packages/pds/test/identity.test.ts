@@ -132,6 +132,8 @@ describe("Identity Endpoints", () => {
 				const href = typeof url === "string" ? url : url.toString();
 				expect(href).toBe(`https://plc.directory/${env.DID}`);
 				expect(init?.method).toBe("POST");
+				// An update: rate-limited per identifier, not per (shared) IP.
+				expect(new Headers(init?.headers).get("If-Match")).toBe("*");
 				expect(JSON.parse(init?.body as string)).toEqual(operation);
 				return new Response(null, { status: 200 });
 			});

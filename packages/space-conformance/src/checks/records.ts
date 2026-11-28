@@ -25,10 +25,16 @@ import {
 	note,
 	operatorCreateRecord,
 	operatorGetRecord,
+	errorIs,
+	expectEach,
+	legacySpaceUri,
 	personalspace,
 	probeSkey,
+	spaceRecordUri,
+	spaceUri,
 	unknownSpaceUri,
 } from "./probe.js";
+import { resolveDidDocument } from "../did.js";
 
 const L = (ref: string) => ({ source: "lexicon" as const, ref });
 const C = (ref: string) => ({ source: "changeset" as const, ref });
@@ -37,11 +43,14 @@ const op = asOperator;
 
 const writesCreateRead = defineCheck({
 	id: "writes.create-and-read",
-	title: "Operator creates a record and reads it back",
+	title:
+		"Operator creates a record and reads it back, addressed by its at:space/ uri",
 	tier: "must",
 	citations: [
 		L("com.atproto.space.createRecord"),
 		L("com.atproto.space.getRecord"),
+		C("spaces-syntax"),
+		C("pds-space-uri-migration"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -71,8 +80,22 @@ const writesCreateRead = defineCheck({
 					read.json,
 				);
 			}
+			// Both uris are the record's at:space/ uri: the space-ref, then
+			// author, collection and rkey.
+			const uri = spaceRecordUri(
+				spaceUri(ctx.target.did, space.skey),
+				ctx.target.did,
+				POST,
+				"rec1",
+			);
+			const createdUri = (created.json as { uri?: string }).uri;
+			if (createdUri !== uri || body.uri !== uri)
+				return fail(
+					`record uri was ${createdUri} (createRecord) / ${body.uri} (getRecord), expected ${uri}`,
+					{ created: created.json, read: read.json },
+				);
 			return body.value?.text === "hello"
-				? pass("round-tripped the record value and cid")
+				? pass("round-tripped the record value and cid, at its at:space/ uri")
 				: fail("record value did not round-trip", read.json);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
@@ -1003,19 +1026,154 @@ const requestInvalidSpaceUri = defineCheck({
 	async run(ctx) {
 		// Authenticated as the repo's own account, so an auth refusal can't
 		// stand in for the parameter check: `space` fails its space-ref
-		// format, which is a 400 with an XRPC error. The method declares no
-		// error for it, so the name is reported, not required (the reference
-		// answers XRPC's generic InvalidRequest).
+		// format. The method declares no error for it, so it is XRPC's
+		// generic InvalidRequest, as for the retired form and a handle
+		// authority (request.legacy-space-uri-rejected and
+		// request.handle-space-authority-rejected).
 		const res = await xrpcGet(op(ctx), "com.atproto.space.getLatestCommit", {
 			space: "not-a-space-uri",
 			repo: ctx.target.did,
 		});
-		return res.status === 400 && res.error
+		return res.status === 400 && res.error === "InvalidRequest"
 			? pass(`rejected the authenticated request with ${describe(res)}`)
 			: fail(
-					`answered ${describe(res)} to an authenticated request with a malformed space uri, expected a 400 XRPC error`,
+					`answered ${describe(res)} to an authenticated request with a malformed space uri, expected 400 InvalidRequest`,
 					res.json,
 				);
+	},
+});
+
+const getSpace = (ctx: CheckContext, space: string) =>
+	xrpcGet(op(ctx), "com.atproto.space.getSpace", { space });
+
+const requestLegacySpaceUri = defineCheck({
+	id: "request.legacy-space-uri-rejected",
+	title:
+		"A space param in the retired at://{did}/space/… form is rejected; the at:space/ ref of the same space is served",
+	tier: "must",
+	citations: [
+		L("com.atproto.space.getRecord"),
+		L("com.atproto.space.createRecord"),
+		L("com.atproto.space.getSpace"),
+		P("0016#addressing"),
+		C("pds-space-uri-migration"),
+		C("alpha-space-uris"),
+	],
+	needs: ["operator"],
+	destructive: true,
+	async run(ctx) {
+		// Since the 2026-11-24 alpha the space-ref format admits only
+		// at:space/{spaceDid}/{spaceType}/{skey}: "Space params must use the new
+		// form", and strict validation — what params get — "accept[s] only the
+		// current form". The old form survives only leniently, inside record
+		// values. Authenticated as the authority, against a space that exists,
+		// so neither an auth refusal nor SpaceNotFound can stand in: the same
+		// space under its at:space/ ref is the positive control, and the old
+		// form must fail param validation, which XRPC answers 400
+		// InvalidRequest.
+		const space = await createProbeSpace(ctx, personalspace());
+		const ref = spaceUri(ctx.target.did, space.skey);
+		const legacy = legacySpaceUri(ctx.target.did, space.skey);
+		const invalid = (r: XrpcResult) =>
+			r.status === 400 && errorIs("InvalidRequest")(r);
+		const ok = (r: XrpcResult) => r.status === 200;
+		try {
+			await mustCreateRecord(ctx, ref, "a");
+			const {
+				ok: passed,
+				detail,
+				evidence,
+			} = await expectEach([
+				["getRecord at:space/", () => operatorGetRecord(ctx, ref, "a"), ok],
+				["getSpace at:space/", () => getSpace(ctx, ref), ok],
+				[
+					"createRecord at:space/",
+					() => operatorCreateRecord(ctx, ref, POST, "b", note("b")),
+					ok,
+				],
+				["getRecord at://", () => operatorGetRecord(ctx, legacy, "a"), invalid],
+				["getSpace at://", () => getSpace(ctx, legacy), invalid],
+				[
+					"createRecord at://",
+					() => operatorCreateRecord(ctx, legacy, POST, "c", note("c")),
+					invalid,
+				],
+			]);
+			return passed
+				? pass(
+						"the at:space/ ref was served; the at:// form was rejected 400 InvalidRequest by getRecord, getSpace and createRecord",
+						evidence,
+					)
+				: fail(
+						`expected 200 for at:space/, 400 InvalidRequest for at://: ${detail}`,
+						evidence,
+					);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
+	},
+});
+
+const requestHandleAuthority = defineCheck({
+	id: "request.handle-space-authority-rejected",
+	title:
+		"A space ref naming its authority by handle is rejected; the DID ref of the same space is served",
+	tier: "must",
+	citations: [
+		L("com.atproto.space.getSpace"),
+		L("com.atproto.space.getRecord"),
+		P("0016#addressing"),
+		C("spaces-syntax"),
+	],
+	needs: ["operator"],
+	destructive: true,
+	async run(ctx) {
+		// "spaceDid and authorDid must be DIDs. Neither may be a handle" — a
+		// space URI "must be valid in full". The handle is the operator's own
+		// (from its DID document) where it has one, so a host that resolved
+		// handles would find the space: only refusing the syntax passes.
+		const handle = await resolveDidDocument(ctx, ctx.target.did)
+			.then((doc) =>
+				doc.alsoKnownAs
+					?.find((aka) => aka.startsWith("at://"))
+					?.slice("at://".length),
+			)
+			.catch(() => undefined);
+		const authority = handle || "space-conformance.invalid";
+		const space = await createProbeSpace(ctx, personalspace());
+		const ref = spaceUri(ctx.target.did, space.skey);
+		const byHandle = spaceUri(authority, space.skey);
+		const invalid = (r: XrpcResult) =>
+			r.status === 400 && errorIs("InvalidRequest")(r);
+		const ok = (r: XrpcResult) => r.status === 200;
+		try {
+			await mustCreateRecord(ctx, ref, "a");
+			const {
+				ok: passed,
+				detail,
+				evidence,
+			} = await expectEach([
+				["getSpace by DID", () => getSpace(ctx, ref), ok],
+				["getRecord by DID", () => operatorGetRecord(ctx, ref, "a"), ok],
+				["getSpace by handle", () => getSpace(ctx, byHandle), invalid],
+				[
+					"getRecord by handle",
+					() => operatorGetRecord(ctx, byHandle, "a"),
+					invalid,
+				],
+			]);
+			return passed
+				? pass(
+						`the DID ref was served; ${byHandle} was rejected 400 InvalidRequest`,
+						evidence,
+					)
+				: fail(
+						`expected 200 by DID, 400 InvalidRequest by handle (${authority}): ${detail}`,
+						evidence,
+					);
+		} finally {
+			await deleteProbeSpace(ctx, space.uri);
+		}
 	},
 });
 
@@ -1037,6 +1195,8 @@ export const recordChecks: Check[] = [
 	syncListRecordsDescending,
 	garbageCursor,
 	requestInvalidSpaceUri,
+	requestLegacySpaceUri,
+	requestHandleAuthority,
 	blobsSpaceNotPublic,
 	blobsListAndGet,
 	blobsNotFound,

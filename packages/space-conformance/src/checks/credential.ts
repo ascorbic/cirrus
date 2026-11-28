@@ -40,6 +40,7 @@ import {
 	personalspace,
 	publicRead,
 	requestCredential,
+	spaceUri,
 	type Credential,
 	type CredentialCallOptions,
 	type ProbeSpace,
@@ -48,6 +49,7 @@ import { fakeDid } from "./space.js";
 
 const L = (ref: string) => ({ source: "lexicon" as const, ref });
 const P = (ref: string) => ({ source: "proposal" as const, ref });
+const C = (ref: string) => ({ source: "changeset" as const, ref });
 
 /** Refusals the lexicon allows for an account the policy does not authorise. */
 export const ACCOUNT_REFUSALS = [
@@ -148,6 +150,7 @@ const credentialClaims = defineCheck({
 	citations: [
 		L("com.atproto.space.authorizeSpaceSync"),
 		P("0016#space-credential"),
+		C("pds-space-uri-migration"),
 	],
 	needs: ["operator"],
 	destructive: true,
@@ -163,7 +166,8 @@ const credentialClaims = defineCheck({
 			if (header.kid !== "#atproto") problems.push(`kid ${String(header.kid)}`);
 			if (payload.iss !== ctx.target.did)
 				problems.push(`iss ${String(payload.iss)}`);
-			if (payload.sub !== space.uri)
+			// `sub` is the space-ref in its at:space/ form, compared exactly.
+			if (payload.sub !== spaceUri(ctx.target.did, space.skey))
 				problems.push(`sub ${String(payload.sub)}`);
 			if (cnf?.kid !== credential.key.did)
 				problems.push(`cnf.kid ${String(cnf?.kid)}`);
@@ -177,7 +181,9 @@ const credentialClaims = defineCheck({
 				problems.push(`lifetime ${exp - iat}s (max 3600)`);
 			return problems.length
 				? fail(`credential claims: ${problems.join(", ")}`, { header, payload })
-				: pass(`typ/kid/iss/sub/cnf correct, no aud, ${exp - iat}s lifetime`);
+				: pass(
+						`typ/kid/iss/sub (at:space/ ref)/cnf correct, no aud, ${exp - iat}s lifetime`,
+					);
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}
@@ -831,6 +837,7 @@ const delegationClaims = defineCheck({
 	citations: [
 		L("com.atproto.space.getDelegationToken"),
 		P("0016#delegation-token"),
+		C("pds-space-uri-migration"),
 	],
 	needs: ["operator", "pds-delegation"],
 	destructive: true,
@@ -853,7 +860,8 @@ const delegationClaims = defineCheck({
 			if (header.kid !== "#atproto") problems.push(`kid ${String(header.kid)}`);
 			if (payload.iss !== ctx.target.did)
 				problems.push(`iss ${String(payload.iss)}`);
-			if (payload.sub !== space.uri)
+			// `sub` is the space-ref in its at:space/ form, compared exactly.
+			if (payload.sub !== spaceUri(ctx.target.did, space.skey))
 				problems.push(`sub ${String(payload.sub)}`);
 			if (payload.aud !== `${ctx.target.did}#atproto_pds`)
 				problems.push(`aud ${String(payload.aud)}`);
@@ -864,7 +872,7 @@ const delegationClaims = defineCheck({
 				problems.push("already expired");
 			return problems.length
 				? fail(`delegation token: ${problems.join(", ")}`, { header, payload })
-				: pass("typ/kid/iss/sub/aud as specified, no lxm");
+				: pass("typ/kid/iss/sub (at:space/ ref)/aud as specified, no lxm");
 		} finally {
 			await deleteProbeSpace(ctx, space.uri);
 		}

@@ -32,7 +32,7 @@ import { startReferencePds, type ReferencePds } from "../src/reference.js";
 import { startHarnessServices, type HarnessServices } from "../src/harness.js";
 
 /** The alpha build this partition was calibrated against. */
-const CALIBRATED_ALPHA = "0.0.0-spaces-alpha-20261117141222";
+const CALIBRATED_ALPHA = "0.0.0-spaces-alpha-20261124235736";
 
 /**
  * Checks the reference PDS is known to fail, with the reason it diverges from
@@ -53,7 +53,7 @@ const EXPECTED_DIVERGENCES: Record<string, string> = {
 	// exists first (`hasRecord` → no-op, for idempotency), so a delete in a
 	// missing or deleted space is a silent 200 and the `ensureRepo` space check
 	// is never reached. Its create, put and applyWrites do answer SpaceNotFound
-	// (writes.space-not-found passes). Unchanged since 1105.
+	// (writes.space-not-found passes). Unchanged since 1105; still so at 1124.
 	"writes.delete-in-missing-space":
 		"reference deleteRecord short-circuits on an absent record before checking the space, answering 200",
 };
@@ -165,6 +165,8 @@ describe("conformance suite vs the atproto reference PDS", () => {
 		);
 		for (const id of [
 			"discovery.kem-key",
+			"space.create-and-get",
+			"request.legacy-space-uri-rejected",
 			"writes.create-and-read",
 			"writes.applywrites-atomic",
 			"credential.self-round-trip",

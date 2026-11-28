@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isSpaceRefString } from "@atproto/syntax";
 import {
 	formatSpaceUri,
 	parseSpaceUri,
@@ -11,7 +12,7 @@ import { SpaceError } from "../src/errors";
 import { nextRev, tidCutoff } from "../src/tid";
 
 const AUTHORITY = "did:web:alice.test";
-const URI = `at://${AUTHORITY}/space/app.bsky.group/3kbcq3p7ad400`;
+const URI = `at:space/${AUTHORITY}/app.bsky.group/3kbcq3p7ad400`;
 
 describe("parseSpaceUri", () => {
 	it("parses a valid space URI", () => {
@@ -35,19 +36,51 @@ describe("parseSpaceUri", () => {
 			null,
 		);
 		expect(parseSpaceUri("https://example.com")).toBe(null);
-		expect(parseSpaceUri("at://did:web:a.test/space/app.bsky.group")).toBe(
+		expect(parseSpaceUri("at:space/did:web:a.test/app.bsky.group")).toBe(
 			null,
 		);
 		expect(
-			parseSpaceUri("at://did:web:a.test/space/app.bsky.group/a/b"),
+			parseSpaceUri("at:space/did:web:a.test/app.bsky.group/a/b"),
 		).toBe(null);
-		expect(parseSpaceUri("at://notadid/space/app.bsky.group/abc")).toBe(null);
-		expect(parseSpaceUri("at://did:web:a.test/space/notansid/abc")).toBe(null);
+		expect(parseSpaceUri("at:space/notadid/app.bsky.group/abc")).toBe(null);
+		expect(parseSpaceUri("at:space/did:web:a.test/notansid/abc")).toBe(null);
 	});
 
-	it("requireSpaceUri throws InvalidSpaceUri", () => {
+	it("refuses the alpha's earlier at://{did}/space/... form", () => {
+		expect(
+			parseSpaceUri(`at://${AUTHORITY}/space/app.bsky.group/3kbcq3p7ad400`),
+		).toBe(null);
+	});
+
+	it("refuses a handle as the space authority", () => {
+		expect(parseSpaceUri("at:space/alice.test/app.bsky.group/abc")).toBe(null);
+	});
+
+	it("refuses a record URI where a space is expected", () => {
+		expect(
+			parseSpaceUri(`${URI}/did:web:bob.test/app.bsky.feed.post/3kabc`),
+		).toBe(null);
+	});
+
+	it("agrees with the reference space-ref parser", () => {
+		const cases = [
+			URI,
+			`at://${AUTHORITY}/space/app.bsky.group/3kbcq3p7ad400`,
+			"at:space/alice.test/app.bsky.group/abc",
+			"at:space/did:web:a.test/app.bsky.group",
+			`${URI}/did:web:bob.test/app.bsky.feed.post/3kabc`,
+			"at:space/did:web:a.test/notansid/abc",
+			"at:space/did:plc:abcdefghijklmnopqrstuvwx/com.example.forum/general",
+			"at:space/did:web:under_score.test/app.bsky.group/self",
+		];
+		for (const value of cases) {
+			expect(parseSpaceUri(value) !== null, value).toBe(isSpaceRefString(value));
+		}
+	});
+
+	it("requireSpaceUri throws InvalidRequest, as the reference answers", () => {
 		expect(() => requireSpaceUri("nope")).toThrow(SpaceError);
-		expect(() => requireSpaceUri(undefined)).toThrow(/InvalidSpaceUri/);
+		expect(() => requireSpaceUri(undefined)).toThrow(/InvalidRequest/);
 	});
 });
 

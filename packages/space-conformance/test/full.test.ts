@@ -359,7 +359,7 @@ describe("syncer inbox", () => {
 			service: "did:web:inbox.test#atproto_pds",
 		});
 		const space =
-			"at://did:plc:abcdefghijklmnopqrstuvwx/space/earth.cirrus.check.space/x";
+			"at:space/did:plc:abcdefghijklmnopqrstuvwx/earth.cirrus.check.space/x";
 		const token = inbox.issueToken(space);
 		const post = (lxm: string, body: unknown) =>
 			handle(

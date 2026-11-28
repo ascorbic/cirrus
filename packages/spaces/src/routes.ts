@@ -79,6 +79,7 @@ import {
 	spaceBlobPrefix,
 } from "./blob-keys.js";
 import {
+	formatSpaceUri,
 	parseSpaceUri,
 	requireSpaceUri,
 	spaceId,
@@ -1039,13 +1040,20 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 				);
 			}
 			const ref = requireSpaceUri(space);
-			for (const collection of new Set(records.map((r) => r.collection))) {
+			// Importing replaces the whole repo, so it takes full access to the
+			// space: read, and every write on every collection ("*" matches
+			// only a grant covering them all), as the reference requires.
+			for (const match of [
+				{ action: "read" },
+				{ action: "create", collection: "*" },
+				{ action: "update", collection: "*" },
+				{ action: "delete", collection: "*" },
+			] as const) {
 				const scopeError = assertScope(c, session, {
 					type: ref.type,
 					authority: ref.authority,
 					skey: ref.skey,
-					action: "create",
-					collection,
+					...match,
 				});
 				if (scopeError) return scopeError;
 			}
@@ -1690,7 +1698,7 @@ export function createSpaceRoutes(host: SpaceRoutesHost): Hono {
 			requireString(body.spaceType, "spaceType");
 			const skey = body.skey ?? tidNow();
 			const ref = requireSpaceUri(
-				`at://${host.operatorDid}/space/${body.spaceType}/${skey}`,
+				formatSpaceUri(host.operatorDid, body.spaceType!, skey),
 			);
 			const session = await host.authenticate(c);
 			if (session instanceof Response) return session;

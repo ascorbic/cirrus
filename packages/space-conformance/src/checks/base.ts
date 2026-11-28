@@ -15,7 +15,7 @@ import {
 	type DidDocument,
 } from "../did.js";
 import { createCredentialKey, isP256DidKey } from "../space-auth.js";
-import { PROBE_TYPE, describe, unknownSpaceUri } from "./probe.js";
+import { describe, spaceUri, unknownSpaceUri } from "./probe.js";
 
 const changeset = (ref: string) => ({ source: "changeset" as const, ref });
 const lexicon = (ref: string) => ({ source: "lexicon" as const, ref });
@@ -152,7 +152,7 @@ const authGetRecordRequiresAuth = defineCheck({
 		// all (there's simply no record at this probe URI to leak), and a 5xx
 		// is a server fault, not a refusal — neither demonstrates enforcement.
 		const res = await xrpcGet(ctx, "com.atproto.space.getRecord", {
-			space: `at://${ctx.target.did}/space/${PROBE_TYPE}/probe`,
+			space: spaceUri(ctx.target.did, "probe"),
 			repo: ctx.target.did,
 			collection: "app.bsky.feed.post",
 			rkey: "whatever",

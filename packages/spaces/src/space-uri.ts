@@ -1,11 +1,17 @@
 /**
  * Space URI handling.
  *
- * A space is addressed as `at://{authorityDid}/space/{typeNsid}/{skey}` —
- * the literal `space` marker keeps it unambiguous with public record URIs
- * because a collection NSID always contains at least two dots. A record in
- * a space appends `/{authorDid}/{collection}/{rkey}`.
+ * A space is addressed as `at:space/{authorityDid}/{typeNsid}/{skey}`, and a
+ * record in a space appends `/{authorDid}/{collection}/{rkey}`. The
+ * `at:space/` prefix tells it apart from a public `at://` URI.
+ *
+ * Params are parsed strictly: the alpha's earlier `at://{did}/space/...`
+ * form is refused, as the reference refuses it. Only record values written
+ * during the alpha may still carry it, and the engine never parses those.
  */
+
+/** The prefix of every space URI. */
+export const SPACE_URI_PREFIX = "at:space/";
 
 import { isDid, isNsid, isRecordKey } from "@atcute/lexicons/syntax";
 import { SpaceError } from "./errors.js";
@@ -26,16 +32,10 @@ export interface SpaceRef {
  * reference.
  */
 export function parseSpaceUri(uri: string): SpaceRef | null {
-	if (!uri.startsWith("at://")) return null;
-	const parts = uri.slice("at://".length).split("/");
-	if (parts.length !== 4) return null;
-	const [authority, marker, type, skey] = parts as [
-		string,
-		string,
-		string,
-		string,
-	];
-	if (marker !== "space") return null;
+	if (!uri.startsWith(SPACE_URI_PREFIX)) return null;
+	const parts = uri.slice(SPACE_URI_PREFIX.length).split("/");
+	if (parts.length !== 3) return null;
+	const [authority, type, skey] = parts as [string, string, string];
 	if (!isDid(authority) || !isNsid(type) || !isRecordKey(skey)) return null;
 	const ref = {
 		uri: formatSpaceUri(authority, type, skey),
@@ -48,11 +48,14 @@ export function parseSpaceUri(uri: string): SpaceRef | null {
 	return ref;
 }
 
-/** Parse a space URI or throw an InvalidSpaceUri error. */
+/**
+ * Parse a space URI or throw. The error is XRPC's generic InvalidRequest, as
+ * the reference answers: no lexicon declares a more specific one.
+ */
 export function requireSpaceUri(uri: string | undefined): SpaceRef {
 	const ref = uri ? parseSpaceUri(uri) : null;
 	if (!ref) {
-		throw new SpaceError("InvalidSpaceUri", `Invalid space URI: ${uri}`);
+		throw new SpaceError("InvalidRequest", `Invalid space URI: ${uri}`);
 	}
 	return ref;
 }
@@ -62,7 +65,7 @@ export function formatSpaceUri(
 	type: string,
 	skey: string,
 ): string {
-	return `at://${authority}/space/${type}/${skey}`;
+	return `${SPACE_URI_PREFIX}${authority}/${type}/${skey}`;
 }
 
 /** URI of a record within a space: `{spaceUri}/{repoDid}/{collection}/{rkey}`. */

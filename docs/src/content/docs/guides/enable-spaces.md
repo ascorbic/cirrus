@@ -105,6 +105,16 @@ The dashboard at `/status` gains a **Spaces** panel showing each space's role, p
 
 Apps request access with OAuth `space:` scopes, e.g. `space:my.app.bookmarks` for the app's own space type under your authority. The consent screen shows the space type's human name and warns loudly about wildcard grants. App passwords cannot access spaces.
 
+## Upgrading from the 2026-11-12 alpha
+
+The 2026-11-24 alpha changes how spaces are addressed: `at://{did}/space/{type}/{key}` becomes `at:space/{did}/{type}/{key}`, in every request and response, token and archive. Cirrus accepts only the new form, as the reference PDS does. The space schema moves to version 4, so after upgrading:
+
+1. Deploy. Your existing spaces are stored under their old URIs, so they stop being reachable: requests in the new form answer `SpaceNotFound`, and `pds spaces status` lists the old ones as outdated.
+2. Run `pds spaces reset`, then recreate your spaces. The KEM key carries over.
+3. Archives exported before this release carry old URIs and no longer import. Re-export from an upgraded PDS.
+
+Apps, syncers and other hosts built against earlier alphas need updating too: tokens and credentials are compared exactly, so a host on the old form and one on the new can't talk to each other. App-password sessions are now refused with `InvalidToken`, as the reference refuses them, and `importRepo` through OAuth needs a `space:` grant covering every collection (`collection=*`).
+
 ## Upgrading from the 2026-11-05 alpha
 
 The 2026-11-12 alpha renames most of the sync methods (`getSpaceCredential` is now `authorizeSpaceSync`, `listRepos` is `listWriters`, `notifyWrite` is `notifyRepoUpdate`), batches member changes (`putMembers` / `removeMembers`), replaces `registerNotify` with a webhook the syncer names in its credential request, and moves MACs onto standard HTTP message signature headers. The space schema moves to version 3, so after upgrading:
