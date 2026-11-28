@@ -1,6 +1,6 @@
 # Upgrade CLI (`upgrade-pds`)
 
-- Status: Draft
+- Status: In progress
 - Date: 2026-11-28
 - Scope: a new package, `upgrade-pds`
 - Reference: `upgrade-emdash` in `emdash-cms/emdash` (`packages/upgrade-emdash`)

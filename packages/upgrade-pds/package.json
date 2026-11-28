@@ -1,0 +1,45 @@
+{
+	"name": "upgrade-pds",
+	"version": "0.0.0",
+	"description": "Upgrade a Cirrus PDS project and prepare its upgrade work order",
+	"type": "module",
+	"bin": {
+		"upgrade-pds": "./dist/index.js"
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsdown",
+		"test": "vitest run",
+		"check": "publint"
+	},
+	"devDependencies": {
+		"@clack/prompts": "^0.11.0",
+		"@types/node": "^24.10.4",
+		"@types/semver": "^7.7.1",
+		"citty": "^0.1.6",
+		"jsonc-parser": "^3.3.1",
+		"picocolors": "^1.1.1",
+		"publint": "^0.3.16",
+		"semver": "^7.7.3",
+		"tsdown": "^0.18.3",
+		"typescript": "^5.9.3",
+		"vitest": "^4.1.12"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ascorbic/cirrus.git",
+		"directory": "packages/upgrade-pds"
+	},
+	"homepage": "https://github.com/ascorbic/cirrus",
+	"keywords": [
+		"atproto",
+		"bluesky",
+		"pds",
+		"cloudflare-workers",
+		"upgrade"
+	],
+	"author": "Matt Kane",
+	"license": "MIT"
+}
