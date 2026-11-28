@@ -12,6 +12,7 @@ import {
 	checkDidResolution,
 	checkRepoInitialised,
 	checkBlobsImported,
+	countMissingBlobs,
 	checkAppViewIndexing,
 	checkPlcRotationKeys,
 } from "../utils/checks.js";
@@ -256,16 +257,17 @@ export const statusCommand = defineCommand({
 		// ============================================
 		if (status.expectedBlobs > 0) {
 			console.log(pc.bold("Blobs"));
-			const blobCheck = checkBlobsImported(status);
+			const blobCheck = checkBlobsImported(
+				status,
+				await countMissingBlobs(client),
+			);
 			if (blobCheck.ok) {
 				console.log(`  ${CHECK} ${blobCheck.message}`);
 			} else {
-				const missing = status.expectedBlobs - status.importedBlobs;
-				console.log(
-					`  ${WARN} ${status.importedBlobs}/${status.expectedBlobs} blobs imported (${missing} missing)`,
-				);
+				console.log(`  ${WARN} ${blobCheck.message}`);
 				hasWarnings = true;
 			}
+			console.log(`  ${INFO} ${status.importedBlobs} blobs stored in total`);
 			console.log();
 		}
 

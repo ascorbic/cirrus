@@ -563,14 +563,14 @@ const kemCommand = defineCommand({
 	},
 	async run({ args }) {
 		p.intro("Spaces KEM key");
-		const config = { ...readDevVars(), ...getVars() };
-		const did = config.DID;
+		const vars = getVars();
+		const did = vars.DID;
 		if (!did) {
 			p.log.error("No DID configured. Run 'pds init' first.");
 			process.exit(1);
 		}
 
-		let publicKey = config.SPACES_KEM_KEY_PUBLIC;
+		let publicKey = (args.local ? readDevVars() : vars).SPACES_KEM_KEY_PUBLIC;
 		if (publicKey && !args.publish) {
 			const replace = await p.confirm({
 				message:
