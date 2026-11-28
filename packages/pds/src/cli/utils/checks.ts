@@ -187,20 +187,44 @@ export async function checkDidResolution(
 }
 
 /**
- * Check that all blobs are imported
+ * Count the blobs that imported records reference but that have not been
+ * uploaded.
  */
-export function checkBlobsImported(status: MigrationStatus): CheckResult {
-	const missingBlobs = status.expectedBlobs - status.importedBlobs;
+export async function countMissingBlobs(client: PDSClient): Promise<number> {
+	const missing = new Set<string>();
+	let cursor: string | undefined;
+	do {
+		const page = await client.listMissingBlobs(500, cursor);
+		for (const blob of page.blobs) {
+			missing.add(blob.cid);
+		}
+		cursor = page.cursor;
+	} while (cursor);
+	return missing.size;
+}
+
+/**
+ * Check that every blob referenced by the imported repo has been uploaded.
+ *
+ * `expectedBlobs` counts blobs referenced by records at import time, while
+ * `importedBlobs` counts every blob uploaded since, so the two only compare
+ * until the account takes new uploads. `missingBlobs` comes from
+ * `countMissingBlobs`.
+ */
+export function checkBlobsImported(
+	status: MigrationStatus,
+	missingBlobs: number,
+): CheckResult {
 	if (missingBlobs > 0) {
 		return {
 			ok: false,
-			message: `${missingBlobs} blob${missingBlobs === 1 ? "" : "s"} missing`,
+			message: `${missingBlobs} of ${status.expectedBlobs} migrated blobs missing`,
 			detail: "Run 'pds migrate' to import missing blobs before activating",
 		};
 	}
 	return {
 		ok: true,
-		message: `${status.importedBlobs}/${status.expectedBlobs} blobs imported`,
+		message: `All ${status.expectedBlobs} migrated blobs imported`,
 	};
 }
 
@@ -231,7 +255,10 @@ export function checkRepoInitialised(status: MigrationStatus): CheckResult {
 /**
  * Check that repo is complete for activation (combines blob and repo checks)
  */
-export function checkRepoComplete(status: MigrationStatus): CheckResult {
+export async function checkRepoComplete(
+	client: PDSClient,
+	status: MigrationStatus,
+): Promise<CheckResult> {
 	// First check repo is initialised
 	const repoCheck = checkRepoInitialised(status);
 	if (!repoCheck.ok) {
@@ -240,7 +267,10 @@ export function checkRepoComplete(status: MigrationStatus): CheckResult {
 
 	// Then check blobs if there are any expected
 	if (status.expectedBlobs > 0) {
-		const blobCheck = checkBlobsImported(status);
+		const blobCheck = checkBlobsImported(
+			status,
+			await countMissingBlobs(client),
+		);
 		if (!blobCheck.ok) {
 			return blobCheck;
 		}

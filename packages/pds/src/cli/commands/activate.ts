@@ -33,6 +33,7 @@ interface Check {
  * Run pre-activation checks
  */
 async function runChecks(
+	client: PDSClient,
 	handle: string,
 	did: string,
 	pdsUrl: string,
@@ -52,7 +53,7 @@ async function runChecks(
 
 	// Check 3: Repo is complete (has records and all blobs imported)
 	p.log.step("Checking repo status...");
-	const repoResult = checkRepoComplete(status);
+	const repoResult = await checkRepoComplete(client, status);
 	checks.push({ name: "Repo", ...repoResult });
 
 	return checks;
@@ -255,7 +256,7 @@ export const activateCommand = defineCommand({
 		// Run pre-activation checks
 		p.log.info("");
 		p.log.info(pc.bold("Pre-activation checks:"));
-		const checks = await runChecks(handle, did, targetUrl, status);
+		const checks = await runChecks(client, handle, did, targetUrl, status);
 
 		// Display results
 		console.log("");
