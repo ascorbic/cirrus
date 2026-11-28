@@ -382,7 +382,8 @@ move to a new one (the update loop from the space-conformance spec, #228):
 - Takedowns: `RepoTakendown` is declared but Cirrus has no takedown
   state; only deactivation (`RepoDeactivated`) is enforced.
 - Standalone host package (S9): the engine boundary is in place; no
-  package yet.
+  package yet. Now the Host component of the spaces toolkit plan
+  ([plans/todo/spaces-toolkit.md](../todo/spaces-toolkit.md)).
 - Alpha deps (`@atproto/space`, `@atproto/oauth-scopes` at
   `0.0.0-spaces-alpha-20261124235736`) follow the sync process above;
   Renovate is configured to leave them alone.
