@@ -12,6 +12,7 @@ function project(
 		build: "vite build",
 		deploy: "vite build && wrangler deploy",
 	},
+	transitive: Record<string, string> = { "@getcirrus/oauth-provider": "0.5.0" },
 ): ProjectState {
 	const packageJson = { scripts };
 	return {
@@ -22,6 +23,7 @@ function project(
 		packageJson,
 		packageManager: "pnpm",
 		dependencies,
+		transitive,
 	};
 }
 
@@ -85,6 +87,66 @@ function registry(latest: string, requests: string[] = []): typeof fetch {
 }
 
 describe("createUpgradePlan", () => {
+	it("plans from a preview build whose version is not on npm", async () => {
+		const requests: string[] = [];
+		const plan = await createUpgradePlan(
+			project([
+				pds(
+					"0.18.1-pr.230",
+					"https://pkg.pr.new/ascorbic/cirrus/@getcirrus/pds@230",
+				),
+			]),
+			"latest",
+			registry("0.19.0", requests),
+		);
+
+		expect(plan.dependencies[0]).toMatchObject({ to: "^0.19.0" });
+		expect(plan.transitive).toHaveLength(2);
+		expect(requests.some((url) => url.includes("0.18.1-pr.230"))).toBe(false);
+	});
+
+	it("leaves a direct package alone when it has no release on the tag", async () => {
+		const plan = await createUpgradePlan(
+			project(
+				[
+					pds("0.18.0"),
+					{
+						name: "@getcirrus/spaces",
+						section: "dependencies",
+						specifier: "^0.1.0",
+						installedVersion: "0.1.0",
+					},
+				],
+				{},
+			),
+			"next",
+			async (input, init) => {
+				const url = requestUrl(input);
+				if (url.pathname === "/@getcirrus%2Fspaces/next") {
+					return new Response("", { status: 404, statusText: "Not Found" });
+				}
+				if (url.pathname === "/@getcirrus%2Fpds/next") {
+					return registry("0.19.0")(
+						"https://registry.npmjs.org/@getcirrus%2Fpds/latest",
+						init,
+					);
+				}
+				return registry("0.19.0")(input, init);
+			},
+		);
+
+		expect(plan.dependencies.map((change) => change.name)).toEqual([
+			"@getcirrus/pds",
+		]);
+		expect(plan.skipped).toEqual([
+			{
+				name: "@getcirrus/spaces",
+				specifier: "^0.1.0",
+				reason: "it has no next release on npm",
+			},
+		]);
+	});
+
 	it("moves the direct package to the tag and keeps its specifier style", async () => {
 		const plan = await createUpgradePlan(
 			project([pds("0.18.0", "~0.18.0")]),

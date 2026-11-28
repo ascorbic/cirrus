@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -121,6 +128,9 @@ describe("detectPackageManager", () => {
 		const workspace = await tempDir();
 		const root = join(workspace, "apps", "pds");
 		await mkdir(root, { recursive: true });
+		await writeJson(join(workspace, "package.json"), {
+			workspaces: ["apps/*"],
+		});
 		await writeFile(join(workspace, "yarn.lock"), "");
 
 		expect(await detectPackageManager(root)).toEqual({
@@ -133,6 +143,10 @@ describe("detectPackageManager", () => {
 		const workspace = await tempDir();
 		const root = join(workspace, "pds");
 		await mkdir(root, { recursive: true });
+		await writeFile(
+			join(workspace, "pnpm-workspace.yaml"),
+			"packages:\n  - pds\n",
+		);
 		await writeFile(join(workspace, "pnpm-lock.yaml"), "");
 		await writeFile(join(root, "package-lock.json"), "{}");
 
@@ -262,7 +276,9 @@ describe("writeDependenciesAndInstall", () => {
 		);
 
 		expect(result).toBe("verified");
-		expect(runs).toEqual([`pnpm install in ${project.root}`]);
+		expect(runs).toEqual([
+			`pnpm install --no-frozen-lockfile in ${project.root}`,
+		]);
 		expect(
 			JSON.parse(await readFile(project.packageJsonPath, "utf8")).dependencies,
 		).toEqual({ "@getcirrus/pds": "^0.19.0" });
@@ -331,5 +347,139 @@ describe("writeDependenciesAndInstall", () => {
 		expect(await readFile(project.packageJsonPath, "utf8")).toBe(
 			project.packageJsonSource,
 		);
+	});
+});
+
+describe("detectPackageManager outside a workspace", () => {
+	it("ignores a lockfile in a parent directory that is not a workspace root", async () => {
+		const home = await tempDir();
+		const root = join(home, "code", "pds");
+		await mkdir(root, { recursive: true });
+		await writeJson(join(home, "package.json"), { name: "stray" });
+		await writeFile(join(home, "yarn.lock"), "");
+
+		expect(await detectPackageManager(root)).toEqual({
+			packageManager: "npm",
+			lockfileDirectory: root,
+		});
+	});
+});
+
+describe("targetSpecifier with project-managed sources", () => {
+	it("leaves patched packages and bare local paths to the project", () => {
+		for (const specifier of [
+			"patch:@getcirrus/pds@npm%3A0.18.0#./pds.patch",
+			"./local/pds",
+			"../pds",
+			"/abs/pds",
+			"~/pds",
+		]) {
+			expect(targetSpecifier(specifier, "0.19.0")).toBeNull();
+		}
+	});
+
+	it("keeps the operator of a partial version", () => {
+		expect(targetSpecifier("~0.17", "0.19.0")).toBe("~0.19.0");
+		expect(targetSpecifier("^0", "0.19.0")).toBe("^0.19.0");
+	});
+});
+
+describe("loadProject transitive Cirrus packages", () => {
+	it("reads the versions installed beside @getcirrus/pds in a pnpm layout", async () => {
+		const root = await tempDir();
+		await writeJson(join(root, "package.json"), {
+			dependencies: { "@getcirrus/pds": "^0.18.0" },
+		});
+		const store = join(
+			root,
+			"node_modules/.pnpm/@getcirrus+pds@0.18.0/node_modules/@getcirrus",
+		);
+		await writeJson(join(store, "pds/package.json"), {
+			name: "@getcirrus/pds",
+			version: "0.18.0",
+			dependencies: { "@getcirrus/oauth-provider": "0.5.0", hono: "^4.0.0" },
+		});
+		await writeJson(join(store, "oauth-provider/package.json"), {
+			name: "@getcirrus/oauth-provider",
+			version: "0.5.0",
+		});
+		await mkdir(join(root, "node_modules/@getcirrus"), { recursive: true });
+		await symlink(
+			join(store, "pds"),
+			join(root, "node_modules/@getcirrus/pds"),
+			"dir",
+		);
+
+		const project = await loadProject(root);
+
+		expect(project.transitive).toEqual({
+			"@getcirrus/oauth-provider": "0.5.0",
+		});
+	});
+
+	it("reads hoisted versions and leaves out packages the project declares itself", async () => {
+		const root = await tempDir();
+		await writeJson(join(root, "package.json"), {
+			dependencies: {
+				"@getcirrus/pds": "^0.19.0",
+				"@getcirrus/spaces": "0.1.0",
+			},
+		});
+		await writeJson(join(root, "node_modules/@getcirrus/pds/package.json"), {
+			name: "@getcirrus/pds",
+			version: "0.19.0",
+			dependencies: {
+				"@getcirrus/oauth-provider": "0.6.0",
+				"@getcirrus/spaces": "0.1.0",
+			},
+		});
+		for (const [name, version] of [
+			["oauth-provider", "0.6.0"],
+			["spaces", "0.1.0"],
+		]) {
+			await writeJson(
+				join(root, `node_modules/@getcirrus/${name}/package.json`),
+				{ name: `@getcirrus/${name}`, version },
+			);
+		}
+
+		const project = await loadProject(root);
+
+		expect(project.transitive).toEqual({
+			"@getcirrus/oauth-provider": "0.6.0",
+		});
+	});
+});
+
+describe("writeDependenciesAndInstall interruption", () => {
+	it("holds SIGINT while installing so the restore can run", async () => {
+		const root = await createProject(
+			{ dependencies: { "@getcirrus/pds": "^0.18.0" } },
+			{ "@getcirrus/pds": "0.18.0" },
+		);
+		const project = await loadProject(root);
+		const before = process.listenerCount("SIGINT");
+		let during = 0;
+
+		await writeDependenciesAndInstall(
+			project,
+			[
+				{
+					name: "@getcirrus/pds",
+					section: "dependencies",
+					from: "^0.18.0",
+					to: "^0.19.0",
+					fromVersion: "0.18.0",
+					toVersion: "0.19.0",
+				},
+			],
+			async () => undefined,
+			async () => {
+				during = process.listenerCount("SIGINT");
+			},
+		);
+
+		expect(during).toBe(before + 1);
+		expect(process.listenerCount("SIGINT")).toBe(before);
 	});
 });

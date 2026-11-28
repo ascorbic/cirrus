@@ -13,7 +13,7 @@ const RELEASE_HEADING = /^## (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\s*$/gm;
 const CATEGORY_HEADING = /^### (Major|Minor|Patch) Changes\s*$/gm;
 const ENTRY_START = /^- /gm;
 const CHANGESET_WRAPPER =
-	/^- (?:(\[#\d+\]\((https:\/\/github\.com\/[^)]+)\)) )?(\[`[^`]+`\]\((https:\/\/github\.com\/[^)]+)\)) Thanks .+?! - /;
+	/^- (?:(\[#\d+\]\((https:\/\/github\.com\/[^)]+)\)) )?(\[`[^`]+`\]\((https:\/\/github\.com\/[^)]+)\))(?: Thanks .+?!)? - /;
 
 interface ParsedEntry {
 	version: string;

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, parse, resolve } from "node:path";
 
 import { applyEdits, modify } from "jsonc-parser";
@@ -32,6 +32,8 @@ export interface ProjectState {
 	packageJson: ProjectPackage;
 	packageManager: PackageManager;
 	dependencies: ProjectDependency[];
+	/** Installed versions of the Cirrus packages that `@getcirrus/pds` depends on and the project does not declare. */
+	transitive: Record<string, string>;
 }
 
 export type Run = (
@@ -52,8 +54,9 @@ const LOCKFILES: Record<PackageManager, readonly string[]> = {
 	npm: ["package-lock.json"],
 };
 const PROJECT_MANAGED_SPECIFIER =
-	/^(?:catalog|workspace|link|file|portal|npm):/;
-const SIMPLE_VERSION = /^(\^|~)?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+	/^(?:(?:catalog|workspace|link|file|portal|npm|patch):|\.{0,2}\/|~\/)/;
+const FULL_VERSION = /^(\^|~)?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const PARTIAL_VERSION = /^(\^|~)\d+(?:\.\d+)?$/;
 
 async function pathExists(path: string): Promise<boolean> {
 	try {
@@ -115,6 +118,22 @@ async function hasLockfile(
 	return false;
 }
 
+async function isWorkspaceRoot(directory: string): Promise<boolean> {
+	if (await pathExists(resolve(directory, "pnpm-workspace.yaml"))) return true;
+	try {
+		const value: unknown = JSON.parse(
+			await readFile(resolve(directory, "package.json"), "utf8"),
+		);
+		return (
+			typeof value === "object" &&
+			value !== null &&
+			Reflect.get(value, "workspaces") !== undefined
+		);
+	} catch {
+		return false;
+	}
+}
+
 export async function detectPackageManager(
 	root: string,
 	declaration?: string,
@@ -124,6 +143,7 @@ export async function detectPackageManager(
 		? [declared]
 		: ["pnpm", "bun", "yarn", "npm"];
 	for (const directory of ancestors(root)) {
+		if (directory !== root && !(await isWorkspaceRoot(directory))) continue;
 		for (const packageManager of candidates) {
 			if (await hasLockfile(directory, packageManager)) {
 				return { packageManager, lockfileDirectory: directory };
@@ -136,8 +156,17 @@ export async function detectPackageManager(
 	};
 }
 
-async function installedVersion(root: string, name: string): Promise<string> {
-	for (const directory of ancestors(root)) {
+interface InstalledPackage {
+	directory: string;
+	version: string;
+	dependencies: Record<string, string>;
+}
+
+async function findInstalled(
+	start: string,
+	name: string,
+): Promise<InstalledPackage | undefined> {
+	for (const directory of ancestors(start)) {
 		const candidate = resolve(
 			directory,
 			"node_modules",
@@ -146,18 +175,22 @@ async function installedVersion(root: string, name: string): Promise<string> {
 		);
 		if (!(await pathExists(candidate))) continue;
 		const value: unknown = JSON.parse(await readFile(candidate, "utf8"));
-		const version =
+		const field = (key: string): unknown =>
 			typeof value === "object" && value !== null
-				? Reflect.get(value, "version")
-				: null;
+				? Reflect.get(value, key)
+				: undefined;
+		const version = field("version");
 		if (typeof version !== "string") {
 			throw new Error(`${name} has no installed version.`);
 		}
-		return version;
+		const dependencies = field("dependencies");
+		return {
+			directory: await realpath(dirname(candidate)),
+			version,
+			dependencies: isStringRecord(dependencies) ? dependencies : {},
+		};
 	}
-	throw new Error(
-		`Install the project's dependencies before running upgrade-pds (${name} is missing).`,
-	);
+	return undefined;
 }
 
 export async function loadProject(start: string): Promise<ProjectState> {
@@ -188,11 +221,27 @@ export async function loadProject(start: string): Promise<ProjectState> {
 		);
 	}
 	const dependencies: ProjectDependency[] = [];
+	const transitive: Record<string, string> = {};
 	for (const dependency of declared) {
-		dependencies.push({
-			...dependency,
-			installedVersion: await installedVersion(root, dependency.name),
-		});
+		const installed = await findInstalled(root, dependency.name);
+		if (!installed) {
+			throw new Error(
+				`Install the project's dependencies before running upgrade-pds (${dependency.name} is missing).`,
+			);
+		}
+		dependencies.push({ ...dependency, installedVersion: installed.version });
+		if (dependency.name !== PDS_PACKAGE) continue;
+		for (const name of Object.keys(installed.dependencies)) {
+			if (
+				!name.startsWith(CIRRUS_SCOPE) ||
+				declared.some((direct) => direct.name === name)
+			) {
+				continue;
+			}
+			// pnpm links a package's own dependencies beside it, not at the project root.
+			const version = (await findInstalled(installed.directory, name))?.version;
+			if (version) transitive[name] = version;
+		}
 	}
 	return {
 		root,
@@ -202,6 +251,7 @@ export async function loadProject(start: string): Promise<ProjectState> {
 		packageJson,
 		packageManager,
 		dependencies,
+		transitive,
 	};
 }
 
@@ -210,7 +260,7 @@ export function targetSpecifier(
 	targetVersion: string,
 ): string | null {
 	if (PROJECT_MANAGED_SPECIFIER.test(current)) return null;
-	const match = current.match(SIMPLE_VERSION);
+	const match = current.match(FULL_VERSION) ?? current.match(PARTIAL_VERSION);
 	if (!match) return `^${targetVersion}`;
 	return `${match[1] ?? ""}${targetVersion}`;
 }
@@ -224,6 +274,9 @@ export function unsupportedSpecifierReason(specifier: string): string {
 	}
 	if (specifier.startsWith("npm:")) {
 		return "it is an alias for another package";
+	}
+	if (specifier.startsWith("patch:")) {
+		return "the project patches it";
 	}
 	return "it is installed from a local path";
 }
@@ -269,6 +322,15 @@ export function execCommand(
 	}
 }
 
+// CI environments make pnpm and Yarn refuse an install that changes the lockfile.
+const INSTALL_ENV = { ...process.env, YARN_ENABLE_IMMUTABLE_INSTALLS: "false" };
+const INSTALL_ARGS: Record<PackageManager, readonly string[]> = {
+	bun: ["install"],
+	npm: ["install"],
+	pnpm: ["install", "--no-frozen-lockfile"],
+	yarn: ["install"],
+};
+
 const run: Run = (command, args, cwd) =>
 	new Promise((resolvePromise, reject) => {
 		// Package manager commands are .cmd shims on Windows, which Node only runs through a shell.
@@ -278,8 +340,9 @@ const run: Run = (command, args, cwd) =>
 						cwd,
 						stdio: "inherit",
 						shell: true,
+						env: INSTALL_ENV,
 					})
-				: spawn(command, args, { cwd, stdio: "inherit" });
+				: spawn(command, args, { cwd, stdio: "inherit", env: INSTALL_ENV });
 		child.once("error", reject);
 		child.once("exit", (code, signal) => {
 			if (code === 0) resolvePromise();
@@ -313,7 +376,11 @@ export async function writeDependenciesAndInstall<T>(
 ): Promise<T> {
 	if (changes.length === 0) return verify();
 	const install = () =>
-		runCommand(project.packageManager, ["install"], project.root);
+		runCommand(
+			project.packageManager,
+			INSTALL_ARGS[project.packageManager],
+			project.root,
+		);
 	const snapshots: FileSnapshot[] = [
 		{ path: project.packageJsonPath, source: project.packageJsonSource },
 	];
@@ -324,11 +391,14 @@ export async function writeDependenciesAndInstall<T>(
 			source: (await pathExists(path)) ? await readFile(path) : null,
 		});
 	}
-	await writeFile(
-		project.packageJsonPath,
-		applyDependencyEdits(project.packageJsonSource, changes),
-	);
+	// Ctrl-C reaches the package manager too; its failure then runs the restore below.
+	const holdInterrupt = () => {};
+	process.on("SIGINT", holdInterrupt);
 	try {
+		await writeFile(
+			project.packageJsonPath,
+			applyDependencyEdits(project.packageJsonSource, changes),
+		);
 		await install();
 		return await verify();
 	} catch (error) {
@@ -345,5 +415,7 @@ export async function writeDependenciesAndInstall<T>(
 		throw new Error(`${message} The previous dependencies were restored.`, {
 			cause: error,
 		});
+	} finally {
+		process.off("SIGINT", holdInterrupt);
 	}
 }

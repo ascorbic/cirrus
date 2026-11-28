@@ -85,6 +85,7 @@ describe("renderUpgradeGuide", () => {
 
 	it("points at the reference project for the target release", () => {
 		expect(guide).toContain(plan.referenceProject);
+		expect(guide).toContain("`package.json.tmpl`");
 	});
 
 	it("gives the build, deploy, and verification commands in order", () => {

@@ -2,7 +2,7 @@
 /**
  * upgrade-pds - Upgrade a Cirrus PDS project and write its upgrade work order
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import * as p from "@clack/prompts";
@@ -59,12 +59,21 @@ async function verifyInstalled(plan: UpgradePlan): Promise<void> {
 
 async function applyPlan(plan: UpgradePlan): Promise<void> {
 	const project = await loadProject(plan.projectRoot);
-	p.log.step("Updating dependencies");
-	await writeDependenciesAndInstall(project, plan.dependencies, () =>
-		verifyInstalled(plan),
-	);
+	// Written before the install: once the packages have moved, the range this
+	// work order covers can no longer be derived from the project.
+	const previousGuide = await readFile(plan.guidePath).catch(() => null);
 	await mkdir(dirname(plan.guidePath), { recursive: true });
 	await writeFile(plan.guidePath, renderUpgradeGuide(plan));
+	p.log.step("Updating dependencies");
+	try {
+		await writeDependenciesAndInstall(project, plan.dependencies, () =>
+			verifyInstalled(plan),
+		);
+	} catch (error) {
+		if (previousGuide) await writeFile(plan.guidePath, previousGuide);
+		else await rm(plan.guidePath, { force: true });
+		throw error;
+	}
 }
 
 async function upgrade(args: {
@@ -86,7 +95,9 @@ async function upgrade(args: {
 	printPlan(plan);
 	if (plan.dependencies.length === 0) {
 		p.outro(
-			`The Cirrus packages are already on the ${plan.tag} release. No files were changed.`,
+			plan.skipped.length > 0
+				? "There is nothing for upgrade-pds to change. No files were changed."
+				: `The Cirrus packages are already on the ${plan.tag} release. No files were changed.`,
 		);
 		return;
 	}
@@ -158,7 +169,9 @@ const main = defineCommand({
 		try {
 			await upgrade(args);
 		} catch (error) {
-			p.log.error(error instanceof Error ? error.message : String(error));
+			const message = error instanceof Error ? error.message : String(error);
+			if (args.json) process.stderr.write(`${message}\n`);
+			else p.log.error(message);
 			process.exitCode = 1;
 		}
 	},

@@ -12,7 +12,11 @@ import {
 	unsupportedSpecifierReason,
 	type ProjectState,
 } from "./project.js";
-import { resolveRegistryRelease, type RegistryRelease } from "./registry.js";
+import {
+	ReleaseNotFoundError,
+	resolveRegistryRelease,
+	type RegistryRelease,
+} from "./registry.js";
 import type {
 	ChangelogEntry,
 	DependencyChange,
@@ -36,22 +40,16 @@ function requireRepository(
 	return release.repository;
 }
 
-async function transitiveChanges(
+function transitiveChanges(
 	project: ProjectState,
 	installedPdsVersion: string,
 	target: RegistryRelease,
-	fetcher: typeof fetch,
-): Promise<TransitiveChange[]> {
+): TransitiveChange[] {
 	if (installedPdsVersion === target.version) return [];
-	const installed = await resolveRegistryRelease(
-		PDS_PACKAGE,
-		installedPdsVersion,
-		fetcher,
-	);
 	const direct = new Set(project.dependencies.map(({ name }) => name));
 	return Object.entries(target.cirrusDependencies).flatMap(
 		([name, toVersion]) => {
-			const fromVersion = installed.cirrusDependencies[name];
+			const fromVersion = project.transitive[name];
 			if (direct.has(name) || fromVersion === toVersion) return [];
 			return [{ name, ...(fromVersion ? { fromVersion } : {}), toVersion }];
 		},
@@ -73,12 +71,30 @@ export async function createUpgradePlan(
 		});
 		return false;
 	});
-	const releases = await Promise.all(
-		upgradable.map(async (dependency) => ({
-			dependency,
-			release: await resolveRegistryRelease(dependency.name, tag, fetcher),
-		})),
+	const resolved = await Promise.all(
+		upgradable.map(async (dependency) => {
+			try {
+				return {
+					dependency,
+					release: await resolveRegistryRelease(dependency.name, tag, fetcher),
+				};
+			} catch (error) {
+				if (
+					!(error instanceof ReleaseNotFoundError) ||
+					dependency.name === PDS_PACKAGE
+				) {
+					throw error;
+				}
+				skipped.push({
+					name: dependency.name,
+					specifier: dependency.specifier,
+					reason: `it has no ${tag} release on npm`,
+				});
+				return [];
+			}
+		}),
 	);
+	const releases = resolved.flat();
 
 	const dependencies: DependencyChange[] = releases.flatMap(
 		({ dependency, release }) => {
@@ -120,12 +136,7 @@ export async function createUpgradePlan(
 		({ dependency }) => dependency.name === PDS_PACKAGE,
 	);
 	const transitive = pds
-		? await transitiveChanges(
-				project,
-				pds.dependency.installedVersion,
-				pds.release,
-				fetcher,
-			)
+		? transitiveChanges(project, pds.dependency.installedVersion, pds.release)
 		: [];
 
 	const directRanges = releases

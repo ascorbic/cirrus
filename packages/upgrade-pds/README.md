@@ -36,6 +36,8 @@ npx upgrade-pds@latest --cwd ./pds # run against another directory
 - The project declares `@getcirrus/pds` as a direct dependency.
 - Dependencies are installed, so the updater can read the versions in `node_modules`. Yarn Plug'n'Play installs are not supported; set `nodeLinker: node-modules` in `.yarnrc.yml` first.
 
-Packages declared with `workspace:`, `catalog:`, `link:`, `file:`, `portal:`, or `npm:` specifiers are reported and left unchanged.
+Packages declared with `workspace:`, `catalog:`, `link:`, `file:`, `portal:`, `patch:`, or `npm:` specifiers, or a bare local path, are reported and left unchanged. So is a direct Cirrus package other than `@getcirrus/pds` that has no release on the chosen dist-tag.
 
-If the install fails, `package.json` and the lockfile are restored and the previous dependencies are reinstalled.
+If the install fails or is interrupted, `package.json`, the lockfile, and any earlier work order are restored and the previous dependencies are reinstalled.
+
+The work order covers the versions installed when the updater ran. Once the packages have moved, running the updater again reports that nothing needs to change and leaves the existing work order in place.

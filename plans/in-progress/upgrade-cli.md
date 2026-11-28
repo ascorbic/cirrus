@@ -34,7 +34,7 @@ Dropped:
 
 ## What is different
 
-**Transitive Cirrus packages.** A project depends on `@getcirrus/pds` only. `@getcirrus/oauth-provider` and `@getcirrus/spaces` arrive through it, and the PDS changelog records their changes as bare `Updated dependencies` lines. The plan reads the `dependencies` of `@getcirrus/pds` at the from and to versions from the registry (`workspace:*` publishes as an exact version) and fetches those packages' changelog ranges too.
+**Transitive Cirrus packages.** A project depends on `@getcirrus/pds` only. `@getcirrus/oauth-provider` and `@getcirrus/spaces` arrive through it, and the PDS changelog records their changes as bare `Updated dependencies` lines. The from versions are read from `node_modules`, beside the installed `@getcirrus/pds`. The to versions come from the `dependencies` of the target `@getcirrus/pds` release on the registry (`workspace:*` publishes as an exact version). Those packages' changelog ranges are fetched too.
 
 **Reference project link.** The work order links to `packages/create-pds/templates/pds-worker` at the target release tag, and tells the agent to compare the project's `wrangler.jsonc`, worker entry and `vite.config.ts` against it when a release entry mentions project configuration. The updater does not fetch or diff the template.
 
@@ -94,10 +94,17 @@ Implementation notes:
 - The package manager is detected from the `packageManager` field, then the nearest lockfile in the project directory or a parent. The lockfile's directory is where it is snapshotted and restored.
 - `jsonc-parser` is aliased to its ESM build in `tsdown.config.ts`; its UMD `main` does not bundle.
 - With nothing to change, the command exits without writing a work order.
+- The work order is written before the install and removed if the install fails. After a successful install the range it covers can no longer be derived from the project.
+- SIGINT is held during the install so an interrupted package manager goes through the restore path.
+- pnpm installs run with `--no-frozen-lockfile` and Yarn with `YARN_ENABLE_IMMUTABLE_INSTALLS=false`, because `CI=true` otherwise rejects the changed lockfile.
+- A parent directory's lockfile counts only when that directory is a workspace root (`pnpm-workspace.yaml`, or a `package.json` with `workspaces`).
+- The spaces entry in the oauth-provider changelog is kept byte-identical to the pds one, and a test asserts it, so the work order lists it once.
 - Scripts are always invoked as `<pm> run <script>`, because `pnpm deploy` is a pnpm built-in.
 
 Not done:
 
+- Regenerating a work order for a project whose packages were already bumped by hand. That needs the previous version from the user, such as a `--from <version>` option.
+- A changelog entry hand-edited so that a body line starts at column 0 with `- ` or `## ` is split at that line. Changesets indents bodies; hand edits have to keep the indent.
 - The automated end-to-end test. It needs the npm registry and GitHub, and the CLI has no way to point at a local registry. The unit tests cover each module and the hand run above covers the whole path.
 
 ## Open questions

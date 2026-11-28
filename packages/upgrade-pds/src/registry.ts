@@ -10,6 +10,9 @@ export interface RegistryRelease {
 	cirrusDependencies: Record<string, string>;
 }
 
+/** npm has no such package, version, or dist-tag. */
+export class ReleaseNotFoundError extends Error {}
+
 const GITHUB_REPOSITORY = /github\.com[/:]([^/]+)\/([^/#]+?)(?:\.git)?$/i;
 
 function githubRepository(value: unknown): GitHubRepository | undefined {
@@ -47,9 +50,10 @@ export async function resolveRegistryRelease(
 		headers: { Accept: "application/json", "User-Agent": "upgrade-pds" },
 	});
 	if (!response.ok) {
-		throw new Error(
-			`npm could not resolve ${name}@${tagOrVersion} (${response.status} ${response.statusText}).`,
-		);
+		const message = `npm could not resolve ${name}@${tagOrVersion} (${response.status} ${response.statusText}).`;
+		throw response.status === 404
+			? new ReleaseNotFoundError(message)
+			: new Error(message);
 	}
 	const metadata: unknown = await response.json();
 	const field = (key: string): unknown =>

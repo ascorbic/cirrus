@@ -58,7 +58,7 @@ The project template for the target release is at:
 
 ${plan.referenceProject}
 
-When a release entry mentions project configuration, compare this project's \`wrangler.jsonc\`, worker entry (\`src/index.ts\`), \`vite.config.ts\`, and \`package.json\` scripts against the template. The template shows every optional feature configured. Keep this project's own names, routes, vars, and bucket names.
+When a release entry mentions project configuration, compare this project's \`wrangler.jsonc\`, worker entry (\`src/index.ts\`), and \`vite.config.ts\` against the template, and its \`package.json\` against the template's \`package.json.tmpl\`. The template shows every optional feature configured. Keep this project's own names, routes, vars, and bucket names.
 
 `;
 }
@@ -108,7 +108,7 @@ ${renderPackages(plan)}
 
 ## Release entries to assess
 
-These are the complete authored major, minor, and patch entries crossed by this update, from \`@getcirrus/pds\` and the Cirrus packages installed through it. Generated dependency-bump entries and attribution have been removed. Check whether each entry requires a change to this project's configuration, worker entry, secrets, or Cloudflare resources, and make that change. Do not enable an optional feature merely because it appears here.
+These are the complete authored major, minor, and patch entries crossed by the Cirrus packages this update changed. Generated dependency-bump entries and attribution have been removed. Check whether each entry requires a change to this project's configuration, worker entry, secrets, or Cloudflare resources, and make that change. Do not enable an optional feature merely because it appears here.
 
 ${changes}
 

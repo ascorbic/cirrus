@@ -88,6 +88,19 @@ describe("parseChangelog", () => {
 	});
 });
 
+describe("parseChangelog without an author", () => {
+	it("strips the links when Changesets could not credit anyone", () => {
+		const [entry] = parseChangelog(
+			"## 1.0.0\n\n### Patch Changes\n\n- [#7](https://github.com/ascorbic/cirrus/pull/7) [`abc1234`](https://github.com/ascorbic/cirrus/commit/abc1234) - Fix it.\n",
+		);
+
+		expect(entry).toMatchObject({
+			body: "Fix it.",
+			source: "[#7](https://github.com/ascorbic/cirrus/pull/7)",
+		});
+	});
+});
+
 describe("entriesBetween", () => {
 	it("returns entries after the installed version up to the target", () => {
 		expect(
@@ -132,6 +145,22 @@ describe("entriesBetween", () => {
 			body: expect.stringMatching(/^Atproto spaces \(alpha\)/),
 		});
 		expect(entries.every((entry) => !entry.body.startsWith("- "))).toBe(true);
+	});
+});
+
+describe("entries shared between packages", () => {
+	it("keeps the spaces entry identical in the pds and oauth-provider changelogs so it is listed once", async () => {
+		const read = (name: string) =>
+			readFile(new URL(`../../${name}/CHANGELOG.md`, import.meta.url), "utf8");
+		const [pds] = entriesBetween(await read("pds"), "0.18.0", "0.19.0");
+		const [oauthProvider] = entriesBetween(
+			await read("oauth-provider"),
+			"0.5.0",
+			"0.6.0",
+		);
+
+		expect(pds?.body).toMatch(/^Atproto spaces \(alpha\)/);
+		expect(oauthProvider?.body).toBe(pds?.body);
 	});
 });
 
