@@ -2,35 +2,79 @@
   "lexicon": 1,
   "id": "com.atproto.space.defs",
   "defs": {
-    "signedCommit": {
+    "commit": {
       "type": "object",
-      "description": "A signed commit over the current state of a permissioned repo.",
-      "required": ["ver", "hash", "mac", "ikm", "sig", "rev"],
+      "description": "Commit to the current state of a space repo. Not signed; authenticated by the repo host with a MAC instead.",
+      "required": ["ver", "repo", "space", "rev", "data"],
       "properties": {
         "ver": {
           "type": "integer",
-          "description": "Commit format version, currently 1. Corresponds to the version in the ctx protocol tag (atproto-space-v1)."
+          "description": "Commit format version, currently 1."
         },
-        "hash": {
-          "type": "bytes",
-          "description": "sha256 digest of the LtHash state (32 bytes)."
+        "repo": {
+          "type": "string",
+          "format": "did"
         },
-        "ikm": {
-          "type": "bytes",
-          "description": "Per-signature input keying material (32 random bytes)"
-        },
-        "sig": {
-          "type": "bytes",
-          "description": "Signature over ctx (space, author DID, rev, ikm) by the user's atproto signing key. Does not cover the repo hash."
-        },
-        "mac": {
-          "type": "bytes",
-          "description": "HMAC-SHA256 over hash, keyed by HKDF-SHA256(ikm, info=ctx). Binds the repo hash to this commit's context."
+        "space": {
+          "type": "string",
+          "format": "space-ref"
         },
         "rev": {
           "type": "string",
+          "format": "tid"
+        },
+        "data": {
+          "type": "bytes",
+          "description": "SHA-256 digest of the repo's LtHash state."
+        }
+      }
+    },
+    "repoWrite": {
+      "type": "object",
+      "description": "A repo in the space advanced to a new revision.",
+      "required": ["repo", "repoRev", "data", "spaceRev"],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "format": "did"
+        },
+        "repoRev": {
+          "type": "string",
+          "format": "tid"
+        },
+        "data": {
+          "type": "bytes"
+        },
+        "spaceRev": {
+          "type": "string",
           "format": "tid",
-          "description": "Commit revision (TID), also bound into ctx."
+          "description": "The space revision at which this update was sequenced."
+        },
+        "prevSpaceRev": {
+          "type": "string",
+          "format": "tid",
+          "description": "The space revision before this update, if any. Set in notifySpaceUpdate, where a gap indicates missed notifications, which can be recovered with listWriters."
+        }
+      }
+    },
+    "repoRemoved": {
+      "type": "object",
+      "description": "A repo was removed from the writer set.",
+      "required": ["repo", "spaceRev"],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "format": "did"
+        },
+        "spaceRev": {
+          "type": "string",
+          "format": "tid",
+          "description": "The space revision at which this update was sequenced."
+        },
+        "prevSpaceRev": {
+          "type": "string",
+          "format": "tid",
+          "description": "The space revision before this update, if any. Set in notifySpaceUpdate, where a gap indicates missed notifications, which can be recovered with listWriters."
         }
       }
     }

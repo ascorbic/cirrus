@@ -102,14 +102,24 @@ describe("SourcePdsPlcClient", () => {
 				"https://bsky.social",
 				"test-token",
 			);
-			const result = await client.signPlcOperation(
-				"email-token",
-				"https://new-pds.com",
-				"did:key:new",
-			);
+			const changes = {
+				rotationKeys: ["did:key:recovery", "did:key:new"],
+				verificationMethods: { atproto: "did:key:new" },
+				services: mockOperation.services,
+			};
+			const result = await client.signPlcOperation("email-token", changes);
 
 			expect(result.success).toBe(true);
 			expect(result.signedOperation).toEqual(mockOperation);
+
+			const [url, init] = mockFetch.mock.calls[0] as [URL, RequestInit];
+			expect(url.toString()).toBe(
+				"https://bsky.social/xrpc/com.atproto.identity.signPlcOperation",
+			);
+			expect(JSON.parse(init.body as string)).toEqual({
+				token: "email-token",
+				...changes,
+			});
 		});
 
 		it("handles expired token error", async () => {
@@ -119,11 +129,7 @@ describe("SourcePdsPlcClient", () => {
 				"https://bsky.social",
 				"test-token",
 			);
-			const result = await client.signPlcOperation(
-				"old-token",
-				"https://new-pds.com",
-				"did:key:new",
-			);
+			const result = await client.signPlcOperation("old-token", {});
 
 			expect(result.success).toBe(false);
 			expect(result.error).toContain("expired");
@@ -136,14 +142,45 @@ describe("SourcePdsPlcClient", () => {
 				"https://bsky.social",
 				"test-token",
 			);
-			const result = await client.signPlcOperation(
-				"bad-token",
-				"https://new-pds.com",
-				"did:key:new",
-			);
+			const result = await client.signPlcOperation("bad-token", {});
 
 			expect(result.success).toBe(false);
 			expect(result.error).toContain("Invalid token");
+		});
+	});
+
+	describe("getRecommendedDidCredentials", () => {
+		it("returns the source PDS's rotation keys", async () => {
+			mockFetch.mockResolvedValueOnce(
+				mockXrpcResponse({
+					rotationKeys: ["did:key:sourcePds"],
+					verificationMethods: { atproto: "did:key:sourceSigning" },
+				}),
+			);
+
+			const client = new SourcePdsPlcClient(
+				"https://bsky.social",
+				"test-token",
+			);
+			const result = await client.getRecommendedDidCredentials();
+
+			expect(result).toEqual({ rotationKeys: ["did:key:sourcePds"] });
+			const [url] = mockFetch.mock.calls[0] as [URL];
+			expect(url.toString()).toBe(
+				"https://bsky.social/xrpc/com.atproto.identity.getRecommendedDidCredentials",
+			);
+		});
+
+		it("returns no keys when the response has none", async () => {
+			mockFetch.mockResolvedValueOnce(mockXrpcResponse({}));
+
+			const client = new SourcePdsPlcClient(
+				"https://bsky.social",
+				"test-token",
+			);
+			expect(await client.getRecommendedDidCredentials()).toEqual({
+				rotationKeys: [],
+			});
 		});
 	});
 
@@ -199,6 +236,42 @@ describe("PlcDirectoryClient", () => {
 			await expect(client.getAuditLog("did:plc:notfound")).rejects.toThrow(
 				"Failed to fetch audit log: 404",
 			);
+		});
+	});
+
+	describe("getLatestOperation", () => {
+		it("returns the last entry that has not been nullified", async () => {
+			const entry = (cid: string, nullified: boolean) => ({
+				did: "did:plc:abc123",
+				operation: { type: "plc_operation", prev: null, sig: cid },
+				cid,
+				nullified,
+				createdAt: "2024-01-01T00:00:00Z",
+			});
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: () =>
+					Promise.resolve([
+						entry("cid1", false),
+						entry("cid2", false),
+						entry("cid3", true),
+					]),
+			});
+
+			const client = new PlcDirectoryClient();
+			const result = await client.getLatestOperation("did:plc:abc123");
+
+			expect(result?.cid).toBe("cid2");
+		});
+
+		it("returns null for an empty log", async () => {
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: () => Promise.resolve([]),
+			});
+
+			const client = new PlcDirectoryClient();
+			expect(await client.getLatestOperation("did:plc:abc123")).toBeNull();
 		});
 	});
 
@@ -274,6 +347,33 @@ describe("PlcDirectoryClient", () => {
 			});
 
 			expect(result.success).toBe(true);
+		});
+
+		it("marks updates with If-Match: * and leaves genesis operations unmarked", async () => {
+			const op = (prev: string | null) => ({
+				type: "plc_operation" as const,
+				prev,
+				sig: "xyz",
+				rotationKeys: ["did:key:rot"],
+				verificationMethods: { atproto: "did:key:sig" },
+				alsoKnownAs: ["at://user.bsky.social"],
+				services: {
+					atproto_pds: {
+						type: "AtprotoPersonalDataServer",
+						endpoint: "https://pds.example.com",
+					},
+				},
+			});
+			mockFetch.mockResolvedValue({ ok: true });
+			const client = new PlcDirectoryClient();
+
+			await client.submitOperation("did:plc:abc123", op("bafyprev"));
+			const update = mockFetch.mock.calls.at(-1)![1] as RequestInit;
+			expect(new Headers(update.headers).get("If-Match")).toBe("*");
+
+			await client.submitOperation("did:plc:abc123", op(null) as never);
+			const genesis = mockFetch.mock.calls.at(-1)![1] as RequestInit;
+			expect(new Headers(genesis.headers).get("If-Match")).toBeNull();
 		});
 
 		it("returns error when operation rejected", async () => {

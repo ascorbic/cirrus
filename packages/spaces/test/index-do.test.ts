@@ -11,7 +11,7 @@ let n = 0;
 function entry(overrides: Record<string, unknown> = {}) {
 	const skey = `idx${n++}x`;
 	return {
-		uri: `at://${AUTHORITY}/space/app.bsky.group/${skey}`,
+		uri: `at:space/${AUTHORITY}/app.bsky.group/${skey}`,
 		authority: AUTHORITY,
 		type: "app.bsky.group",
 		skey,
@@ -37,7 +37,7 @@ describe("SpaceIndexDurableObject", () => {
 	it("filters by type and authority", async () => {
 		const stub = indexStub();
 		const a = entry({ type: "app.bsky.personal" });
-		a.uri = `at://${AUTHORITY}/space/app.bsky.personal/${a.skey}`;
+		a.uri = `at:space/${AUTHORITY}/app.bsky.personal/${a.skey}`;
 		await stub.rpcRegister(a);
 		await stub.rpcActivate(a.uri);
 
@@ -118,8 +118,20 @@ describe("SpaceIndexDurableObject", () => {
 			afterUri: page1.spaces[1]!.uri,
 		});
 		expect(page2.spaces.length).toBeGreaterThan(0);
-		expect(
-			page2.spaces.every((s) => s.uri > page1.spaces[1]!.uri),
-		).toBe(true);
+		expect(page2.spaces.every((s) => s.uri > page1.spaces[1]!.uri)).toBe(true);
+	});
+
+	it("holds pending imported blobs until uploadBlob claims them", async () => {
+		const stub = indexStub();
+		const a = entry();
+		const b = entry();
+		await stub.rpcAddPendingBlobs(a.uri, ["bafkpending1", "bafkpending2"]);
+		await stub.rpcAddPendingBlobs(b.uri, ["bafkpending1"]);
+		expect((await stub.rpcClaimPendingBlob("bafkpending1")).sort()).toEqual(
+			[a.uri, b.uri].sort(),
+		);
+		// Claimed once.
+		expect(await stub.rpcClaimPendingBlob("bafkpending1")).toEqual([]);
+		expect(await stub.rpcClaimPendingBlob("bafkpending2")).toEqual([a.uri]);
 	});
 });

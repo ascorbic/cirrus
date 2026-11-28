@@ -159,7 +159,7 @@ curl "https://alice.example.com/xrpc/com.atproto.server.getAccountStatus"
 
 ### Step 5: Update PLC Directory
 
-This points your DID to the new PDS. Requires signing by old PDS via email challenge:
+This points your DID to the new PDS. Requires signing by old PDS via email challenge. `pds identity` does this, and also sets the DID's rotation keys to the keys the user holds followed by the new PDS's signing key, removing the old PDS's key and offering to create a recovery key (see `plans/in-progress/plc-rotation-keys.md`). Accounts migrated before that can fix their rotation keys with `pds rotation-keys`.
 
 ```bash
 # Request PLC operation signature from old PDS

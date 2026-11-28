@@ -1,31 +1,48 @@
 /**
- * Harness identities and DPoP keys.
+ * Harness identities.
  *
- * Multi-party checks need the harness to play a reader, a writer and a
- * syncer — parties that aren't the target's operator. Each only needs a
- * DID with a resolvable key the target can verify against, so the provider
- * mints keypairs and the harness signs as those parties.
+ * Multi-party checks need the harness to play parties that aren't the
+ * target's operator: a reader (signing delegation tokens), a writer's PDS
+ * (signing notifyWrite service auth) and a foreign space authority
+ * (signing credentials and revocations). Each needs a DID the target can
+ * resolve to the key the harness holds.
  *
- * Two facts the caller must arrange (they can't be solved in-library):
- * the target has to be able to *resolve* each identity's DID to its key.
- * In an in-process fixture the caller wires the target's key resolver to
- * this provider's `didKey(role)`; against a live target the identities
- * must be published (did:web under the checker's origin, or did:plc on a
- * reachable directory). The provider is resolution-agnostic — it only
- * holds keys and signs.
+ * Resolution is the caller's to arrange — it can't be solved in-library:
+ *
+ * - In an in-process fixture, wire the target's DID resolver to
+ *   {@link KeypairIdentityProvider.didDocument} (or to `didKey` for a
+ *   did:key-only resolver).
+ * - Against a live target, publish each identity: serve
+ *   {@link KeypairIdentityProvider.didDocument} at a did:web the target
+ *   can fetch (the reference matrix runs one tiny server per identity on
+ *   `did:web:localhost%3A<port>`), or register a did:plc.
+ *
+ * What a published identity document must carry, per the alpha: a
+ * `#atproto` verification method (it signs every space token and service
+ * JWT) and — for an identity that receives calls, such as a syncer inbox
+ * or a managing app — an `#atproto_pds` service, which is how a bare DID
+ * service identifier resolves to an endpoint. Identities never serve
+ * repos, so they publish no `#atproto_kem`.
  */
 
 import { Secp256k1Keypair } from "@atproto/crypto";
-import type { DpopKey, HarnessIdentity, IdentityProvider } from "./model.js";
-import { createDpopKey } from "./dpop.js";
+import type { HarnessIdentity, IdentityProvider } from "./model.js";
 
-// DPoP keys are WebCrypto and browser-safe, so they live in ./dpop.ts;
-// re-exported here because the full entry has always offered them.
-export { createDpopKey } from "./dpop.js";
+// Credential keys are WebCrypto and browser-safe, so they live in
+// ./space-auth.ts; re-exported here for the full entry's callers.
+export { createCredentialKey } from "./space-auth.js";
+export type { CredentialKey } from "./space-auth.js";
 
 export interface HarnessIdentityWithKey extends HarnessIdentity {
-	/** The did:key form of the identity's signing key, for resolver wiring. */
+	/** The did:key form of the identity's `#atproto` key, for resolver wiring. */
 	didKey: string;
+}
+
+export interface IdentityDocumentOptions {
+	/** Publish an `#atproto_pds` service at this endpoint (inboxes, managing apps). */
+	serviceEndpoint?: string;
+	/** A handle to list in `alsoKnownAs`. */
+	handle?: string;
 }
 
 /**
@@ -33,16 +50,20 @@ export interface HarnessIdentityWithKey extends HarnessIdentity {
  * by role label and reused within a run, so "reader" is stable across the
  * checks that mint and then present its tokens.
  *
- * `didAt` lets the caller give each identity a resolvable DID (e.g.
- * `did:web:checker.test:actors:reader`); when omitted, the identity's DID
- * is its own `did:key`, which only works against a target whose resolver
- * this provider is wired into.
+ * `didFor` gives each identity a resolvable DID (e.g.
+ * `did:web:localhost%3A61234`), and may be async — a harness can start the
+ * server that will publish the document there. When omitted, the
+ * identity's DID is its own `did:key`, which only works against a target
+ * whose resolver this provider is wired into.
  */
 export class KeypairIdentityProvider implements IdentityProvider {
 	private cache = new Map<string, Promise<HarnessIdentityWithKey>>();
 
 	constructor(
-		private readonly didAt?: (role: string, didKey: string) => string,
+		private readonly didFor?: (
+			role: string,
+			didKey: string,
+		) => string | Promise<string>,
 	) {}
 
 	identity(role: string): Promise<HarnessIdentityWithKey> {
@@ -57,7 +78,7 @@ export class KeypairIdentityProvider implements IdentityProvider {
 	private async mint(role: string): Promise<HarnessIdentityWithKey> {
 		const keypair = await Secp256k1Keypair.create({ exportable: true });
 		const didKey = keypair.did();
-		const did = this.didAt ? this.didAt(role, didKey) : didKey;
+		const did = this.didFor ? await this.didFor(role, didKey) : didKey;
 		return {
 			did,
 			didKey,
@@ -66,8 +87,42 @@ export class KeypairIdentityProvider implements IdentityProvider {
 		};
 	}
 
-	dpopKey(): Promise<DpopKey> {
-		return createDpopKey();
+	/**
+	 * The DID document a resolvable identity must publish: its `#atproto`
+	 * key as a Multikey and, optionally, the `#atproto_pds` service the
+	 * target delivers to.
+	 */
+	static didDocument(
+		identity: Pick<HarnessIdentityWithKey, "did" | "didKey">,
+		opts: IdentityDocumentOptions = {},
+	): Record<string, unknown> {
+		return {
+			"@context": [
+				"https://www.w3.org/ns/did/v1",
+				"https://w3id.org/security/multikey/v1",
+			],
+			id: identity.did,
+			...(opts.handle ? { alsoKnownAs: [`at://${opts.handle}`] } : {}),
+			verificationMethod: [
+				{
+					id: `${identity.did}#atproto`,
+					type: "Multikey",
+					controller: identity.did,
+					publicKeyMultibase: identity.didKey.slice("did:key:".length),
+				},
+			],
+			...(opts.serviceEndpoint
+				? {
+						service: [
+							{
+								id: "#atproto_pds",
+								type: "AtprotoPersonalDataServer",
+								serviceEndpoint: opts.serviceEndpoint,
+							},
+						],
+					}
+				: {}),
+		};
 	}
 
 	/** All minted identities so far, for resolver wiring in fixtures. */

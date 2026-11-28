@@ -2,7 +2,7 @@
  * Secret generation and management utilities for PDS CLI
  */
 import { randomBytes } from "node:crypto";
-import { Secp256k1Keypair } from "@atproto/crypto";
+import { P256Keypair, Secp256k1Keypair } from "@atproto/crypto";
 import bcrypt from "bcryptjs";
 import * as p from "@clack/prompts";
 import { setSecret, setVar, type SecretName } from "./wrangler.js";
@@ -24,6 +24,18 @@ export interface SigningKeypair {
  */
 export async function generateSigningKeypair(): Promise<SigningKeypair> {
 	const keypair = await Secp256k1Keypair.create({ exportable: true });
+	return {
+		privateKey: Buffer.from(await keypair.export()).toString("hex"),
+		publicKey: keypair.did().replace("did:key:", ""),
+	};
+}
+
+/**
+ * Generate a P-256 keypair for the spaces `#atproto_kem` verification
+ * method, which MACs space data for syncers.
+ */
+export async function generateKemKeypair(): Promise<SigningKeypair> {
+	const keypair = await P256Keypair.create({ exportable: true });
 	return {
 		privateKey: Buffer.from(await keypair.export()).toString("hex"),
 		publicKey: keypair.did().replace("did:key:", ""),
@@ -72,9 +84,7 @@ function generatePassword(): string {
  */
 export async function promptPassword(handle?: string): Promise<string> {
 	const method = await promptSelect<"manual" | "generate">({
-		message: handle
-			? `Set a password for @${handle}:`
-			: "Set a password:",
+		message: handle ? `Set a password for @${handle}:` : "Set a password:",
 		options: [
 			{ value: "manual", label: "Choose a password" },
 			{ value: "generate", label: "Generate one automatically" },
@@ -101,7 +111,11 @@ export async function promptPassword(handle?: string): Promise<string> {
 		}
 
 		saveOptions.push(
-			{ value: "clipboard", label: "Copy to clipboard", hint: "paste into password manager" },
+			{
+				value: "clipboard",
+				label: "Copy to clipboard",
+				hint: "paste into password manager",
+			},
 			{ value: "show", label: "Display it", hint: "shown in terminal" },
 		);
 
@@ -135,7 +149,9 @@ export async function promptPassword(handle?: string): Promise<string> {
 				p.log.success("Password generated and copied to clipboard");
 			} else {
 				p.note(password, "Generated password");
-				p.log.warn("Could not copy to clipboard — save this password somewhere safe!");
+				p.log.warn(
+					"Could not copy to clipboard — save this password somewhere safe!",
+				);
 			}
 		} else {
 			p.note(password, "Generated password");
@@ -202,7 +218,7 @@ export async function setSecretValue(
  * Set a public var in wrangler.jsonc
  */
 export function setPublicVar(
-	name: "SIGNING_KEY_PUBLIC",
+	name: "SIGNING_KEY_PUBLIC" | "SPACES_KEM_KEY_PUBLIC",
 	value: string,
 	local: boolean,
 ): void {

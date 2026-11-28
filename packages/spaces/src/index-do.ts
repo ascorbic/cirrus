@@ -11,7 +11,12 @@
  */
 
 import { DurableObject } from "cloudflare:workers";
-import { INDEX_DO_SCHEMA, PENDING_ENTRY_TTL_MS, SPACE_SCHEMA_VERSION } from "./schema.js";
+import {
+	INDEX_DO_SCHEMA,
+	PENDING_BLOB_TTL_MS,
+	PENDING_ENTRY_TTL_MS,
+	SPACE_SCHEMA_VERSION,
+} from "./schema.js";
 
 export type SpaceIndexState = "pending" | "active" | "deleted";
 
@@ -163,6 +168,39 @@ export class SpaceIndexDurableObject<Env = unknown> extends DurableObject<Env> {
 		};
 	}
 
+	/**
+	 * Note blobs an imported space repo references but whose bytes have not
+	 * been uploaded yet, so uploadBlob can promote them when they arrive.
+	 */
+	async rpcAddPendingBlobs(uri: string, cids: string[]): Promise<void> {
+		await this.ensureInitialized();
+		const now = Date.now();
+		for (const cid of cids) {
+			this.sql.exec(
+				"INSERT OR REPLACE INTO pending_blob (cid, uri, created_at) VALUES (?, ?, ?)",
+				cid,
+				uri,
+				now,
+			);
+		}
+	}
+
+	/**
+	 * Claim a freshly uploaded blob: the spaces whose imported records
+	 * reference it. Claimed entries are removed.
+	 */
+	async rpcClaimPendingBlob(cid: string): Promise<string[]> {
+		await this.ensureInitialized();
+		const uris = this.sql
+			.exec("SELECT uri FROM pending_blob WHERE cid = ?", cid)
+			.toArray()
+			.map((row) => row.uri as string);
+		if (uris.length > 0) {
+			this.sql.exec("DELETE FROM pending_blob WHERE cid = ?", cid);
+		}
+		return uris;
+	}
+
 	/** Wipe the registry (spaces reset). */
 	async rpcDestroy(): Promise<void> {
 		await this.ctx.storage.deleteAlarm();
@@ -184,6 +222,10 @@ export class SpaceIndexDurableObject<Env = unknown> extends DurableObject<Env> {
 			"UPDATE space SET state = 'deleted', updated_at = ? WHERE state = 'pending' AND updated_at < ?",
 			new Date().toISOString(),
 			cutoff,
+		);
+		this.sql.exec(
+			"DELETE FROM pending_blob WHERE created_at < ?",
+			Date.now() - PENDING_BLOB_TTL_MS,
 		);
 		await this.ctx.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
 	}

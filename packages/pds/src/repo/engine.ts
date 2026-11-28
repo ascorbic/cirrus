@@ -14,6 +14,7 @@ import { CID, asCid, isBlobRef } from "@atproto/lex-data";
 import { now as tidNow } from "@atcute/tid";
 import { jsonToLex } from "@atproto/lex-json";
 import { SqliteRepoStorage } from "./storage";
+import { listCollectionLeaves } from "./list-records";
 import type { Sequencer, SeqEvent, CommitData } from "./sequencer";
 import { RecordAlreadyExistsError, type ValidationStatus } from "../validation";
 
@@ -192,7 +193,8 @@ export class RepoEngine {
 	}
 
 	/**
-	 * List records in a collection.
+	 * List records in a collection, newest first unless `reverse` is set.
+	 * The cursor is the rkey of the last record returned.
 	 */
 	async listRecords(
 		collection: string,
@@ -206,35 +208,27 @@ export class RepoEngine {
 		cursor?: string;
 	}> {
 		const repo = await this.getRepo();
+		// Fetch one extra leaf to tell whether there's another page.
+		const leaves = await listCollectionLeaves(repo.data, collection, {
+			...opts,
+			limit: opts.limit + 1,
+		});
+		const hasMore = leaves.length > opts.limit;
+		const page = hasMore ? leaves.slice(0, opts.limit) : leaves;
+
 		const records = [];
-		const startFrom = opts.cursor || `${collection}/`;
-
-		for await (const record of repo.walkRecords(startFrom)) {
-			if (record.collection !== collection) {
-				if (records.length > 0) break;
-				continue;
-			}
-
+		let rkey = "";
+		for (const leaf of page) {
+			rkey = leaf.key.slice(collection.length + 1);
+			const record = await repo.storage.readRecord(leaf.value);
 			records.push({
-				uri: `at://${repo.did}/${record.collection}/${record.rkey}`,
-				cid: record.cid.toString(),
-				value: serializeRecord(record.record),
+				uri: `at://${repo.did}/${collection}/${rkey}`,
+				cid: leaf.value.toString(),
+				value: serializeRecord(record),
 			});
-
-			if (records.length >= opts.limit + 1) break;
 		}
 
-		if (opts.reverse) {
-			records.reverse();
-		}
-
-		const hasMore = records.length > opts.limit;
-		const results = hasMore ? records.slice(0, opts.limit) : records;
-		const cursor = hasMore
-			? `${collection}/${results[results.length - 1]?.uri.split("/").pop() ?? ""}`
-			: undefined;
-
-		return { records: results, cursor };
+		return { records, cursor: hasMore ? rkey : undefined };
 	}
 
 	/**

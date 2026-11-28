@@ -1128,7 +1128,7 @@ describe("XRPC Service Proxying", () => {
 					// PLC DIDs resolve via plc.directory
 					if (
 						u.includes("plc.directory") &&
-						u.includes(BLUESKY_MOD_SERVICE_DID)
+						u.includes(encodeURIComponent(BLUESKY_MOD_SERVICE_DID))
 					) {
 						return new Response(JSON.stringify(blueskyModDidDoc), {
 							status: 200,
@@ -1309,7 +1309,7 @@ describe("XRPC Service Proxying", () => {
 					const u = url.toString();
 					if (
 						u.includes("plc.directory") &&
-						u.includes(BLUESKY_MOD_SERVICE_DID)
+						u.includes(encodeURIComponent(BLUESKY_MOD_SERVICE_DID))
 					) {
 						return new Response(JSON.stringify(blueskyModDidDoc), {
 							status: 200,
