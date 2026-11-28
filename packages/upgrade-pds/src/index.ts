@@ -3,10 +3,12 @@
  * upgrade-pds - Upgrade a Cirrus PDS project and write its upgrade work order
  */
 import * as p from "@clack/prompts";
+import { isAgent } from "am-i-vibing";
 import { defineCommand, runMain } from "citty";
 import pc from "picocolors";
 
 import packageJson from "../package.json" with { type: "json" };
+import { agentNextSteps, agentUsage } from "./agent.js";
 import { validateOptions } from "./args.js";
 import { writeUpgradeGuide } from "./guide.js";
 import { createUpgradePlan } from "./plan.js";
@@ -105,7 +107,14 @@ async function upgrade(args: {
 		return;
 	}
 
+	const agent = isAgent();
 	if (!args.yes) {
+		if (agent) {
+			p.outro("Re-run with --yes to apply this plan.");
+			process.stdout.write(agentUsage(plan));
+			process.exitCode = 1;
+			return;
+		}
 		if (!process.stdin.isTTY || !process.stdout.isTTY) {
 			p.cancel(
 				"Re-run with --yes to apply this plan in a non-interactive shell.",
@@ -126,9 +135,13 @@ async function upgrade(args: {
 	}
 
 	await applyPlan(plan);
-	p.outro(
-		`${installs ? "Packages updated" : "Work order written"}. Give an agent this work order: ${pc.cyan(plan.guidePath)}`,
-	);
+	const done = installs ? "Packages updated" : "Work order written";
+	if (agent) {
+		p.outro(`${done}.`);
+		process.stdout.write(agentNextSteps(plan));
+		return;
+	}
+	p.outro(`${done}. Give an agent this work order: ${pc.cyan(plan.guidePath)}`);
 }
 
 const main = defineCommand({

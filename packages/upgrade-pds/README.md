@@ -34,6 +34,10 @@ npx upgrade-pds@latest --from 0.18.0 # cover releases after an earlier version
 
 `--to` takes a dist-tag, not a version.
 
+## Coding agents
+
+The updater detects when a coding agent is running it, using [`am-i-vibing`](https://github.com/ascorbic/am-i-vibing). An agent is never prompted. Without `--yes`, the updater prints the plan, changes nothing, exits with status 1, and prints the command that applies the plan along with what that command will and will not do. With `--yes`, it finishes by telling the agent to read the work order and follow it.
+
 ## Requirements
 
 - The project declares `@getcirrus/pds` as a direct dependency.
