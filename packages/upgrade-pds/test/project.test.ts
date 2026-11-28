@@ -202,9 +202,7 @@ describe("loadProject", () => {
 
 		const project = await loadProject(join(root, "src"));
 
-		expect(project.packageJsonPath).toBe(
-			join(project.root, "package.json"),
-		);
+		expect(project.packageJsonPath).toBe(join(project.root, "package.json"));
 		expect(project.dependencies).toHaveLength(1);
 	});
 
