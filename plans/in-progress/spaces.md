@@ -354,13 +354,24 @@ move to a new one (the update loop from the space-conformance spec, #228):
 
 ## Not done / next
 
-- **Interop runs** against rsky and a live deployment. The reference is
-  covered in-process by the conformance matrix (above).
-  bulletin.my's S1 flow is verified live against pds.mk.gg (2026-08-29):
-  OAuth with space: scopes, board space creation, delegation →
-  credential exchange, reads, registerNotify and listRepos all work
-  (on the 0818 alpha; not re-verified since).
-  Cross-PDS (S2–S4) remains unexercised against a real foreign PDS.
+- **Interop runs** against rsky and other implementations. The reference
+  is covered in-process by the conformance matrix (above), and live:
+  - **2026-11-28, 1124 alpha, cross-PDS (S1–S4) verified live** between
+    pds.mk.gg (Cirrus, `did:web`) and an account on Bluesky's hosted
+    spaces alpha PDS, through bulletin.my (whose source pins 1124). Both
+    directions work with no warnings in `wrangler tail`: each account
+    reads and posts on the other's board. That covers OAuth with
+    bulletin's `include:my.bulletin.permissions` set, board (managed
+    space) creation, delegation tokens minted by each host and accepted
+    by the other, credentials issued after the managing app's
+    `checkAccess`, MAC'd credentialed reads against the `#atproto_kem`
+    key, signed `notifyRepoUpdate` in both directions, and the syncer
+    webhooks.
+  - bulletin's boards are managed spaces; its `checkAccess` grants read
+    to an account following the owner and write to mutual follows, asked
+    of the Bluesky AppView (`app.bsky.graph.getRelationships`). A test
+    account therefore needs follows the AppView has indexed.
+  - Earlier: bulletin.my's S1 flow on the 0818 alpha (2026-08-29).
 - **R2 lifecycle rule** must be applied per-install
   (`wrangler r2 bucket lifecycle add pds-blobs --prefix "<did>/staged/" --expire-days 7`);
   `pds init` doesn't automate it yet.
