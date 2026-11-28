@@ -31,6 +31,7 @@ This is a monorepo using pnpm workspaces with the following structure:
 - **packages/pds**: The main PDS library (`@getcirrus/pds`)
 - **packages/oauth-provider**: OAuth 2.1 Provider (`@getcirrus/oauth-provider`)
 - **packages/create-pds**: CLI scaffolding tool (`create-pds`)
+- **packages/upgrade-pds**: Upgrade CLI (`upgrade-pds`) that bumps a project's Cirrus packages and writes `.cirrus/UPGRADE.md`
 - **demos/pds**: Demo PDS deployment
 
 ## Commands
@@ -56,6 +57,14 @@ This is a monorepo using pnpm workspaces with the following structure:
 - **vitest** for testing
 - **publint** and **@arethetypeswrong/cli** for package validation
 - **Prettier** for code formatting (configured to use tabs in `.prettierrc`)
+
+## Changesets
+
+`upgrade-pds` copies changelog entries verbatim into the work order an agent follows to upgrade an existing project. Nothing else tells that agent what a release requires, so:
+
+- Write entries for the project owner: what changed in observable behavior, not how it was implemented.
+- When a change requires anything of an existing project (wrangler config, worker entry exports, vars, secrets, a CLI command to run, an R2 or dashboard setting), say exactly what to do in the entry, in imperative steps, with the config snippet or command. State when a step applies only to projects that use a feature.
+- Do not point at the project template in place of the instructions.
 
 ## Package Architecture
 
