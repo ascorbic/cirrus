@@ -300,11 +300,11 @@ export async function finalizeSpaceScopes(
 
 		if (
 			!perm.hasCollections &&
-			perm.type !== "*" &&
+			perm.spaceType !== "*" &&
 			resolveSpaceCollections
 		) {
 			try {
-				const collections = await resolveSpaceCollections(perm.type);
+				const collections = await resolveSpaceCollections(perm.spaceType);
 				if (collections && collections.length > 0) {
 					perm = perm.withDefaultCollections(
 						collections as readonly (
@@ -334,4 +334,40 @@ export async function finalizeSpaceScopes(
  */
 export function permissionsFor(scope: string): ScopePermissionsTransition {
 	return new ScopePermissionsTransition(scope);
+}
+
+/**
+ * A space operation checked against `space:` grants, in one flat object:
+ * the space (`type`, `authority`, `skey`) and either an `action` (with a
+ * `collection` for writes) or a `manage` op.
+ */
+export type SpaceScopeCheck = {
+	type: string;
+	authority: string;
+	skey: string;
+} & (
+	| { action: "read" | "read_self"; collection?: never; manage?: never }
+	| {
+			action: "create" | "update" | "delete";
+			collection: string;
+			manage?: never;
+	  }
+	| { action?: never; collection?: never; manage: "create" | "update" | "delete" }
+);
+
+/**
+ * Whether granted permissions allow a space operation. Since the
+ * 2026-11-12 alpha, `@atproto/oauth-scopes` takes the space and the
+ * operation as separate arguments; this keeps Cirrus's callers on one
+ * shape across alpha builds.
+ */
+export function allowsSpace(
+	permissions: ScopePermissionsTransition,
+	check: SpaceScopeCheck,
+): boolean {
+	const { type, authority, skey, ...operation } = check;
+	return permissions.allowsSpace(
+		{ spaceType: type, authority, skey } as never,
+		operation as never,
+	);
 }

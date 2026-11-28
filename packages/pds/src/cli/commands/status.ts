@@ -12,7 +12,9 @@ import {
 	checkDidResolution,
 	checkRepoInitialised,
 	checkBlobsImported,
+	countMissingBlobs,
 	checkAppViewIndexing,
+	checkPlcRotationKeys,
 } from "../utils/checks.js";
 
 const CHECK = pc.green("✓");
@@ -167,6 +169,30 @@ export const statusCommand = defineCommand({
 				console.log(
 					`  ${CHECK} DID resolves to this PDS (via ${didCheck.resolveMethod})`,
 				);
+				if (did.startsWith("did:plc:")) {
+					const keys = await checkPlcRotationKeys(client, did);
+					if (!keys) {
+						console.log(`  ${WARN} Could not check rotation keys`);
+						hasWarnings = true;
+					} else if (!keys.pdsCanSign) {
+						console.log(
+							`  ${CROSS} This PDS can't update your identity (its key isn't a rotation key)`,
+						);
+						console.log(pc.dim("      Fix with: pds rotation-keys"));
+						hasErrors = true;
+					} else if (keys.otherKeys === 0) {
+						console.log(`  ${CHECK} This PDS can update your identity`);
+						console.log(
+							`  ${WARN} No recovery key: your PDS is your only rotation key`,
+						);
+						console.log(pc.dim("      Add one with: pds rotation-keys"));
+						hasWarnings = true;
+					} else {
+						console.log(
+							`  ${CHECK} This PDS can update your identity, with ${keys.otherKeys} other rotation ${keys.otherKeys === 1 ? "key" : "keys"}`,
+						);
+					}
+				}
 			} else if (didCheck.pdsEndpoint) {
 				console.log(`  ${CROSS} DID resolves to different PDS`);
 				console.log(pc.dim(`      Resolved via: ${didCheck.resolveMethod}`));
@@ -231,16 +257,17 @@ export const statusCommand = defineCommand({
 		// ============================================
 		if (status.expectedBlobs > 0) {
 			console.log(pc.bold("Blobs"));
-			const blobCheck = checkBlobsImported(status);
+			const blobCheck = checkBlobsImported(
+				status,
+				await countMissingBlobs(client),
+			);
 			if (blobCheck.ok) {
 				console.log(`  ${CHECK} ${blobCheck.message}`);
 			} else {
-				const missing = status.expectedBlobs - status.importedBlobs;
-				console.log(
-					`  ${WARN} ${status.importedBlobs}/${status.expectedBlobs} blobs imported (${missing} missing)`,
-				);
+				console.log(`  ${WARN} ${blobCheck.message}`);
 				hasWarnings = true;
 			}
+			console.log(`  ${INFO} ${status.importedBlobs} blobs stored in total`);
 			console.log();
 		}
 

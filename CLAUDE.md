@@ -31,6 +31,7 @@ This is a monorepo using pnpm workspaces with the following structure:
 - **packages/pds**: The main PDS library (`@getcirrus/pds`)
 - **packages/oauth-provider**: OAuth 2.1 Provider (`@getcirrus/oauth-provider`)
 - **packages/create-pds**: CLI scaffolding tool (`create-pds`)
+- **packages/upgrade-pds**: Upgrade CLI (`upgrade-pds`) that bumps a project's Cirrus packages and writes `.cirrus/UPGRADE.md`
 - **demos/pds**: Demo PDS deployment
 
 ## Commands
@@ -57,6 +58,14 @@ This is a monorepo using pnpm workspaces with the following structure:
 - **publint** and **@arethetypeswrong/cli** for package validation
 - **Prettier** for code formatting (configured to use tabs in `.prettierrc`)
 
+## Changesets
+
+`upgrade-pds` copies changelog entries verbatim into the work order an agent follows to upgrade an existing project. Nothing else tells that agent what a release requires, so:
+
+- Write entries for the project owner: what changed in observable behavior, not how it was implemented.
+- When a change requires anything of an existing project (wrangler config, worker entry exports, vars, secrets, a CLI command to run, an R2 or dashboard setting), say exactly what to do in the entry, in imperative steps, with the config snippet or command. State when a step applies only to projects that use a feature.
+- Do not point at the project template in place of the instructions.
+
 ## Package Architecture
 
 Each package in `packages/` follows this structure:
@@ -79,20 +88,22 @@ Uses strict TypeScript configuration with:
 
 ### Testing with Cloudflare Workers
 
-The PDS package uses **vitest 4** with `@cloudflare/vitest-pool-workers` PR build (#11632):
+The PDS and spaces packages use **vitest 4** (stable 4.1.x) with `@cloudflare/vitest-plugin` (the renamed successor to the deprecated `@cloudflare/vitest-pool-workers`; peer range `vitest ^4.1.0 || ^5.0.0`):
 
-- Test configuration in `vitest.config.ts` using `cloudflareTest` plugin
+- Test configuration in `vitest.config.ts` using the `cloudflareTest` plugin imported from `@cloudflare/vitest-plugin`
 - Pool options: `maxWorkers: 1` and `isolate: false` for Durable Object testing
-- Test environment bindings configured in `.dev.vars` (not checked into git)
+- Test bindings are set in `cloudflareTest({ miniflare: { bindings } })` in `vitest.config.ts`, on top of the fixture wrangler config in `test/fixtures/*-worker/wrangler.jsonc`
+- Keep the `jose` browser-build alias and `resolve.conditions` in the configs: jose's Node build cannot sign or verify under workerd's `nodejs_compat`
 - Use `cloudflare:test` module for `env` and `runInDurableObject` helpers
 - Use `cloudflare:workers` module for type imports like `DurableObject`, `Env`
+- The plugin installs its Durable Object / entrypoint prototype proxy once (fixed in 1.2.0); the old pool stacked a new `Proxy` per construction, which made long test runs progressively slower
 
 ### TypeScript Module Resolution
 
 The PDS package TypeScript configuration:
 
 1. **Module Resolution**: Uses `moduleResolution: "bundler"` in tsconfig.json
-2. **Test Types**: `test/tsconfig.json` includes `@cloudflare/vitest-pool-workers/types` for cloudflare:test module
+2. **Test Types**: `test/tsconfig.json` includes `@cloudflare/vitest-plugin/types` for the cloudflare:test module
 3. **Import Style**: Use named imports (not namespace imports) for `verbatimModuleSyntax` compatibility
 
 ### Durable Objects Architecture

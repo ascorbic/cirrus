@@ -18,6 +18,7 @@ import {
 // Without them, the client's .get() and .post() methods lack type information.
 import type {} from "@atcute/atproto";
 import type {} from "@atcute/bluesky";
+import type { PlcOperationChanges, SignedPlcOperation } from "../../plc.js";
 
 export interface Session {
 	accessJwt: string;
@@ -1002,6 +1003,42 @@ export class PDSClient {
 		}
 		const data = (await res.json()) as { token: string };
 		return { success: true, token: data.token };
+	}
+
+	/**
+	 * Get this PDS's recommended PLC credentials. The rotation key and
+	 * atproto verification method are both the deployed signing key.
+	 */
+	async getRecommendedDidCredentials(): Promise<{
+		rotationKeys: string[];
+		verificationMethods: Record<string, string>;
+	}> {
+		const result = await ok(
+			this.client.get("com.atproto.identity.getRecommendedDidCredentials", {}),
+		);
+		return {
+			rotationKeys: result.rotationKeys ?? [],
+			verificationMethods:
+				(result.verificationMethods as Record<string, string> | undefined) ??
+				{},
+		};
+	}
+
+	/**
+	 * Get this PDS to sign a PLC operation applying the given changes to the
+	 * DID's current state. Needs a token from getMigrationToken, and fails
+	 * unless the PDS's signing key is a rotation key.
+	 */
+	async signPlcOperation(
+		token: string,
+		changes: PlcOperationChanges,
+	): Promise<SignedPlcOperation> {
+		const result = await ok(
+			this.client.post("com.atproto.identity.signPlcOperation", {
+				input: { token, ...changes },
+			}),
+		);
+		return result.operation as unknown as SignedPlcOperation;
 	}
 
 	/**

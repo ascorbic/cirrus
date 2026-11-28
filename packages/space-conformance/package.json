@@ -1,6 +1,6 @@
 {
 	"name": "@getcirrus/space-conformance",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Black-box conformance suite for atproto spaces implementations (alpha)",
 	"type": "module",
 	"main": "dist/index.js",
@@ -16,21 +16,19 @@
 		"build": "tsdown",
 		"dev": "tsdown --watch",
 		"test": "vitest run",
-		"check": "publint && attw --pack --profile esm-only"
-	},
-	"dependencies": {
-		"@atproto/crypto": "^0.4.5",
-		"@atproto/lex-cbor": "^0.1.6",
-		"@atproto/lex-data": "^0.1.7",
-		"@atproto/oauth-client-node": "0.0.0-spaces-alpha-20260818163953",
-		"@atproto/space": "0.0.0-spaces-alpha-20260818163953"
+		"check": "publint && attw --pack --profile esm-only",
+		"vendor-lexicons": "node scripts/vendor-lexicons.mjs"
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "^0.18.2",
+		"@atproto/crypto": "0.0.0-spaces-alpha-20261124235736",
+		"@atproto/lex-data": "0.1.11",
+		"@atproto/oauth-client-node": "0.0.0-spaces-alpha-20261124235736",
+		"@atproto/space": "0.0.0-spaces-alpha-20261124235736",
 		"publint": "^0.3.16",
 		"tsdown": "^0.18.3",
 		"typescript": "^5.9.3",
-		"vitest": "4.1.0-beta.1"
+		"vitest": "^4.1.12"
 	},
 	"repository": {
 		"type": "git",

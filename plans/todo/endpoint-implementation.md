@@ -30,7 +30,7 @@ This document tracks the implementation status of all AT Protocol XRPC endpoints
 | `getRecord`        | ✅ Complete | With CID and value                             |
 | `importRepo`       | ✅ Complete | CAR file import with validation, blob tracking |
 | `listMissingBlobs` | ✅ Complete | Lists blobs referenced but not imported        |
-| `listRecords`      | ✅ Complete | Pagination, cursor, reverse                    |
+| `listRecords`      | ✅ Complete | Newest first, rkey cursor, reverse (#251)      |
 | `putRecord`        | ✅ Complete | Create or update with validation               |
 | `uploadBlob`       | ✅ Complete | 5MB limit, R2 storage, tracks imports          |
 
@@ -60,11 +60,12 @@ This document tracks the implementation status of all AT Protocol XRPC endpoints
 | `getSession`        | ✅ Complete | Current session info                                |
 | `refreshSession`    | ✅ Complete | Token refresh with validation                       |
 
-### com.atproto.identity (1/6 - 17%)
+### com.atproto.identity (2/6 - 33%)
 
-| Endpoint        | Status     | Notes                                                |
-| --------------- | ---------- | ---------------------------------------------------- |
-| `resolveHandle` | ⚠️ Partial | Complete implementation (DNS + HTTPS for any handle) |
+| Endpoint        | Status      | Notes                                                 |
+| --------------- | ----------- | ----------------------------------------------------- |
+| `resolveHandle` | ⚠️ Partial  | Complete implementation (DNS + HTTPS for any handle)  |
+| `updateHandle`  | ✅ Complete | Verifies handle, updates PLC for did:plc, emits event |
 
 ### app.bsky.\* (3 endpoints)
 

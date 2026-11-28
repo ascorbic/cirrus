@@ -357,6 +357,27 @@ describe("saveKeyBackup", () => {
 		expect(stats.mode & 0o777).toBe(0o600);
 	});
 
+	it("labels a recovery key backup and includes its details", async () => {
+		const filepath = await saveKeyBackup(
+			"zRecoverySecret",
+			"alice.example.com",
+			"recovery",
+			["DID: did:plc:abc123", "Public key: did:key:zQ3shRecovery"],
+		);
+
+		expect(filepath).toContain("recovery-key-backup-alice-example-com.txt");
+
+		const content = readFileSync(filepath, "utf-8");
+		expect(content).toContain("ATPROTO RECOVERY KEY BACKUP");
+		expect(content).toContain("DID: did:plc:abc123");
+		expect(content).toContain("Public key: did:key:zQ3shRecovery");
+		expect(content).toContain(
+			"RECOVERY KEY (multibase private key, usable with goat)",
+		);
+		expect(content).toContain("zRecoverySecret");
+		expect(content).not.toContain("SIGNING KEY");
+	});
+
 	it("includes timestamp in content", async () => {
 		const before = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 		const filepath = await saveKeyBackup("key", "test.com");

@@ -91,7 +91,15 @@ app.use(
 		origin: "*",
 		allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 		// Note: No allowHeaders; using "*" wildcard doesn't cover Authorization, so let Hono reflect the requested headers instead
-		exposeHeaders: ["Content-Type"],
+		// A space MAC is an HTTP message signature over a header describing
+		// the commit or record; a browser syncer must read all three.
+		exposeHeaders: [
+			"Content-Type",
+			"atproto-space-commit",
+			"atproto-space-record",
+			"signature-input",
+			"signature",
+		],
 		maxAge: 86400,
 	}),
 );
@@ -116,8 +124,9 @@ function getAccountDO(env: PDSEnv) {
 }
 
 // DID document for did:web resolution
-app.get("/.well-known/did.json", (c) => {
-	return c.json(identity.buildDidDocument(c.env));
+app.get("/.well-known/did.json", async (c) => {
+	const handle = await identity.getHandle(c.env, getAccountDO(c.env));
+	return c.json(identity.buildDidDocument(c.env, handle));
 });
 
 // Handle verification for AT Protocol
@@ -139,7 +148,8 @@ app.get("/xrpc/_health", async (c) => {
 });
 
 // Homepage
-app.get("/", (c) => {
+app.get("/", async (c) => {
+	const handle = await identity.getHandle(c.env, getAccountDO(c.env));
 	const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -172,7 +182,7 @@ body {
 <div class="cloud">☁️</div>
 <div class="name"><a href="https://github.com/ascorbic/cirrus">CIRRUS</a></div>
 <div class="what">a personal data server for the atmosphere</div>
-<div class="handle"><a href="https://bsky.app/profile/${c.env.HANDLE}" target="_blank">@${c.env.HANDLE}</a></div>
+<div class="handle"><a href="https://bsky.app/profile/${handle}" target="_blank">@${handle}</a></div>
 <div class="version">v${version}</div>
 </body>
 </html>`;
@@ -180,11 +190,11 @@ body {
 });
 
 // Status dashboard
-app.get("/status", (c) => {
+app.get("/status", async (c) => {
 	return c.html(
 		renderDashboard({
 			hostname: c.env.PDS_HOSTNAME,
-			handle: c.env.HANDLE,
+			handle: await identity.getHandle(c.env, getAccountDO(c.env)),
 			did: c.env.DID,
 			version,
 			spacesEnabled: c.env.SPACES_ENABLED === "true",
@@ -292,7 +302,7 @@ app.get(
 // Handle resolution - return our DID for our handle, let others fall through to proxy
 app.use("/xrpc/com.atproto.identity.resolveHandle", async (c, next) => {
 	const handle = c.req.query("handle");
-	if (handle === c.env.HANDLE) {
+	if (handle === (await identity.getHandle(c.env, getAccountDO(c.env)))) {
 		return c.json({ did: c.env.DID });
 	}
 	await next();
@@ -302,7 +312,11 @@ app.use("/xrpc/com.atproto.identity.resolveHandle", async (c, next) => {
 app.get(
 	"/xrpc/com.atproto.identity.getRecommendedDidCredentials",
 	requireAuth,
-	identity.getRecommendedDidCredentials,
+	(c) => identity.getRecommendedDidCredentials(c, getAccountDO(c.env)),
+);
+
+app.post("/xrpc/com.atproto.identity.updateHandle", requireAuth, (c) =>
+	identity.updateHandle(c, getAccountDO(c.env)),
 );
 
 // Identity management for outbound migration
@@ -418,7 +432,8 @@ app.post(
 	requireAuth,
 	async (c) => {
 		const accountDO = getAccountDO(c.env);
-		const result = await accountDO.repo().emitIdentityEvent(c.env.HANDLE);
+		const handle = await identity.getHandle(c.env, accountDO);
+		const result = await accountDO.repo().emitIdentityEvent(handle);
 		return c.json(result);
 	},
 );
@@ -496,7 +511,7 @@ app.get("/passkey/register", async (c) => {
 		renderPasskeyRegistrationPage({
 			options,
 			token,
-			handle: c.env.HANDLE,
+			handle: await identity.getHandle(c.env, accountDO),
 		}),
 		200,
 		{ "Content-Security-Policy": csp },
@@ -554,7 +569,7 @@ const oauthApp = createOAuthApp(getAccountDO);
 app.route("/", oauthApp);
 
 // Atproto spaces (alpha). When the flag is off none of the space or
-// simplespace routes are registered, so they fall through to the proxy
+// memberspace routes are registered, so they fall through to the proxy
 // like any unknown method, and the DID document says nothing about spaces.
 //
 // The bindings check must not throw: deploy-time startup validation
@@ -563,7 +578,15 @@ app.route("/", oauthApp);
 // 503s rather than fail worker startup.
 if (env.SPACES_ENABLED === "true") {
 	if (env.SPACES && env.SPACES_INDEX) {
-		app.route("/", createSpacesApp({ env, didResolver, getKeypair }));
+		app.route(
+			"/",
+			createSpacesApp({
+				env,
+				didResolver,
+				getKeypair,
+				isAccountActive: () => getAccountDO(env).repo().getActive(),
+			}),
+		);
 	} else {
 		console.error(
 			"SPACES_ENABLED is set but the SPACES / SPACES_INDEX Durable Object bindings are missing. Space endpoints will return 503.",
@@ -575,13 +598,24 @@ if (env.SPACES_ENABLED === "true") {
 // whenever the bindings exist, so `pds spaces reset` still works with the
 // flag off or the space DOs in their schema-refusing state.
 if (env.SPACES && env.SPACES_INDEX) {
-	app.route("/", createSpacesAdminApp({ env, didResolver, getKeypair }));
+	app.route(
+		"/",
+		createSpacesAdminApp({
+			env,
+			didResolver,
+			getKeypair,
+			isAccountActive: () => getAccountDO(env).repo().getActive(),
+		}),
+	);
 }
 
 // getFeed is proxied to the AppView but the service-auth JWT must be addressed
 // to the feed generator, so it needs special handling ahead of the catch-all.
 app.get("/xrpc/app.bsky.feed.getFeed", (c) =>
-	handleGetFeedProxy(c, didResolver, getKeypair),
+	handleGetFeedProxy(c, didResolver, getKeypair, async (collection, rkey) => {
+		const result = await getAccountDO(c.env).repo().getRecord(collection, rkey);
+		return result?.record;
+	}),
 );
 
 // createReport routes to a moderation labeler, not the AppView. Clients can

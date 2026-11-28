@@ -14,22 +14,80 @@
  */
 import type { Context } from "hono";
 import { Secp256k1Keypair } from "@atproto/crypto";
-import { encode } from "@atcute/cbor";
-import { base64url } from "jose";
+import {
+	CompositeHandleResolver,
+	DohJsonHandleResolver,
+	WellKnownHandleResolver,
+} from "@atcute/identity-resolver";
+import { isHandle } from "@atcute/lexicons/syntax";
+import type { AccountDurableObject } from "../account-do";
 import type { AuthedAppEnv, PDSEnv } from "../types";
+import { requireIdentityControl, requireScope } from "../middleware/auth";
 import {
 	createMigrationToken,
 	validateMigrationToken,
 } from "../migration-token";
+import {
+	getLatestPlcOperation,
+	PLC_DIRECTORY,
+	plcSubmitHeaders,
+	signOperation,
+	type PlcOperationChanges,
+	type SignedPlcOperation,
+	type UnsignedPlcOperation,
+} from "../plc";
 
-const PLC_DIRECTORY = "https://plc.directory";
+/**
+ * TLDs that can never be used in a handle.
+ * See https://atproto.com/specs/handle#additional-non-syntax-restrictions
+ */
+const DISALLOWED_TLDS = [
+	".local",
+	".arpa",
+	".invalid",
+	".localhost",
+	".internal",
+	".example",
+	".alt",
+	".onion",
+];
+
+/**
+ * Wrapper that always uses globalThis.fetch so it can be mocked in tests.
+ * @atcute resolvers capture the fetch reference at construction time.
+ */
+const stubbableFetch: typeof fetch = (input, init) =>
+	globalThis.fetch(input, init);
+
+// DNS first, then /.well-known/atproto-did, matching the reference PDS.
+const handleResolver = new CompositeHandleResolver({
+	strategy: "dns-first",
+	methods: {
+		dns: new DohJsonHandleResolver({
+			dohUrl: "https://cloudflare-dns.com/dns-query",
+			fetch: stubbableFetch,
+		}),
+		http: new WellKnownHandleResolver({ fetch: stubbableFetch }),
+	},
+});
+
+/**
+ * Get the account's current handle: the one set by updateHandle, or the
+ * HANDLE var if it has not been changed.
+ */
+export function getHandle(
+	env: PDSEnv,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<string> {
+	return accountDO.account().getHandle(env.HANDLE);
+}
 
 /**
  * Build the DID document for the local account.
  *
  * Served by /.well-known/did.json.
  */
-export function buildDidDocument(env: PDSEnv) {
+export function buildDidDocument(env: PDSEnv, handle: string) {
 	return {
 		"@context": [
 			"https://www.w3.org/ns/did/v1",
@@ -37,7 +95,7 @@ export function buildDidDocument(env: PDSEnv) {
 			"https://w3id.org/security/suites/secp256k1-2019/v1",
 		],
 		id: env.DID,
-		alsoKnownAs: [`at://${env.HANDLE}`],
+		alsoKnownAs: [`at://${handle}`],
 		verificationMethod: [
 			{
 				id: `${env.DID}#atproto`,
@@ -45,6 +103,20 @@ export function buildDidDocument(env: PDSEnv) {
 				controller: env.DID,
 				publicKeyMultibase: env.SIGNING_KEY_PUBLIC,
 			},
+			// Spaces alpha: the P-256 key syncers derive MAC secrets against.
+			// The space host is #atproto_pds and space tokens are signed with
+			// #atproto, like any other account, so this is the only spaces
+			// entry.
+			...(env.SPACES_ENABLED === "true" && env.SPACES_KEM_KEY_PUBLIC
+				? [
+						{
+							id: `${env.DID}#atproto_kem`,
+							type: "Multikey",
+							controller: env.DID,
+							publicKeyMultibase: env.SPACES_KEM_KEY_PUBLIC,
+						},
+					]
+				: []),
 		],
 		service: [
 			{
@@ -52,19 +124,6 @@ export function buildDidDocument(env: PDSEnv) {
 				type: "AtprotoPersonalDataServer",
 				serviceEndpoint: `https://${env.PDS_HOSTNAME}`,
 			},
-			// Spaces alpha: advertise the space host endpoint. No dedicated
-			// #atproto_space verification key is added — the proposal falls
-			// back to #atproto, and a second key would create a rotation and
-			// backup story for no benefit on a single-user PDS.
-			...(env.SPACES_ENABLED === "true"
-				? [
-						{
-							id: "#atproto_space_host",
-							type: "AtprotoSpaceHost",
-							serviceEndpoint: `https://${env.PDS_HOSTNAME}`,
-						},
-					]
-				: []),
 		],
 	};
 }
@@ -79,14 +138,22 @@ export function buildDidDocument(env: PDSEnv) {
  */
 export async function getRecommendedDidCredentials(
 	c: Context<AuthedAppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
 ): Promise<Response> {
 	const keypair = await Secp256k1Keypair.import(c.env.SIGNING_KEY);
 	const signingKey = keypair.did();
+	const handle = await getHandle(c.env, accountDO);
 
 	return c.json({
 		rotationKeys: [signingKey],
-		alsoKnownAs: [`at://${c.env.HANDLE}`],
-		verificationMethods: { atproto: signingKey },
+		alsoKnownAs: [`at://${handle}`],
+		verificationMethods: {
+			atproto: signingKey,
+			// Carried through a migration so space data stays verifiable.
+			...(c.env.SPACES_KEM_KEY_PUBLIC
+				? { atproto_kem: `did:key:${c.env.SPACES_KEM_KEY_PUBLIC}` }
+				: {}),
+		},
 		services: {
 			atproto_pds: {
 				type: "AtprotoPersonalDataServer",
@@ -94,33 +161,6 @@ export async function getRecommendedDidCredentials(
 			},
 		},
 	});
-}
-
-/**
- * PLC operation structure
- */
-interface UnsignedPlcOperation {
-	type: "plc_operation";
-	prev: string | null;
-	rotationKeys: string[];
-	verificationMethods: Record<string, string>;
-	alsoKnownAs: string[];
-	services: Record<string, { type: string; endpoint: string }>;
-}
-
-interface SignedPlcOperation extends UnsignedPlcOperation {
-	sig: string;
-}
-
-/**
- * Audit log entry from plc.directory
- */
-interface PlcAuditLog {
-	did: string;
-	operation: SignedPlcOperation;
-	cid: string;
-	nullified: boolean;
-	createdAt: string;
 }
 
 /**
@@ -142,23 +182,23 @@ export async function requestPlcOperationSignature(
 }
 
 /**
- * Sign a PLC operation for migrating to a new PDS.
+ * Sign a PLC operation with this PDS's signing key.
  *
- * Validates the migration token and returns a signed PLC operation
- * that updates the DID document to point to the new PDS.
+ * Validates the migration token and returns a signed PLC operation that
+ * applies the requested changes to the current PLC state. Used by a new PDS
+ * during outbound migration, and by `pds rotation-keys`. The signing key
+ * must be one of the DID's rotation keys, or plc.directory would reject
+ * the operation.
  *
  * Endpoint: POST com.atproto.identity.signPlcOperation
  */
 export async function signPlcOperation(
 	c: Context<AuthedAppEnv>,
 ): Promise<Response> {
-	const body = await c.req.json<{
-		token?: string;
-		rotationKeys?: string[];
-		alsoKnownAs?: string[];
-		verificationMethods?: Record<string, string>;
-		services?: Record<string, { type: string; endpoint: string }>;
-	}>();
+	const forbidden = requireIdentityControl(c);
+	if (forbidden) return forbidden;
+
+	const body = await c.req.json<PlcOperationChanges & { token?: string }>();
 
 	const { token } = body;
 
@@ -191,13 +231,24 @@ export async function signPlcOperation(
 
 	// Get current PLC state to build the update
 	const currentOp = await getLatestPlcOperation(c.env.DID);
-	if (!currentOp) {
+	if (!currentOp || currentOp.operation.type !== "plc_operation") {
 		return c.json(
 			{
 				error: "InternalServerError",
 				message: "Could not fetch current PLC state",
 			},
 			500,
+		);
+	}
+
+	const keypair = await Secp256k1Keypair.import(c.env.SIGNING_KEY);
+	if (!currentOp.operation.rotationKeys.includes(keypair.did())) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: `This PDS's signing key is not a rotation key for ${c.env.DID}, so it cannot sign identity changes. Run "pds rotation-keys" to give it control, or sign the operation with a rotation key you hold.`,
+			},
+			400,
 		);
 	}
 
@@ -212,53 +263,9 @@ export async function signPlcOperation(
 		services: body.services ?? currentOp.operation.services,
 	};
 
-	// Sign the operation with our signing key
-	const keypair = await Secp256k1Keypair.import(c.env.SIGNING_KEY);
 	const signedOp = await signOperation(newOp, keypair);
 
 	return c.json({ operation: signedOp });
-}
-
-/**
- * Get the latest PLC operation for a DID
- */
-async function getLatestPlcOperation(did: string): Promise<PlcAuditLog | null> {
-	try {
-		const res = await fetch(`${PLC_DIRECTORY}/${did}/log/audit`);
-		if (!res.ok) {
-			return null;
-		}
-		const log = (await res.json()) as PlcAuditLog[];
-		// Return the most recent non-nullified operation
-		return log.filter((op) => !op.nullified).pop() ?? null;
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Sign a PLC operation with the given keypair
- *
- * PLC operations are signed by:
- * 1. CBOR-encoding the unsigned operation
- * 2. Signing the bytes with secp256k1
- * 3. Adding the signature as base64url
- */
-async function signOperation(
-	op: UnsignedPlcOperation,
-	keypair: Secp256k1Keypair,
-): Promise<SignedPlcOperation> {
-	// CBOR-encode the operation (without sig field)
-	const bytes = encode(op);
-
-	// Sign the bytes
-	const sig = await keypair.sign(bytes);
-
-	// Convert signature to base64url
-	return {
-		...op,
-		sig: base64url.encode(sig),
-	};
 }
 
 /**
@@ -289,7 +296,7 @@ export async function submitPlcOperation(
 
 	const res = await fetch(`${PLC_DIRECTORY}/${c.env.DID}`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: plcSubmitHeaders(operation),
 		body: JSON.stringify(operation),
 	});
 
@@ -311,6 +318,180 @@ export async function submitPlcOperation(
 }
 
 /**
+ * Change the account's handle.
+ *
+ * The new handle must already resolve to this DID (via DNS TXT or
+ * /.well-known/atproto-did). For did:plc accounts the handle is written to
+ * alsoKnownAs in the PLC directory, which needs our signing key to be a
+ * rotation key unless the directory already has it; for did:web accounts
+ * the served DID document reads the stored handle. An identity event then
+ * tells relays and AppViews to re-verify it.
+ *
+ * Endpoint: POST com.atproto.identity.updateHandle
+ */
+export async function updateHandle(
+	c: Context<AuthedAppEnv>,
+	accountDO: DurableObjectStub<AccountDurableObject>,
+): Promise<Response> {
+	// getServiceAuth mints these for any caller, so a self-addressed one would
+	// skip the identity:handle check below. The reference PDS refuses them too.
+	if (c.get("auth").method === "service") {
+		return c.json(
+			{
+				error: "InsufficientScope",
+				message: "Service auth tokens can't change the handle.",
+			},
+			403,
+		);
+	}
+
+	const scopeError = requireScope(c, (perms) =>
+		perms.assertIdentity({ attr: "handle" }),
+	);
+	if (scopeError) return scopeError;
+
+	const body = await c.req
+		.json<{ handle?: unknown }>()
+		.catch(() => ({}) as { handle?: unknown });
+
+	if (typeof body.handle !== "string") {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: "Missing required parameter: handle",
+			},
+			400,
+		);
+	}
+
+	const handle = body.handle.toLowerCase();
+	if (!isHandle(handle)) {
+		return c.json(
+			{ error: "InvalidHandle", message: `Invalid handle: ${handle}` },
+			400,
+		);
+	}
+	if (DISALLOWED_TLDS.some((tld) => handle.endsWith(tld))) {
+		return c.json(
+			{
+				error: "InvalidHandle",
+				message: "Handle TLD is invalid or disallowed",
+			},
+			400,
+		);
+	}
+
+	// /.well-known/atproto-did on our own hostname always serves our DID, so
+	// there is nothing to look up for it.
+	if (handle !== c.env.PDS_HOSTNAME) {
+		const resolved = await handleResolver
+			.resolve(handle, { signal: AbortSignal.timeout(10000) })
+			.catch(() => null);
+		if (resolved !== c.env.DID) {
+			return c.json(
+				{
+					error: "InvalidRequest",
+					message: `Handle ${handle} does not resolve to ${c.env.DID}. Add a DNS TXT record for _atproto.${handle} with the value "did=${c.env.DID}", or serve the DID at https://${handle}/.well-known/atproto-did.`,
+				},
+				400,
+			);
+		}
+	}
+
+	if (c.env.DID.startsWith("did:plc:")) {
+		const error = await updatePlcHandle(c, handle);
+		if (error) return error;
+	}
+
+	await accountDO.account().setHandle(handle, c.env.HANDLE);
+	await accountDO.repo().emitIdentityEvent(handle);
+
+	return new Response(null, { status: 200 });
+}
+
+/**
+ * Write the handle to alsoKnownAs in the PLC directory, replacing the
+ * existing at:// entry. Does nothing if the directory already has it.
+ * Returns an error response on failure, or null on success.
+ */
+async function updatePlcHandle(
+	c: Context<AuthedAppEnv>,
+	handle: string,
+): Promise<Response | null> {
+	const current = await getLatestPlcOperation(c.env.DID);
+	if (!current || current.operation.type !== "plc_operation") {
+		return c.json(
+			{
+				error: "InternalServerError",
+				message: "Could not fetch current PLC state",
+			},
+			500,
+		);
+	}
+
+	const { operation } = current;
+	const aka = `at://${handle}`;
+	const akaIndex = operation.alsoKnownAs.findIndex((uri) =>
+		uri.startsWith("at://"),
+	);
+	if (operation.alsoKnownAs[akaIndex] === aka) return null;
+
+	const keypair = await Secp256k1Keypair.import(c.env.SIGNING_KEY);
+	if (!operation.rotationKeys.includes(keypair.did())) {
+		return c.json(
+			{
+				error: "InvalidRequest",
+				message: `This PDS's signing key is not a rotation key for ${c.env.DID}, so it cannot update the handle in the PLC directory. Run "pds rotation-keys" to give it control, or set alsoKnownAs to ${aka} with a rotation key you hold, then try again.`,
+			},
+			400,
+		);
+	}
+
+	// Replace the first at:// entry, which is the one handles are verified
+	// against, and drop any other copy of the new handle.
+	const alsoKnownAs =
+		akaIndex < 0
+			? [aka, ...operation.alsoKnownAs]
+			: operation.alsoKnownAs
+					.map((uri, i) => (i === akaIndex ? aka : uri))
+					.filter((uri, i) => uri !== aka || i === akaIndex);
+
+	const signedOp = await signOperation(
+		{
+			type: "plc_operation",
+			prev: current.cid,
+			rotationKeys: operation.rotationKeys,
+			verificationMethods: operation.verificationMethods,
+			alsoKnownAs,
+			services: operation.services,
+		},
+		keypair,
+	);
+
+	const res = await fetch(`${PLC_DIRECTORY}/${c.env.DID}`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(signedOp),
+	});
+
+	if (!res.ok) {
+		const message = await res.text();
+		return new Response(
+			JSON.stringify({
+				error: "PlcDirectoryError",
+				message: message || `PLC directory responded with ${res.status}`,
+			}),
+			{
+				status: res.status,
+				headers: { "Content-Type": "application/json" },
+			},
+		);
+	}
+
+	return null;
+}
+
+/**
  * Generate a migration token for the CLI.
  *
  * This endpoint allows the CLI to generate a token that can be used
@@ -322,6 +503,9 @@ export async function submitPlcOperation(
 export async function getMigrationToken(
 	c: Context<AuthedAppEnv>,
 ): Promise<Response> {
+	const forbidden = requireIdentityControl(c);
+	if (forbidden) return forbidden;
+
 	const token = await createMigrationToken(c.env.DID, c.env.JWT_SECRET);
 	return c.json({ token });
 }

@@ -93,11 +93,13 @@ export {
 	parseScope,
 	parseSpaceScope,
 	permissionsFor,
+	allowsSpace,
 } from "./scopes.js";
 export type {
 	FinalizeSpaceScopesOptions,
 	ParseScopeOptions,
 	SpacePermissionType,
+	SpaceScopeCheck,
 } from "./scopes.js";
 export type { SpaceScopeInfo } from "./ui.js";
 

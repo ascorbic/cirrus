@@ -65,9 +65,10 @@
 		// ⚠️  Changing this value after your PDS is live will break your installation.
 		"DATA_LOCATION": ""
 		// Atproto spaces (ALPHA). Set to "true" to enable the space and
-		// simplespace endpoints. Everything is alpha: a breaking upstream
-		// change is absorbed by `pds spaces reset`, which wipes space data
-		// and nothing else.
+		// memberspace endpoints, then run `pds spaces kem` to create the
+		// #atproto_kem key syncers verify space data against. Everything is
+		// alpha: a breaking upstream change is absorbed by `pds spaces reset`,
+		// which wipes space data and nothing else.
 		// "SPACES_ENABLED": "true"
 	},
 	// Secrets (set via `pds init` or `pds secret <name>`):
@@ -75,6 +76,7 @@
 	// - SIGNING_KEY: Private signing key (secp256k1 JWK)
 	// - JWT_SECRET: Secret for signing session JWTs
 	// - PASSWORD_HASH: Bcrypt hash of account password (for Bluesky app login)
+	// - SPACES_KEM_KEY: Spaces #atproto_kem private key (`pds spaces kem`)
 	"observability": {
 		"enabled": true
 	}

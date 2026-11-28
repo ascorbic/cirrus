@@ -2,6 +2,7 @@
  * Wrangler integration utilities for setting vars and secrets
  */
 import { spawn } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 
 // Wrangler exports these experimental APIs for config manipulation
 import { experimental_patchConfig, experimental_readRawConfig } from "wrangler";
@@ -11,13 +12,15 @@ export type VarName =
 	| "DID"
 	| "HANDLE"
 	| "SIGNING_KEY_PUBLIC"
+	| "SPACES_KEM_KEY_PUBLIC"
 	| "INITIAL_ACTIVE"
 	| "DATA_LOCATION";
 export type SecretName =
 	| "AUTH_TOKEN"
 	| "SIGNING_KEY"
 	| "JWT_SECRET"
-	| "PASSWORD_HASH";
+	| "PASSWORD_HASH"
+	| "SPACES_KEM_KEY";
 
 export interface WranglerResult {
 	stdout: string;
@@ -95,29 +98,38 @@ export function runWrangler(
 }
 
 /**
- * Set a var in wrangler.jsonc using experimental_patchConfig
+ * Patch the wrangler config, keeping the file's trailing newline as it was.
  */
-export function setVar(name: VarName, value: string): void {
+function patchConfig(
+	patch: Parameters<typeof experimental_patchConfig>[1],
+): void {
 	const { configPath } = experimental_readRawConfig({});
 	if (!configPath) {
 		throw new Error("No wrangler config found");
 	}
+	const hadTrailingNewline = readFileSync(configPath, "utf-8").endsWith("\n");
+	experimental_patchConfig(configPath, patch);
+	const patched = readFileSync(configPath, "utf-8");
+	if (patched.endsWith("\n") !== hadTrailingNewline) {
+		writeFileSync(
+			configPath,
+			hadTrailingNewline ? patched + "\n" : patched.trimEnd(),
+		);
+	}
+}
 
-	experimental_patchConfig(configPath, {
-		vars: { [name]: value },
-	});
+/**
+ * Set a var in wrangler.jsonc using experimental_patchConfig
+ */
+export function setVar(name: VarName, value: string): void {
+	patchConfig({ vars: { [name]: value } });
 }
 
 /**
  * Set multiple vars in wrangler.jsonc
  */
 export function setVars(vars: Partial<Record<VarName, string>>): void {
-	const { configPath } = experimental_readRawConfig({});
-	if (!configPath) {
-		throw new Error("No wrangler config found");
-	}
-
-	experimental_patchConfig(configPath, { vars });
+	patchConfig({ vars });
 }
 
 /**
@@ -140,11 +152,7 @@ export function getWorkerName(): string | undefined {
  * Set worker name in wrangler config
  */
 export function setWorkerName(name: string): void {
-	const { configPath } = experimental_readRawConfig({});
-	if (!configPath) {
-		throw new Error("No wrangler config found");
-	}
-	experimental_patchConfig(configPath, { name });
+	patchConfig({ name });
 }
 
 /**
@@ -172,23 +180,15 @@ function getAccountId(): string | undefined {
  * Set account_id in wrangler config
  */
 export function setAccountId(accountId: string): void {
-	const { configPath } = experimental_readRawConfig({});
-	if (!configPath) {
-		throw new Error("No wrangler config found");
-	}
-	experimental_patchConfig(configPath, { account_id: accountId });
+	patchConfig({ account_id: accountId });
 }
 
 /**
  * Set custom domain routes in wrangler config
  */
 export function setCustomDomains(domains: string[]): void {
-	const { configPath } = experimental_readRawConfig({});
-	if (!configPath) {
-		throw new Error("No wrangler config found");
-	}
 	const routes = domains.map((pattern) => ({ pattern, custom_domain: true }));
-	experimental_patchConfig(configPath, { routes });
+	patchConfig({ routes });
 }
 
 export interface CloudflareAccount {

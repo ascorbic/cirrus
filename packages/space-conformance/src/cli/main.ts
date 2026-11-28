@@ -3,8 +3,9 @@
  * space-conformance CLI.
  *
  *   space-conformance run --target https://host [--did did:...] \
- *     [--handle alice.example.com] [--oauth] [--standalone-host] \
- *     [--destructive] [--tier must,should] [--report out.json] [--json]
+ *     [--plc https://plc.directory] [--handle alice.example.com] [--oauth] \
+ *     [--standalone-host] [--destructive] [--tier must,should] \
+ *     [--report out.json] [--json]
  *   space-conformance coverage [--json]
  *
  * Operator auth (any one of):
@@ -95,7 +96,7 @@ async function main(argv: string[]): Promise<number> {
 			process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 		} else {
 			process.stdout.write(
-				`${report.covered.length}/${report.requirements.length} requirements covered, ${report.gaps.length} gaps\n`,
+				`${report.covered.length}/${report.requirements.length} requirements covered, ${report.exempt.length} exempt, ${report.gaps.length} gaps\n`,
 			);
 			for (const gap of report.gaps) {
 				process.stdout.write(`  gap: ${gap.ref}\n`);
@@ -103,8 +104,15 @@ async function main(argv: string[]): Promise<number> {
 			for (const d of report.danglingCitations) {
 				process.stdout.write(`  dangling: ${d.checkId} → ${d.ref}\n`);
 			}
+			for (const e of report.staleExemptions) {
+				process.stdout.write(`  stale exemption: ${e.ref}\n`);
+			}
 		}
-		return report.danglingCitations.length > 0 ? 1 : 0;
+		return report.danglingCitations.length > 0 ||
+			report.gaps.length > 0 ||
+			report.staleExemptions.length > 0
+			? 1
+			: 0;
 	}
 
 	if (command === "run") {
@@ -113,6 +121,7 @@ async function main(argv: string[]): Promise<number> {
 			options: {
 				target: { type: "string" },
 				did: { type: "string" },
+				plc: { type: "string" },
 				implementation: { type: "string" },
 				"operator-token": { type: "string" },
 				handle: { type: "string" },
@@ -136,7 +145,7 @@ async function main(argv: string[]): Promise<number> {
 			values["operator-token"] ?? process.env.SPACE_CONFORMANCE_TOKEN;
 
 		// The browser OAuth flow: no password ever enters this process, and
-		// the session is DPoP-bound (unusable as a plain bearer).
+		// the session's tokens are DPoP-bound (unusable as a plain bearer).
 		let oauthOperator: OAuthOperator | undefined;
 		if (values.oauth) {
 			if (!values.handle) {
@@ -168,6 +177,7 @@ async function main(argv: string[]): Promise<number> {
 		const report = await runConformance({
 			origin,
 			did: values.did,
+			plcDirectory: values.plc,
 			implementation: values.implementation,
 			operatorToken,
 			operatorFetch: oauthOperator?.fetch,
