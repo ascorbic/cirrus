@@ -122,6 +122,11 @@ async function upgrade(args: {
 			process.exitCode = 1;
 			return;
 		}
+		p.log.message(
+			pc.dim(
+				"Running non-interactively? Pass --yes to apply without a prompt.",
+			),
+		);
 		const answer = await p.confirm({
 			message: installs
 				? "Update these packages and install them?"
