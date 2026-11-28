@@ -124,8 +124,9 @@ function getAccountDO(env: PDSEnv) {
 }
 
 // DID document for did:web resolution
-app.get("/.well-known/did.json", (c) => {
-	return c.json(identity.buildDidDocument(c.env));
+app.get("/.well-known/did.json", async (c) => {
+	const handle = await identity.getHandle(c.env, getAccountDO(c.env));
+	return c.json(identity.buildDidDocument(c.env, handle));
 });
 
 // Handle verification for AT Protocol
@@ -147,7 +148,8 @@ app.get("/xrpc/_health", async (c) => {
 });
 
 // Homepage
-app.get("/", (c) => {
+app.get("/", async (c) => {
+	const handle = await identity.getHandle(c.env, getAccountDO(c.env));
 	const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -180,7 +182,7 @@ body {
 <div class="cloud">☁️</div>
 <div class="name"><a href="https://github.com/ascorbic/cirrus">CIRRUS</a></div>
 <div class="what">a personal data server for the atmosphere</div>
-<div class="handle"><a href="https://bsky.app/profile/${c.env.HANDLE}" target="_blank">@${c.env.HANDLE}</a></div>
+<div class="handle"><a href="https://bsky.app/profile/${handle}" target="_blank">@${handle}</a></div>
 <div class="version">v${version}</div>
 </body>
 </html>`;
@@ -188,11 +190,11 @@ body {
 });
 
 // Status dashboard
-app.get("/status", (c) => {
+app.get("/status", async (c) => {
 	return c.html(
 		renderDashboard({
 			hostname: c.env.PDS_HOSTNAME,
-			handle: c.env.HANDLE,
+			handle: await identity.getHandle(c.env, getAccountDO(c.env)),
 			did: c.env.DID,
 			version,
 			spacesEnabled: c.env.SPACES_ENABLED === "true",
@@ -300,7 +302,7 @@ app.get(
 // Handle resolution - return our DID for our handle, let others fall through to proxy
 app.use("/xrpc/com.atproto.identity.resolveHandle", async (c, next) => {
 	const handle = c.req.query("handle");
-	if (handle === c.env.HANDLE) {
+	if (handle === (await identity.getHandle(c.env, getAccountDO(c.env)))) {
 		return c.json({ did: c.env.DID });
 	}
 	await next();
@@ -310,7 +312,11 @@ app.use("/xrpc/com.atproto.identity.resolveHandle", async (c, next) => {
 app.get(
 	"/xrpc/com.atproto.identity.getRecommendedDidCredentials",
 	requireAuth,
-	identity.getRecommendedDidCredentials,
+	(c) => identity.getRecommendedDidCredentials(c, getAccountDO(c.env)),
+);
+
+app.post("/xrpc/com.atproto.identity.updateHandle", requireAuth, (c) =>
+	identity.updateHandle(c, getAccountDO(c.env)),
 );
 
 // Identity management for outbound migration
@@ -426,7 +432,8 @@ app.post(
 	requireAuth,
 	async (c) => {
 		const accountDO = getAccountDO(c.env);
-		const result = await accountDO.repo().emitIdentityEvent(c.env.HANDLE);
+		const handle = await identity.getHandle(c.env, accountDO);
+		const result = await accountDO.repo().emitIdentityEvent(handle);
 		return c.json(result);
 	},
 );
@@ -504,7 +511,7 @@ app.get("/passkey/register", async (c) => {
 		renderPasskeyRegistrationPage({
 			options,
 			token,
-			handle: c.env.HANDLE,
+			handle: await identity.getHandle(c.env, accountDO),
 		}),
 		200,
 		{ "Content-Security-Policy": csp },
