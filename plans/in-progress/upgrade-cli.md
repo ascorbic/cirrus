@@ -98,7 +98,7 @@ Implementation notes:
 - SIGINT is held during the install so an interrupted package manager goes through the restore path.
 - pnpm installs run with `--no-frozen-lockfile` and Yarn with `YARN_ENABLE_IMMUTABLE_INSTALLS=false`, because `CI=true` otherwise rejects the changed lockfile.
 - A parent directory's lockfile counts only when that directory is a workspace root (`pnpm-workspace.yaml`, or a `package.json` with `workspaces`).
-- `--from <version>` starts the `@getcirrus/pds` range at an earlier version, for projects bumped by hand or missing their work order. The transitive from-versions for that case come from the registry entry for that pds release, since `node_modules` already holds the new ones. With nothing to install, it writes the work order only.
+- `--from <version>` starts the `@getcirrus/pds` range at an earlier version, for projects bumped by hand or missing their work order. The transitive from-versions for that case come from the registry entry for that pds release, since `node_modules` already holds the new ones. With nothing to install, it writes the work order only. It also replaces a `workspace:`, `link:`, `file:`, `portal:` or bare-path `@getcirrus/pds` with a caret range on the npm release, since the version given stands in for the local copy's.
 - The updater writes `.cirrus/.gitignore` containing `*` beside the work order, unless one is already there, so no project needs a `.gitignore` change.
 - The spaces entry in the oauth-provider changelog is kept byte-identical to the pds one, and a test asserts it, so the work order lists it once.
 - Scripts are always invoked as `<pm> run <script>`, because `pnpm deploy` is a pnpm built-in.

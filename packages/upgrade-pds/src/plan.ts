@@ -6,6 +6,7 @@ import { deduplicateChangelog, fetchChangelogRange } from "./changelog.js";
 import {
 	execCommand,
 	installCommand,
+	isLocalSource,
 	PDS_PACKAGE,
 	runScript,
 	targetSpecifier,
@@ -65,12 +66,38 @@ export async function createUpgradePlan(
 	from?: string,
 ): Promise<UpgradePlan> {
 	const skipped: SkippedDependency[] = [];
+	const replacesLocalPds = (dependency: ProjectDependency) =>
+		from !== undefined &&
+		dependency.name === PDS_PACKAGE &&
+		isLocalSource(dependency.specifier);
+	const startVersion = (dependency: ProjectDependency) =>
+		from !== undefined && dependency.name === PDS_PACKAGE
+			? from
+			: dependency.installedVersion;
 	const upgradable = project.dependencies.filter((dependency) => {
-		if (targetSpecifier(dependency.specifier, "0.0.0") !== null) return true;
+		if (
+			targetSpecifier(dependency.specifier, "0.0.0") !== null ||
+			replacesLocalPds(dependency)
+		) {
+			return true;
+		}
+		const { name, specifier } = dependency;
+		const reason = unsupportedSpecifierReason(specifier);
+		if (dependency.name !== PDS_PACKAGE) {
+			skipped.push({ name, specifier, reason });
+			return false;
+		}
+		if (from !== undefined) {
+			throw new Error(
+				`--from cannot move ${PDS_PACKAGE} (${dependency.specifier}) to npm: ${reason}.`,
+			);
+		}
 		skipped.push({
-			name: dependency.name,
-			specifier: dependency.specifier,
-			reason: unsupportedSpecifierReason(dependency.specifier),
+			name,
+			specifier,
+			reason: isLocalSource(dependency.specifier)
+				? `${reason}; pass --from <version> to replace it with the npm release`
+				: reason,
 		});
 		return false;
 	});
@@ -101,24 +128,26 @@ export async function createUpgradePlan(
 
 	const dependencies: DependencyChange[] = releases.flatMap(
 		({ dependency, release }) => {
-			if (
-				!semver.valid(dependency.installedVersion) ||
-				!semver.valid(release.version)
-			) {
+			// A local copy's own version says nothing about which release the project was on.
+			const current = replacesLocalPds(dependency)
+				? startVersion(dependency)
+				: dependency.installedVersion;
+			if (!semver.valid(current) || !semver.valid(release.version)) {
 				throw new Error(
-					`Cannot compare ${dependency.name} ${dependency.installedVersion} with ${release.version}.`,
+					`Cannot compare ${dependency.name} ${current} with ${release.version}.`,
 				);
 			}
-			if (semver.gt(dependency.installedVersion, release.version)) {
+			if (semver.gt(current, release.version)) {
 				throw new Error(
-					`${dependency.name}@${tag} is ${release.version}, older than the installed ${dependency.installedVersion}.`,
+					`${dependency.name}@${tag} is ${release.version}, older than the installed ${current}.`,
 				);
 			}
-			const to = targetSpecifier(dependency.specifier, release.version);
+			const to =
+				targetSpecifier(dependency.specifier, release.version) ??
+				(replacesLocalPds(dependency) ? `^${release.version}` : null);
 			if (
 				to === null ||
-				(dependency.installedVersion === release.version &&
-					to === dependency.specifier)
+				(current === release.version && to === dependency.specifier)
 			) {
 				return [];
 			}
@@ -128,7 +157,7 @@ export async function createUpgradePlan(
 					section: dependency.section,
 					from: dependency.specifier,
 					to,
-					fromVersion: dependency.installedVersion,
+					fromVersion: current,
 					toVersion: release.version,
 				},
 			];
@@ -138,25 +167,19 @@ export async function createUpgradePlan(
 	const pds = releases.find(
 		({ dependency }) => dependency.name === PDS_PACKAGE,
 	);
-	if (from !== undefined) {
-		if (!pds) {
-			throw new Error(
-				`--from applies to ${PDS_PACKAGE}, which this project does not install from npm.`,
-			);
-		}
-		if (semver.gt(from, pds.dependency.installedVersion)) {
-			throw new Error(
-				`--from ${from} is newer than the installed ${PDS_PACKAGE} ${pds.dependency.installedVersion}.`,
-			);
-		}
+	if (
+		pds &&
+		from !== undefined &&
+		!replacesLocalPds(pds.dependency) &&
+		semver.gt(from, pds.dependency.installedVersion)
+	) {
+		throw new Error(
+			`--from ${from} is newer than the installed ${PDS_PACKAGE} ${pds.dependency.installedVersion}.`,
+		);
 	}
-	const startVersion = (dependency: ProjectDependency) =>
-		from !== undefined && dependency.name === PDS_PACKAGE
-			? from
-			: dependency.installedVersion;
 	// node_modules holds what is installed now; an earlier release's pins are only on npm.
 	const transitiveFrom =
-		pds && from !== undefined && from !== pds.dependency.installedVersion
+		pds && from !== undefined
 			? (await resolveRegistryRelease(PDS_PACKAGE, from, fetcher))
 					.cirrusDependencies
 			: project.transitive;

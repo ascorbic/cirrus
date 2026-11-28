@@ -54,3 +54,5 @@ npx upgrade-pds@latest --from 0.18.0
 ```
 
 The work order then covers every release after that version. Packages already on the target release are left as they are, and anything still behind is updated as usual. `--from` takes an exact `@getcirrus/pds` version that is not newer than the installed one. Use the version from the project's last deploy; `git log -p package.json` shows earlier values.
+
+`--from` also moves a project off a local copy of `@getcirrus/pds`. When the package is declared with `workspace:`, `link:`, `file:`, `portal:`, or a bare path, the updater replaces that specifier with a caret range on the npm release. The local copy's own version is ignored, so the `--from` version does not have to be older than it. Without `--from`, a local copy is reported and left alone.

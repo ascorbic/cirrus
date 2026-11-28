@@ -61,7 +61,7 @@ The updater works out which releases to cover from the versions in `node_modules
 npx upgrade-pds@latest --from 0.18.0
 ```
 
-It writes a work order for every release after that version, and updates any package that is still behind.
+It writes a work order for every release after that version, and updates any package that is still behind. If the project installs `@getcirrus/pds` from a local path or a workspace, `--from` also switches it to the npm release.
 
 ## Test locally
 

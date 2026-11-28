@@ -264,7 +264,8 @@ describe("createUpgradePlan", () => {
 			{
 				name: "@getcirrus/pds",
 				specifier: "workspace:*",
-				reason: "it comes from a package in this workspace, not from npm",
+				reason:
+					"it comes from a package in this workspace, not from npm; pass --from <version> to replace it with the npm release",
 			},
 		]);
 		expect(requests).toEqual([]);
@@ -371,15 +372,62 @@ describe("createUpgradePlan", () => {
 			);
 		});
 
-		it("needs @getcirrus/pds to come from npm", async () => {
+		it("replaces a local or workspace @getcirrus/pds with the npm release", async () => {
+			for (const specifier of [
+				"file:../cirrus/packages/pds",
+				"link:../cirrus/packages/pds",
+				"../cirrus/packages/pds",
+				"workspace:*",
+			]) {
+				const plan = await createUpgradePlan(
+					project([pds("0.20.0-dev", specifier)]),
+					"latest",
+					registry("0.19.0"),
+					"0.18.0",
+				);
+
+				expect(plan.skipped).toEqual([]);
+				expect(plan.dependencies).toEqual([
+					{
+						name: "@getcirrus/pds",
+						section: "dependencies",
+						from: specifier,
+						to: "^0.19.0",
+						fromVersion: "0.18.0",
+						toVersion: "0.19.0",
+					},
+				]);
+				expect(plan.changelog.map((entry) => entry.body)).toContain(
+					"Add spaces.",
+				);
+			}
+		});
+
+		it("replaces a local copy that is already at the release version", async () => {
+			const plan = await createUpgradePlan(
+				project([pds("0.19.0", "file:../pds")]),
+				"latest",
+				registry("0.19.0"),
+				"0.19.0",
+			);
+
+			expect(plan.dependencies).toMatchObject([
+				{ from: "file:../pds", to: "^0.19.0" },
+			]);
+			expect(plan.changelog).toEqual([]);
+		});
+
+		it("cannot replace a catalog, alias, or patched @getcirrus/pds", async () => {
 			await expect(
 				createUpgradePlan(
-					project([pds("0.19.0", "workspace:*")]),
+					project([pds("0.19.0", "catalog:")]),
 					"latest",
 					registry("0.19.0"),
 					"0.18.0",
 				),
-			).rejects.toThrow("--from applies to @getcirrus/pds");
+			).rejects.toThrow(
+				"--from cannot move @getcirrus/pds (catalog:) to npm: its version is set in a pnpm catalog.",
+			);
 		});
 	});
 });
