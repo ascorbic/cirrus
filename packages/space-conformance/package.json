@@ -1,6 +1,6 @@
 {
 	"name": "@getcirrus/space-conformance",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Black-box conformance suite for atproto spaces implementations (alpha)",
 	"type": "module",
 	"main": "dist/index.js",

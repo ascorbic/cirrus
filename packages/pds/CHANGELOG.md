@@ -1,5 +1,83 @@
 # @getcirrus/pds
 
+## 0.20.0
+
+### Minor Changes
+
+- [#252](https://github.com/ascorbic/cirrus/pull/252) [`eae788d`](https://github.com/ascorbic/cirrus/commit/eae788d123706933107ab62e53131ee4ff6d3155) Thanks [@decoded-cipher](https://github.com/decoded-cipher)! - Fix `com.atproto.repo.listRecords` pagination. Following the cursor returned the record at each page boundary up to three times, and with `reverse=true` or `limit=2` the cursor never advanced, so clients that paged until the cursor ran out looped forever.
+  
+  Records are now listed newest first by default and oldest first with `reverse=true`, matching the reference PDS (the order was previously the other way round). The cursor is now the bare rkey of the last record, as in the reference PDS; cursors in the old `collection/rkey` form are still accepted. `limit` is clamped to 1–100, and listing a collection with no records no longer scans the rest of the repository.
+
+- [#253](https://github.com/ascorbic/cirrus/pull/253) [`323aecf`](https://github.com/ascorbic/cirrus/commit/323aecf9b95f14dbd8e63a1878413828497c7515) Thanks [@ascorbic](https://github.com/ascorbic)! - Migrating a `did:plc` account with `pds identity` now gives your PDS control of your identity. Previously the PDS you migrated from kept the only rotation key, so Cirrus couldn't sign changes to your DID: it couldn't change your handle or rotate its signing key, and migrating away from Cirrus failed at the PLC directory. `pds identity` now makes your PDS's signing key a rotation key, removes the previous PDS's key, and offers to create a recovery key that ranks above it. The recovery key works with `goat` if you ever need to recover your identity without your PDS.
+  
+  Accounts that were already migrated can run the new `pds rotation-keys` command to fix this. The change can be signed by your previous PDS (with your password there and an email code), by a rotation key you hold, or by your PDS once it is a rotation key. `pds status` now reports whether your PDS can update your identity, and outbound migration explains the problem instead of failing at the PLC directory.
+  
+  `pds identity` also sets your handle in the PLC directory to the one configured for your PDS. Previously, migrating from a `*.bsky.social` handle to a custom domain left the old handle in your DID document, so apps showed the new handle as invalid. `pds init` now explains that the handle you choose takes effect during `pds identity` and how to verify it, and `pds identity` checks the new handle resolves to your DID before changing anything.
+  
+  `pds identity --token` also works now. It previously skipped the login that signing needs.
+
+- [#229](https://github.com/ascorbic/cirrus/pull/229) [`ded340f`](https://github.com/ascorbic/cirrus/commit/ded340f876f280c321714608833399bb481b0240) Thanks [@ascorbic](https://github.com/ascorbic)! - The PDS now re-adds itself to the relay's crawl list automatically. When a write commits while no relay is subscribed to the firehose, it sends `com.atproto.sync.requestCrawl` to the configured relays — rate-limited, and without delaying the write. Previously a relay that had marked the host offline would silently stop federating your posts until someone requested a crawl by hand. Relays default to `https://bsky.network` and can be overridden with the optional comma-separated `RELAYS` environment variable.
+
+- [#256](https://github.com/ascorbic/cirrus/pull/256) [`9ca9c2f`](https://github.com/ascorbic/cirrus/commit/9ca9c2f5824a19d31febf24d5f358dcddc88f224) Thanks [@ascorbic](https://github.com/ascorbic)! - Update atproto spaces to the 2026-11-05 alpha (`0.0.0-spaces-alpha-20261105160032`). This is a breaking alpha change: existing space data refuses to open until you run `pds spaces reset`, and apps built against the earlier alpha need updating.
+  
+  - Space credentials are bound to a P-256 key and presented with the `Atproto-Space-Credential` scheme and an HTTP message signature, replacing DPoP. `getSpaceCredential` takes the key, delegation token and client attestation in its body, and public-read spaces issue credentials without a delegation token.
+  - Commits are no longer signed. Syncers verify space data with a MAC derived against a new `#atproto_kem` key. Run `pds spaces kem` to create it; on did:plc, `pds spaces kem --publish` adds it to your DID document. `pds spaces status` checks that it is published.
+  - `com.atproto.simplespace` is replaced by the personalspace, memberspace and managedspace policies, managed with `com.atproto.space.{create,update,delete,get}Space` and `com.atproto.memberspace.*`. Members can be given read or write access separately, and a space can publish its policy and member list to readers.
+  - `getRepo` serves a STAR archive, streamed rather than buffered.
+  - Writes are sequenced by space revision, and notifications to a space hosted elsewhere are retried for up to 24 hours.
+  - New: `clearRecords`, `removeWriter`, `importRepo`, `exportSpaceMeta` and `importSpaceMeta`. `pds spaces export` writes STAR archives that the new import endpoints accept.
+  - The DID document no longer has an `#atproto_space_host` service entry.
+  
+  `@getcirrus/spaces` now bundles `@atproto/space` and its alpha dependencies, several of which have broken releases that package managers would otherwise install in their place.
+
+- [#256](https://github.com/ascorbic/cirrus/pull/256) [`9ca9c2f`](https://github.com/ascorbic/cirrus/commit/9ca9c2f5824a19d31febf24d5f358dcddc88f224) Thanks [@ascorbic](https://github.com/ascorbic)! - Update atproto spaces to the 2026-11-17 alpha (`0.0.0-spaces-alpha-20261117141222`), which carries the 2026-11-12 protocol changes. This is a breaking alpha change: the space schema moves to version 3, so existing space data refuses to open until you run `pds spaces reset`, and apps and syncers built against the 2026-11-05 alpha need updating.
+  
+  To upgrade a PDS with spaces enabled:
+  
+  1. Deploy, then run `pds spaces reset`. Space endpoints answer 503 until you do.
+  2. If you haven't already, create the `#atproto_kem` key with `pds spaces kem`. Without it, every credentialed read that needs a MAC (`getRecord`, `getLatestCommit`, `getRepo`, `listRepoOps`) fails with `503 KemKeyUnavailable`, so other apps and syncers can't read your spaces. The command stores the private key as the `SPACES_KEM_KEY` secret and the public key as `SPACES_KEM_KEY_PUBLIC`; then redeploy.
+  3. On did:plc, publish the key in your DID document with `pds spaces kem --publish`. Your PDS signs the PLC operation, so its signing key must be one of your DID's rotation keys: if it isn't, run `pds rotation-keys` first. On did:web, the redeploy publishes it.
+  4. Run `pds spaces status` to check that the key your PDS holds is the one your DID document publishes.
+  5. A managed space's managing app must now be named as `did#service`.
+  
+  - Renamed methods: `getSpaceCredential` is now `authorizeSpaceSync` (taking `credentialKey`), `listRepos` is `listWriters`, `notifyWrite` is `notifyRepoUpdate`, `notifyCredentialRevoked` is `notifyCredentialsRevoked` and the managing app's `checkUserAccess` is `checkAccess`. `putMember` / `removeMember` are replaced by batched `putMembers` / `removeMembers` (up to 100 at a time, in one commit).
+  - Syncers register for notifications by passing a webhook endpoint and token to `authorizeSpaceSync`, which the space host confirms with the syncer's `confirmRegistration` before issuing. Updates go to its `notifySpaceUpdate`; a lapsed registration gets one `registrationExpired` notice, and deleting a space tells every registered syncer, retried for up to 72 hours. `registerNotify`, `unregisterNotify` and `notifySpaceDeleted` are gone.
+  - Removing a writer is sequenced and announced, and `listWriters` lists removals.
+  - MACs are HTTP message signatures, requested with `Accept-Signature` and covering an `Atproto-Space-Commit` or `Atproto-Space-Record` header. STAR archives use the `application/vnd.dasl.star` media type.
+  - A managed space's `managingApp` must name a service (`did#service`). If the app fails, the request fails with `UpstreamFailure` rather than being refused. Under `publicWrite`, a member denied write stays excluded.
+  - `listRepoOps` returns the commit on every page; `listSpaces` returns each space's repo revision, digest and space revision.
+  - Error codes renamed: `NotSpaceOwner` → `NotAuthorized`, `UserNotAuthorized` → `AccountNotAuthorized`, `BadSpaceMac` → `InvalidSpaceMac`, `MalformedCursor` → `InvalidCursor`.
+  - oauth-provider: space permissions carry `spaceType` rather than `type`, space declarations use `title`, and a new `allowsSpace(permissions, check)` helper matches requests against granted scopes.
+
+- [#261](https://github.com/ascorbic/cirrus/pull/261) [`dfc9fff`](https://github.com/ascorbic/cirrus/commit/dfc9fffb7f2712232419ddcb974244ca237d83f8) Thanks [@ascorbic](https://github.com/ascorbic)! - Update atproto spaces to the 2026-11-24 alpha (`0.0.0-spaces-alpha-20261124235736`). This is a breaking alpha change: the space schema moves to version 4, so run `pds spaces reset` after deploying and recreate your spaces.
+  
+  - Spaces are addressed as `at:space/{did}/{type}/{key}` (and records in them as `at:space/{did}/{type}/{key}/{author}/{collection}/{rkey}`) instead of `at://{did}/space/…`, in every request and response, token and archive. The old form is refused. Archives exported before this release no longer import, and apps, syncers and other hosts on earlier alphas can't interoperate with this one.
+  - App-password sessions are refused on space methods with `400 InvalidToken`, as the reference PDS refuses them.
+  - An invalid `space` parameter (the old form, a handle as authority, or anything else malformed) is refused with `400 InvalidRequest`, as the reference answers, instead of Cirrus's own `InvalidSpaceUri`.
+  - `com.atproto.space.importRepo` through OAuth needs a `space:` grant covering every collection of the space (`collection=*`), not just the archive's.
+  - The alpha `@atproto` packages now depend on each other at exact versions, so the workspace overrides for their broken releases are gone.
+
+- [#250](https://github.com/ascorbic/cirrus/pull/250) [`3059e9e`](https://github.com/ascorbic/cirrus/commit/3059e9e4c1d3594a22617914146392e83a4b8a0f) Thanks [@decoded-cipher](https://github.com/decoded-cipher)! - Support changing your handle from apps like Bluesky. `com.atproto.identity.updateHandle` was not implemented, so the request was forwarded to the AppView and failed with "Failed to change handle". The PDS now checks that the new handle resolves to your DID, updates your PLC record for did:plc accounts when its signing key is a rotation key, stores the handle, and emits an identity event so relays pick it up. Changing the `HANDLE` variable still works and takes precedence over a handle set this way.
+
+### Patch Changes
+
+- [#255](https://github.com/ascorbic/cirrus/pull/255) [`de476f5`](https://github.com/ascorbic/cirrus/commit/de476f57ba1fb936c6480a8fc278b6c7fc250cab) Thanks [@ascorbic](https://github.com/ascorbic)! - Fix fresh installs failing with `"@atproto/lex-data@workspace:*" is in the dependencies but no package named "@atproto/lex-data" is present in the workspace` (or `Unsupported URL Type "workspace:"` under npm). This affected new projects created with `create-pds`, as well as any project installing these packages without an existing lockfile.
+
+- [#241](https://github.com/ascorbic/cirrus/pull/241) [`df99d50`](https://github.com/ascorbic/cirrus/commit/df99d50883361a0e508b13865fc792381b3d33f2) Thanks [@sn0opy](https://github.com/sn0opy)! - Return canonical AT Protocol blob objects from `com.atproto.repo.listRecords`. Repository iteration decodes blobs as compatibility `BlobRef` instances; these are now serialized through their JSON representation instead of leaking the internal `original` field and omitting the outer `$type: "blob"`.
+
+- [#253](https://github.com/ascorbic/cirrus/pull/253) [`323aecf`](https://github.com/ascorbic/cirrus/commit/323aecf9b95f14dbd8e63a1878413828497c7515) Thanks [@ascorbic](https://github.com/ascorbic)! - `pds init` can now find accounts with hosted handles such as `*.bsky.social` when migrating. It only looked for a DNS TXT record, which those handles don't have, so it reported "Failed to resolve handle". The CLI now also checks `/.well-known/atproto-did`, which also fixes the handle checks in `pds activate` and `pds deactivate`.
+
+- [#197](https://github.com/ascorbic/cirrus/pull/197) [`ef2f310`](https://github.com/ascorbic/cirrus/commit/ef2f310e18aa753294bd9a971f9209732ec918c5) Thanks [@jphastings](https://github.com/jphastings)! - Allow the `Authorization` header in cross-origin requests. Browser clients sending a bearer token were previously blocked at CORS preflight in Firefox and Safari.
+
+- [#249](https://github.com/ascorbic/cirrus/pull/249) [`df7a6bd`](https://github.com/ascorbic/cirrus/commit/df7a6bda67c12ce10f80570e0a96f3a74fdd70fd) Thanks [@simnaut](https://github.com/simnaut)! - Resolve feed-generator records published by the PDS account directly from its local repository. This avoids public self-fetches that can time out on same-zone Cloudflare Worker routes, while preserving remote-feed resolution and existing fallback behavior.
+
+- [#253](https://github.com/ascorbic/cirrus/pull/253) [`323aecf`](https://github.com/ascorbic/cirrus/commit/323aecf9b95f14dbd8e63a1878413828497c7515) Thanks [@ascorbic](https://github.com/ascorbic)! - Signing PLC operations (`com.atproto.identity.signPlcOperation`) and generating migration tokens now require your account password, the `AUTH_TOKEN`, or an OAuth grant that includes `identity:*`. App passwords, OAuth tokens without that permission, and service auth tokens are refused. Previously any signed-in app could request a migration token and have your PDS sign a change to your identity.
+
+- [#261](https://github.com/ascorbic/cirrus/pull/261) [`dfc9fff`](https://github.com/ascorbic/cirrus/commit/dfc9fffb7f2712232419ddcb974244ca237d83f8) Thanks [@ascorbic](https://github.com/ascorbic)! - PLC update operations are submitted with `If-Match: *`, from both the PDS (`com.atproto.identity.submitPlcOperation`, used by `pds spaces kem --publish`, `pds rotation-keys` and migrations) and the CLI. This tells plc.directory that the DID already exists, so the update is rate-limited per identifier rather than per IP, which matters on Workers, whose egress IPs are shared by many sites. Genesis operations never carry the header. Directories that predate it ignore it.
+- Updated dependencies [[`de476f5`](https://github.com/ascorbic/cirrus/commit/de476f57ba1fb936c6480a8fc278b6c7fc250cab), [`a8c4a9f`](https://github.com/ascorbic/cirrus/commit/a8c4a9f4bf22a86609b51d425cf19c056fb27d8a), [`0adc5fb`](https://github.com/ascorbic/cirrus/commit/0adc5fbd6426b1c6500088ae5e20aa8b43346e34), [`9ca9c2f`](https://github.com/ascorbic/cirrus/commit/9ca9c2f5824a19d31febf24d5f358dcddc88f224), [`9ca9c2f`](https://github.com/ascorbic/cirrus/commit/9ca9c2f5824a19d31febf24d5f358dcddc88f224), [`dfc9fff`](https://github.com/ascorbic/cirrus/commit/dfc9fffb7f2712232419ddcb974244ca237d83f8), [`a8c4a9f`](https://github.com/ascorbic/cirrus/commit/a8c4a9f4bf22a86609b51d425cf19c056fb27d8a)]:
+  - @getcirrus/spaces@0.2.0
+  - @getcirrus/oauth-provider@0.7.0
+
 ## 0.19.0
 
 ### Minor Changes
